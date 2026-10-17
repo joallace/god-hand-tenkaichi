@@ -1,0 +1,171 @@
+class_name VfxManager
+extends Node3D
+## Spawns short-lived, visual-only effects in the shared world in response to
+## fighter events (via MatchEventHub). Effects are tweened meshes; no gameplay
+## state is touched. Ki charge auras are drawn by fighter visuals, not here.
+##
+## Handled events: &"hit" {position, heavy, blocked, attacker_slot},
+## &"perfect_dodge", &"teleport" / &"vanish" {from?, to?, position?},
+## &"guard_break", &"ko", &"ultimate_start".
+
+var hub: MatchEventHub
+var _sphere: SphereMesh
+var _box: BoxMesh
+var _ring: TorusMesh
+
+
+func _init() -> void:
+	name = "Vfx"
+
+
+func setup(p_hub: MatchEventHub) -> void:
+	hub = p_hub
+	hub.fighter_event.connect(_on_fighter_event)
+	_sphere = SphereMesh.new()
+	_sphere.radius = 0.5
+	_sphere.height = 1.0
+	_sphere.radial_segments = 16
+	_sphere.rings = 8
+	_box = BoxMesh.new()
+	_ring = TorusMesh.new()
+	_ring.inner_radius = 0.45
+	_ring.outer_radius = 0.5
+	_ring.rings = 32
+	_ring.ring_segments = 6
+
+
+func _on_fighter_event(f: Fighter, kind: StringName, data: Dictionary) -> void:
+	var v := Tuning.vfx
+	match kind:
+		&"hit":
+			var pos := hub.event_position(hub.hit_victim(f, data), data, v.fallback_hit_height)
+			if data.get("blocked", false):
+				hit_spark(pos, v.blocked_color, v.hit_flash_size, v.hit_duration, v.spark_count_light)
+			elif data.get("heavy", false):
+				hit_spark(pos, v.heavy_hit_color, v.heavy_flash_size, v.heavy_duration, v.spark_count_heavy)
+				shockwave(pos, v.heavy_hit_color, v.heavy_flash_size * 2.0, v.heavy_duration)
+			else:
+				hit_spark(pos, v.hit_color, v.hit_flash_size, v.hit_duration, v.spark_count_light)
+		&"perfect_dodge":
+			afterimage(f, hub.last_position(f))
+		&"teleport", &"vanish":
+			var from: Variant = data.get("from", hub.last_position(f))
+			var to: Variant = data.get("to", data.get("position", f.global_position))
+			var up := Vector3.UP * 1.0
+			if from is Vector3:
+				flash((from as Vector3) + up, v.teleport_color, v.teleport_flash_size, v.teleport_duration)
+			if to is Vector3:
+				flash((to as Vector3) + up, v.teleport_color, v.teleport_flash_size, v.teleport_duration)
+			if kind == &"vanish" and to is Vector3:
+				shockwave((to as Vector3) + up, v.teleport_color, v.vanish_ring_size, v.teleport_duration * 1.5)
+		&"guard_break":
+			var p := f.global_position + Vector3.UP * v.fallback_hit_height
+			hit_spark(p, v.guard_break_color, v.guard_break_size * 0.5, v.guard_break_duration, v.spark_count_heavy)
+			shockwave(p, v.guard_break_color, v.guard_break_size, v.guard_break_duration)
+		&"ko":
+			var p := f.global_position + Vector3.UP * v.fallback_hit_height
+			flash(p, v.ko_color, v.ko_size, v.ko_duration)
+			shockwave(p, v.ko_color, v.ko_size * 1.5, v.ko_duration)
+		&"ultimate_start":
+			var p := f.global_position + Vector3.UP * v.fallback_hit_height
+			shockwave(p, v.ultimate_color, 4.0, 0.6)
+			flash(p, v.ultimate_color, 2.0, 0.4)
+
+
+# --- primitives ----------------------------------------------------------------
+
+## Unshaded translucent material. Solid (mix) blending reads better than
+## additive against the bright sky. `on_top` draws through bodies (sparks).
+func _additive(color: Color, on_top: bool = false) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.blend_mode = BaseMaterial3D.BLEND_MODE_MIX
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	m.no_depth_test = on_top
+	m.render_priority = 1 if on_top else 0
+	m.albedo_color = color
+	return m
+
+
+func _spawn(mesh: Mesh, color: Color, pos: Vector3, on_top: bool = false) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.material_override = _additive(color, on_top)
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(mi)
+	mi.global_position = pos
+	return mi
+
+
+## Expanding, fading sphere.
+func flash(pos: Vector3, color: Color, size: float, duration: float, on_top: bool = false) -> void:
+	var mi := _spawn(_sphere, color, pos, on_top)
+	mi.scale = Vector3.ONE * size * 0.3
+	var mat := mi.material_override as StandardMaterial3D
+	var tw := mi.create_tween().set_parallel()
+	tw.tween_property(mi, "scale", Vector3.ONE * size, duration).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_QUAD)
+	tw.tween_property(mat, "albedo_color:a", 0.0, duration).set_ease(Tween.EASE_IN)
+	tw.chain().tween_callback(mi.queue_free)
+
+
+## Flash + sparks flying outward.
+func hit_spark(pos: Vector3, color: Color, size: float, duration: float, count: int) -> void:
+	flash(pos, Color(color, 0.75), size, duration, true)
+	flash(pos, Color(1, 1, 1, 0.95), size * 0.45, duration * 0.6, true)
+	var v := Tuning.vfx
+	for i in count:
+		var dir := Vector3(randf_range(-1, 1), randf_range(-0.6, 1), randf_range(-1, 1)).normalized()
+		var mi := _spawn(_box, color.lightened(0.3), pos, true)
+		mi.scale = Vector3(v.spark_size, v.spark_size, v.spark_size * 5.0)
+		if absf(dir.dot(Vector3.UP)) < 0.98:
+			mi.look_at(pos + dir, Vector3.UP)
+		var d := duration * randf_range(1.2, 2.0)
+		var mat := mi.material_override as StandardMaterial3D
+		var tw := mi.create_tween().set_parallel()
+		tw.tween_property(mi, "global_position", pos + dir * v.spark_speed * d, d).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
+		tw.tween_property(mi, "scale", Vector3(0.01, 0.01, v.spark_size * 2.0), d)
+		tw.tween_property(mat, "albedo_color:a", 0.0, d)
+		tw.chain().tween_callback(mi.queue_free)
+
+
+## Flat expanding ring facing up.
+func shockwave(pos: Vector3, color: Color, size: float, duration: float) -> void:
+	var mi := _spawn(_ring, color, pos)
+	mi.scale = Vector3.ONE * 0.2
+	var mat := mi.material_override as StandardMaterial3D
+	var tw := mi.create_tween().set_parallel()
+	tw.tween_property(mi, "scale", Vector3(size, size * 0.5, size), duration).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_EXPO)
+	tw.tween_property(mat, "albedo_color:a", 0.0, duration)
+	tw.chain().tween_callback(mi.queue_free)
+
+
+## Translucent copy of the fighter's meshes, fading out.
+func afterimage(f: Fighter, at: Vector3) -> void:
+	var v := Tuning.vfx
+	var ghost := Node3D.new()
+	ghost.name = "Afterimage"
+	add_child(ghost)
+	var offset := at - f.global_position
+	var mat := _additive(v.afterimage_color)
+	var n := 0
+	for node in f.find_children("*", "MeshInstance3D", true, false):
+		var src := node as MeshInstance3D
+		if src == null or not src.is_visible_in_tree() or src.mesh == null:
+			continue
+		var mi := MeshInstance3D.new()
+		mi.mesh = src.mesh
+		mi.material_override = mat
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		ghost.add_child(mi)
+		mi.global_transform = Transform3D(src.global_basis, src.global_position + offset)
+		n += 1
+		if n >= v.afterimage_max_meshes:
+			break
+	if n == 0:
+		flash(at + Vector3.UP, v.afterimage_color, 1.2, v.afterimage_duration)
+		ghost.queue_free()
+		return
+	var tw := ghost.create_tween()
+	tw.tween_property(mat, "albedo_color:a", 0.0, v.afterimage_duration)
+	tw.tween_callback(ghost.queue_free)

@@ -1,0 +1,6 @@
+[gd_resource type="Resource" script_class="UiTuning" format=3]
+
+[ext_resource type="Script" path="res://core/tuning/ui_tuning.gd" id="1_si2ee"]
+
+[resource]
+script = ExtResource("1_si2ee")

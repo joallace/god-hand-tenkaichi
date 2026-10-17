@@ -1,0 +1,24 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_25us7"]
+
+[resource]
+script = ExtResource("1_25us7")
+id = &"brawler_kick"
+button = 1
+pose = &"kick"
+startup = 9
+active = 4
+recovery = 18
+damage = 55.0
+hitstun = 26
+knockback = Vector3(0, 0, 3.5)
+guard_damage = 8.0
+hitbox_offset = Vector3(0.1, 1, 0.95)
+hitbox_radius = 0.5
+lunge_speed = 2.5
+lunge_frames = 6
+cancel_start = 10
+cancel_end = 26
+cancel_into = Array[StringName]([&"brawler_finisher"])
+special_cancelable = true

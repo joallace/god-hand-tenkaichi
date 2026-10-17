@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_p6tlu"]
+[ext_resource type="Resource" path="res://data/moves/brawler_beam_shot.tres" id="2_icnrd"]
+
+[resource]
+script = ExtResource("1_p6tlu")
+id = &"brawler_beam"
+pose = &"beam"
+startup = 18
+active = 0
+recovery = 80
+damage = 0.0
+spawn_kind = &"beam"
+spawn_frame = 18
+spawn_move = ExtResource("2_icnrd")

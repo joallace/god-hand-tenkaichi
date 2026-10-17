@@ -1,0 +1,6 @@
+[gd_resource type="Resource" script_class="CameraTuning" format=3]
+
+[ext_resource type="Script" path="res://core/tuning/camera_tuning.gd" id="1_sh80k"]
+
+[resource]
+script = ExtResource("1_sh80k")

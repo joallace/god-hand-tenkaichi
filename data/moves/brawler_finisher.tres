@@ -1,0 +1,27 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_iw3ww"]
+
+[resource]
+script = ExtResource("1_iw3ww")
+id = &"brawler_finisher"
+button = 2
+pose = &"finisher"
+startup = 10
+active = 4
+recovery = 26
+damage = 80.0
+hitstun = 30
+guard_stun = 18
+knockback = Vector3(0, 6, 6)
+knockdown = true
+guard_damage = 35.0
+is_heavy = true
+hitbox_offset = Vector3(0.1, 1.3, 0.85)
+hitbox_radius = 0.55
+lunge_speed = 3.0
+lunge_frames = 8
+cancel_start = 12
+cancel_end = 30
+cancel_requires_hit = true
+special_cancelable = true

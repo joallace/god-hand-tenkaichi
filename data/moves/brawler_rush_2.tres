@@ -1,0 +1,23 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_pmlej"]
+
+[resource]
+script = ExtResource("1_pmlej")
+id = &"brawler_rush_2"
+pose = &"jab"
+startup = 3
+active = 2
+recovery = 6
+damage = 35.0
+hitstun = 30
+guard_stun = 12
+knockback = Vector3(0, 0, 0.5)
+guard_damage = 15.0
+hitstop = 3
+grants_hit_ki = false
+hitbox_offset = Vector3(0, 1.3, 0.85)
+hitbox_radius = 0.55
+lunge_speed = 2.0
+lunge_frames = 4
+auto_next_on_hit = &"brawler_rush_3"

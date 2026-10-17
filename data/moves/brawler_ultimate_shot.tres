@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_c2htf"]
+
+[resource]
+script = ExtResource("1_c2htf")
+id = &"brawler_ultimate_shot"
+active = 100
+damage = 22.0
+guard_stun = 14
+knockback = Vector3(0, 0, 1)
+guard_damage = 25.0
+is_heavy = true
+hitstop = 1
+grants_hit_ki = false
+multi_hit_interval = 5
+hitbox_offset = Vector3(0, 1.3, 0.6)
+hitbox_radius = 1.4
+hitbox_length = 22.0

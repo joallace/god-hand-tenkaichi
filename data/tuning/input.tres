@@ -1,0 +1,6 @@
+[gd_resource type="Resource" script_class="InputTuning" format=3]
+
+[ext_resource type="Script" path="res://core/tuning/input_tuning.gd" id="1_eom20"]
+
+[resource]
+script = ExtResource("1_eom20")

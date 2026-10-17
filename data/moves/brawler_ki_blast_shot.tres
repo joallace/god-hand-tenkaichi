@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_ovwur"]
+
+[resource]
+script = ExtResource("1_ovwur")
+id = &"brawler_ki_blast_shot"
+active = 1
+damage = 25.0
+hitstun = 16
+guard_stun = 8
+knockback = Vector3(0, 0, 2)
+guard_damage = 6.0
+hitstop = 3
+ki_gain = -2.0
+hitbox_offset = Vector3(0.2, 1.35, 0.8)
+hitbox_radius = 0.3
+travel_speed = 22.0
+lifetime_frames = 70

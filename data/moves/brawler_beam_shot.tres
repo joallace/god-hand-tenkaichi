@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_odk2l"]
+
+[resource]
+script = ExtResource("1_odk2l")
+id = &"brawler_beam_shot"
+active = 60
+damage = 18.0
+guard_stun = 12
+knockback = Vector3(0, 0, 1)
+guard_damage = 12.0
+is_heavy = true
+hitstop = 1
+grants_hit_ki = false
+multi_hit_interval = 6
+hitbox_offset = Vector3(0, 1.35, 0.6)
+hitbox_radius = 0.7
+hitbox_length = 18.0

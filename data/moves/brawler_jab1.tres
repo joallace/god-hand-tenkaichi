@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_e85lj"]
+
+[resource]
+script = ExtResource("1_e85lj")
+id = &"brawler_jab1"
+button = 1
+pose = &"jab"
+hitstun = 20
+guard_damage = 4.0
+hitbox_offset = Vector3(-0.15, 1.45, 0.85)
+lunge_speed = 2.5
+lunge_frames = 6
+cancel_start = 6
+cancel_end = 18
+cancel_into = Array[StringName]([&"brawler_jab2", &"brawler_finisher"])
+special_cancelable = true

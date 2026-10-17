@@ -1,0 +1,23 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_mspml"]
+
+[resource]
+script = ExtResource("1_mspml")
+id = &"brawler_hook"
+button = 1
+pose = &"hook"
+startup = 7
+recovery = 14
+damage = 40.0
+hitstun = 22
+knockback = Vector3(-0.5, 0, 2)
+guard_damage = 4.0
+hitbox_offset = Vector3(0.1, 1.4, 0.85)
+hitbox_radius = 0.5
+lunge_speed = 2.5
+lunge_frames = 6
+cancel_start = 8
+cancel_end = 22
+cancel_into = Array[StringName]([&"brawler_kick", &"brawler_finisher"])
+special_cancelable = true

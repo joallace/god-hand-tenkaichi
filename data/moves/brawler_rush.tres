@@ -1,0 +1,24 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_hn107"]
+
+[resource]
+script = ExtResource("1_hn107")
+id = &"brawler_rush"
+pose = &"dash_punch"
+startup = 8
+active = 6
+recovery = 30
+damage = 40.0
+hitstun = 40
+guard_stun = 12
+knockback = Vector3(0, 0, 0.5)
+guard_damage = 15.0
+hitstop = 3
+grants_hit_ki = false
+hitbox_offset = Vector3(0, 1.3, 0.9)
+hitbox_radius = 0.55
+lunge_speed = 14.0
+lunge_frames = 14
+track_frames = 14
+auto_next_on_hit = &"brawler_rush_2"
