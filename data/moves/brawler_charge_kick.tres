@@ -1,0 +1,30 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_t65kv"]
+
+[resource]
+script = ExtResource("1_t65kv")
+id = &"brawler_charge_kick"
+pose = &"charge_kick"
+startup = 20
+active = 4
+recovery = 26
+damage = 70.0
+hitstun = 28
+guard_stun = 20
+knockback = Vector3(0, 0, 6)
+guard_damage = 20.0
+is_heavy = true
+hitbox_offset = Vector3(0.1, 1.15, 0.95)
+hitbox_radius = 0.55
+lunge_speed = 7.0
+lunge_start = 12
+lunge_frames = 8
+cancel_start = 24
+cancel_end = 44
+cancel_requires_hit = true
+special_cancelable = true
+charge_frame = 12
+charge_max_frames = 60
+charge_damage_mult = 2.0
+charge_guard_mult = 3.0

@@ -10,6 +10,16 @@ extends Resource
 ##
 ## Fighter space for vectors: x = right, y = up, z = forward (toward the
 ## target / along the attack direction).
+##
+## Charge strikes (`charge_frame` >= 0): the move pauses at `charge_frame`
+## while its button stays held, accumulating up to `charge_max_frames`; on
+## release (or full charge) it continues, with damage, guard damage, stun and
+## guard break scaled by the charge ratio (see FighterTuning "Charge strikes").
+
+## Strike height, picked with the stick when several HEAVY moves are
+## candidates (forward = HIGH, neutral = MID, back = LOW). HIGH whiffs over
+## a ducking opponent; LOW hits one.
+enum Height { MID, HIGH, LOW }
 
 @export var id: StringName = &""
 ## Which button selects this move when it appears in a `cancel_into` list.
@@ -17,6 +27,7 @@ extends Resource
 @export var button: int = 0
 ## Visual pose id (FighterVisual interprets it).
 @export var pose: StringName = &""
+@export var height: Height = Height.MID
 
 @export_group("Timing")
 @export var startup: int = 5
@@ -53,8 +64,9 @@ extends Resource
 @export var hitbox_length: float = 0.0
 
 @export_group("Movement")
-## Forward speed (m/s) applied during the first `lunge_frames` frames.
+## Forward speed (m/s) applied for `lunge_frames` frames from `lunge_start`.
 @export var lunge_speed: float = 0.0
+@export var lunge_start: int = 0
 @export var lunge_frames: int = 0
 ## Frames (from move start) during which the attacker still turns to track.
 ## -1 = track through startup.
@@ -72,6 +84,18 @@ extends Resource
 ## When the move connects, this move starts automatically after its active
 ## frames (super rush auto combo).
 @export var auto_next_on_hit: StringName = &""
+## Charge strike this move turns into when its button is held for
+## FighterTuning.charge_hold_frames (outside the active frames).
+@export var charge_move: StringName = &""
+
+@export_group("Charge")
+## Frame the move holds at while charging; -1 = not a charge strike.
+@export var charge_frame: int = -1
+## Frames of holding needed for a full charge (auto-releases there).
+@export var charge_max_frames: int = 0
+## Damage / guard damage multipliers at full charge (lerped from 1).
+@export var charge_damage_mult: float = 1.0
+@export var charge_guard_mult: float = 1.0
 
 @export_group("Spawning")
 ## &"ki_blast" or &"beam": entity spawned at `spawn_frame` using `spawn_move`
@@ -91,6 +115,10 @@ func total() -> int:
 
 func is_active_frame(frame: int) -> bool:
 	return frame >= startup and frame < startup + active
+
+
+func is_charge_strike() -> bool:
+	return charge_frame >= 0 and charge_max_frames > 0
 
 
 func hitstop_frames(t: FighterTuning) -> int:

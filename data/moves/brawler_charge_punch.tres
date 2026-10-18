@@ -1,0 +1,30 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_j2kah"]
+
+[resource]
+script = ExtResource("1_j2kah")
+id = &"brawler_charge_punch"
+pose = &"heavy"
+startup = 18
+active = 4
+recovery = 24
+damage = 55.0
+hitstun = 26
+guard_stun = 16
+knockback = Vector3(0, 0, 4.5)
+guard_damage = 15.0
+is_heavy = true
+hitbox_offset = Vector3(0.1, 1.4, 0.9)
+hitbox_radius = 0.55
+lunge_speed = 6.5
+lunge_start = 10
+lunge_frames = 8
+cancel_start = 22
+cancel_end = 40
+cancel_requires_hit = true
+special_cancelable = true
+charge_frame = 10
+charge_max_frames = 45
+charge_damage_mult = 2.2
+charge_guard_mult = 3.0

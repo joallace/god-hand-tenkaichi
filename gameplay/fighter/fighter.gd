@@ -23,7 +23,8 @@ extends CombatEntity
 ##            current_move() -> MoveData, current_pose() -> StringName,
 ##            state_frame() -> int, attack_phase() -> int,
 ##            dodge_direction() -> int, tint() -> Color,
-##            guard_ratio() -> float, in_vanish_battle() -> bool
+##            guard_ratio() -> float, in_vanish_battle() -> bool,
+##            charge_ratio() -> float, is_charging_strike() -> bool
 ##
 ## `event` kinds (payload keys; every payload also has "slot" = emitter slot):
 ##   &"hit"            {attacker_slot, damage, position, heavy, blocked, combo}
@@ -31,7 +32,10 @@ extends CombatEntity
 ##   &"perfect_dodge"  {attacker_slot, dodge: StringName, position}
 ##   &"dodge"          {dodge: StringName}            (dodge started)
 ##   &"guard_break"    {position}                     (guard health hit 0)
-##   &"stagger"        {position}                     (perfect-ducked attacker)
+##   &"stagger"        {position}                     (perfect-ducked attacker,
+##                                                     or stunned by a charge strike)
+##   &"charge_start"   {button}                       (held LIGHT/HEAVY -> charge strike)
+##   &"charge_release" {ratio}                        (charge strike fires, 0..1)
 ##   &"teleport"       {target_slot, position}        (offensive vanish start)
 ##   &"vanish"         {exchange, escape: true, position} (vanish escape/battle)
 ##   &"vanish_battle_end" {exchanges, winner_slot}
@@ -44,6 +48,10 @@ extends CombatEntity
 ##   &"knockdown"      {position}
 ##   &"wakeup"         {}
 ##   &"ko"             {position}
+##
+## Strikes: HEAVY reads the stick when it starts (forward = high, neutral =
+## mid, back = low; MoveData.height). Holding LIGHT/HEAVY turns the attack
+## into its `charge_move`, which can be released early or held to full.
 ##
 ## Facing convention: the fighter's -Z (Godot forward) points at the opponent
 ## while locked on. InputFrame.move +Y = toward opponent, +X = strafe right.
@@ -108,12 +116,21 @@ var _vanish_battle: VanishBattle
 var _buffer: PackedInt32Array = PackedInt32Array()
 var _dodge_buf_dir: int = InputFrame.Dodge.NONE
 var _dodge_buf_frames: int = 0
+## Consecutive frames each InputFrame.Btn bit has been held (charge strikes).
+var _held: PackedInt32Array = PackedInt32Array()
+## Stick height latched when HEAVY was pressed (survives buffering/hitstop).
+var _heavy_height: MoveData.Height = MoveData.Height.MID
+## Charge strike: holding at MoveData.charge_frame while `_charge_btn` is held.
+var _charging: bool = false
+var _charge: int = 0
+var _charge_btn: int = 0
 var _input: InputFrame = InputFrame.new()
 var _control_enabled := false
 
 
 func _init() -> void:
 	_buffer.resize(BUFFER_SIZE)
+	_held.resize(BUFFER_SIZE)
 
 
 func _ready() -> void:
@@ -137,6 +154,9 @@ func feed_input(frame: InputFrame) -> void:
 	for i in BUFFER_SIZE:
 		if frame.pressed & (1 << i):
 			_buffer[i] = keep
+		_held[i] = _held[i] + 1 if frame.held & (1 << i) else 0
+	if frame.just_pressed(InputFrame.Btn.HEAVY):
+		_heavy_height = _height_for_stick(frame.move().y)
 	if frame.dodge != InputFrame.Dodge.NONE:
 		_dodge_buf_dir = frame.dodge
 		_dodge_buf_frames = keep
@@ -180,6 +200,10 @@ func reset_for_round(xform: Transform3D) -> void:
 	_move_hit = false
 	_spawned = false
 	_damage_mult = 1.0
+	_charging = false
+	_charge = 0
+	_charge_btn = 0
+	_heavy_height = MoveData.Height.MID
 	_air_attack_used = false
 	_dodge_dir = InputFrame.Dodge.NONE
 	_counter_frames = 0
@@ -275,6 +299,18 @@ func state_frame() -> int:
 	return _state_frame
 
 
+## Charge of the current charge strike, 0..1 (0 when not in one).
+func charge_ratio() -> float:
+	if state != State.ATTACK or not _move.is_charge_strike():
+		return 0.0
+	return clampf(_charge / float(_move.charge_max_frames), 0.0, 1.0)
+
+
+## True while holding a charge strike at its charge frame.
+func is_charging_strike() -> bool:
+	return state == State.ATTACK and _charging and _state_frame >= _move.charge_frame
+
+
 ## 0 startup, 1 active, 2 recovery; -1 when not attacking.
 func attack_phase() -> int:
 	if state != State.ATTACK:
@@ -325,6 +361,15 @@ func get_active_hitboxes() -> Array[Hitbox]:
 	hb.origin = global_position
 	hb.damage_mult = _damage_mult
 	hb.is_melee = true
+	if m.is_charge_strike():
+		var t := tuning
+		var r := charge_ratio()
+		hb.damage_mult *= lerpf(1.0, m.charge_damage_mult, r)
+		hb.guard_damage_mult = lerpf(1.0, m.charge_guard_mult, r)
+		if r >= t.charge_stun_ratio:
+			var k := clampf((r - t.charge_stun_ratio) / maxf(1.0 - t.charge_stun_ratio, 0.0001), 0.0, 1.0)
+			hb.stun_frames = roundi(lerpf(t.charge_stun_frames_min, t.charge_stun_frames_max, k))
+		hb.breaks_guard = r >= t.charge_break_ratio
 	out.append(hb)
 	return out
 
@@ -381,6 +426,7 @@ func _enter(s: State) -> void:
 	_state_frame = 0
 	if s != State.ATTACK:
 		_damage_mult = 1.0
+		_charging = false
 	if prev != s or s == State.ATTACK or s == State.HITSTUN:
 		state_changed.emit(STATE_NAMES[s])
 
@@ -412,7 +458,7 @@ func _try_actions(allow_guard: bool) -> bool:
 		if _try_ki_blast():
 			return true
 	if _consume(InputFrame.Btn.HEAVY):
-		return _start_move_id(def.heavy)
+		return _start_move_id(_heavy_for_stick())
 	if _consume(InputFrame.Btn.LIGHT):
 		return _start_move_id(def.light_string[0] if not def.light_string.is_empty() else &"")
 	if _consume(InputFrame.Btn.JUMP):
@@ -460,12 +506,16 @@ func _tick_jump() -> void:
 
 func _tick_attack() -> void:
 	var m := _move
+	if _charging and _tick_charge_hold(m):
+		return
 	var f := _state_frame
 	var track := m.startup if m.track_frames < 0 else m.track_frames
 	if f <= track:
 		_face_opponent(_turn_step())
-	if f < m.lunge_frames:
+	if f >= m.lunge_start and f < m.lunge_start + m.lunge_frames:
 		_set_ground_velocity(_fwd() * m.lunge_speed)
+	if _try_charge_strike(m):
+		return
 	if m.spawn_kind != &"" and not _spawned and f >= m.spawn_frame:
 		_spawned = true
 		_spawn_from(m)
@@ -484,26 +534,97 @@ func _tick_attack() -> void:
 		_air_attack_used = true
 
 
+## Holding the button that started `m` past charge_hold_frames (outside its
+## active frames) turns it into its charge strike.
+func _try_charge_strike(m: MoveData) -> bool:
+	if m.charge_move == &"" or m.button == 0 or m.is_active_frame(_state_frame):
+		return false
+	if _held[_bit(m.button)] < tuning.charge_hold_frames:
+		return false
+	var next := def.move(m.charge_move)
+	if next == null:
+		return false
+	_start_move(next)
+	_charging = true
+	_charge_btn = m.button
+	event.emit(&"charge_start", {"slot": slot, "button": m.button})
+	return true
+
+
+## Charging: pinned at charge_frame while the button is held, until full.
+## Returns true while still holding (the tick is consumed).
+func _tick_charge_hold(m: MoveData) -> bool:
+	if _state_frame < m.charge_frame:
+		return false
+	_face_opponent(_turn_step())
+	_set_ground_velocity(Vector3.ZERO)
+	if _try_dodge():
+		return true
+	if _input.is_held(_charge_btn) and _charge < m.charge_max_frames:
+		_charge += 1
+		_state_frame = m.charge_frame
+		return true
+	_charging = false
+	event.emit(&"charge_release", {"slot": slot, "ratio": charge_ratio()})
+	return false
+
+
+## Stick height for a HEAVY: forward = HIGH, back = LOW, else MID.
+func _height_for_stick(y: float) -> MoveData.Height:
+	if y > tuning.strike_dir_threshold:
+		return MoveData.Height.HIGH
+	if y < -tuning.strike_dir_threshold:
+		return MoveData.Height.LOW
+	return MoveData.Height.MID
+
+
+func _heavy_for_stick() -> StringName:
+	match _heavy_height:
+		MoveData.Height.HIGH:
+			if def.heavy_high != &"":
+				return def.heavy_high
+		MoveData.Height.LOW:
+			if def.heavy_low != &"":
+				return def.heavy_low
+	return def.heavy
+
+
 func _try_cancel_into(m: MoveData) -> bool:
 	for btn: int in [InputFrame.Btn.HEAVY, InputFrame.Btn.LIGHT, InputFrame.Btn.BLAST]:
 		if not _buffered(btn):
 			continue
-		for next_id in m.cancel_into:
-			var next := def.move(next_id)
-			if next != null and next.button == btn:
-				_consume(btn)
-				if btn == InputFrame.Btn.BLAST:
-					return _try_ki_blast()
-				return _start_move_id(next_id)
+		var next_id := _pick_cancel(m, btn)
+		if next_id == &"":
+			continue
+		_consume(btn)
+		if btn == InputFrame.Btn.BLAST:
+			return _try_ki_blast()
+		return _start_move_id(next_id)
 	if m.special_cancelable and _move_connected and _consume(InputFrame.Btn.SPECIAL):
 		return _try_special()
 	return false
 
 
+## First `cancel_into` move for `btn`; for HEAVY, prefer the one whose
+## height matches the stick.
+func _pick_cancel(m: MoveData, btn: int) -> StringName:
+	var first := &""
+	var want: MoveData.Height = _heavy_height if btn == InputFrame.Btn.HEAVY else MoveData.Height.MID
+	for next_id in m.cancel_into:
+		var next := def.move(next_id)
+		if next == null or next.button != btn:
+			continue
+		if next.height == want:
+			return next_id
+		if first == &"":
+			first = next_id
+	return first
+
+
 ## Neutral attack buttons (used for perfect-dodge counters).
 func _try_attack_buttons_neutral() -> bool:
 	if _consume(InputFrame.Btn.HEAVY):
-		return _start_move_id(def.heavy)
+		return _start_move_id(_heavy_for_stick())
 	if _consume(InputFrame.Btn.LIGHT):
 		return _start_move_id(def.light_string[0])
 	return false
@@ -529,6 +650,8 @@ func _start_move(m: MoveData) -> void:
 	_move_connected = false
 	_move_hit = false
 	_spawned = false
+	_charging = false
+	_charge = 0
 	_enter(State.ATTACK)
 	_damage_mult = mult
 
@@ -597,6 +720,7 @@ func _tick_guard_stun() -> void:
 func _tick_guard_break() -> void:
 	if _state_frame >= _state_len:
 		guard_health = tuning.guard_health
+		_end_opponent_combo()
 		_enter(State.IDLE)
 
 
@@ -831,7 +955,9 @@ func _take_blocked(hb: Hitbox) -> void:
 	var m := hb.move
 	var chip := m.damage * hb.damage_mult * tuning.guard_chip_ratio
 	_set_health(health - chip)
-	guard_health = maxf(guard_health - m.guard_damage, 0.0)
+	guard_health = maxf(guard_health - m.guard_damage * hb.guard_damage_mult, 0.0)
+	if hb.breaks_guard:
+		guard_health = 0.0
 	var push := hb.world_knockback() * tuning.guard_pushback_ratio
 	push.y = 0.0
 	if health <= 0.0:
@@ -876,6 +1002,9 @@ func _take_hit(hb: Hitbox) -> void:
 		if _vel.y > 0.0:
 			global_position.y = maxf(global_position.y, 0.001)
 		event.emit(&"knockdown", {"slot": slot, "position": global_position})
+	elif hb.stun_frames > 0:
+		_stagger(hb.stun_frames)
+		_vel = Vector3(kb.x, 0.0, kb.z)
 	else:
 		_enter(State.HITSTUN)
 		_state_len = m.hitstun
@@ -1111,6 +1240,8 @@ func save_state() -> Dictionary:
 		"vanish": _vanish_battle.to_dict() if _vanish_battle else {},
 		"buffer": _buffer.duplicate(), "dodge_buf_dir": _dodge_buf_dir,
 		"dodge_buf_frames": _dodge_buf_frames, "input": _input.to_array(),
+		"held": _held.duplicate(), "charging": _charging, "charge": _charge,
+		"charge_btn": _charge_btn, "heavy_height": _heavy_height,
 	})
 	return s
 
@@ -1157,6 +1288,11 @@ func load_state(s: Dictionary) -> void:
 	_dodge_buf_dir = s["dodge_buf_dir"]
 	_dodge_buf_frames = s["dodge_buf_frames"]
 	_input = InputFrame.from_array(s["input"])
+	_held = (s["held"] as PackedInt32Array).duplicate()
+	_charging = s["charging"]
+	_charge = s["charge"]
+	_charge_btn = s["charge_btn"]
+	_heavy_height = s["heavy_height"]
 	health_changed.emit(health, tuning.max_health)
 	ki_changed.emit(ki, ki_max())
 	combo_changed.emit(combo_hits)

@@ -6,7 +6,7 @@ extends Node
 ## is no single listener, so both players hear everything equally.
 ##
 ## Fighter events: see Fighter's header. State changes: attack (swing whoosh
-## unless the move spawns a projectile), dash, jump, charge (ki loop while in
+## unless the move spawns a projectile or is a charge strike), dash, jump, charge (ki loop while in
 ## the state). Director: round start, FIGHT, KO/time-up, last-seconds ticks,
 ## match won.
 
@@ -57,6 +57,10 @@ func _on_fighter_event(_f: Fighter, kind: StringName, data: Dictionary) -> void:
 				&"beam": Sfx.play(&"beam_charge")
 		&"ultimate_start":
 			Sfx.play(&"ultimate")
+		&"charge_start":
+			Sfx.play(&"ki_charge_start")
+		&"charge_release":
+			Sfx.play_varied(&"swing_heavy")
 		&"beam":
 			Sfx.play(&"beam_fire")
 		&"perfect_dodge", &"dodge", &"guard_break", &"stagger", &"teleport", \
@@ -75,7 +79,8 @@ func _on_state_changed(state_name: StringName, f: Fighter) -> void:
 	match state_name:
 		&"attack":
 			var m := f.current_move()
-			if m != null and m.spawn_kind == &"":
+			# Charge strikes whoosh on release (charge_release), not on windup.
+			if m != null and m.spawn_kind == &"" and not m.is_charge_strike():
 				Sfx.play_varied(&"swing_heavy" if m.is_heavy else &"swing_light")
 		&"dash":
 			Sfx.play_varied(&"dash")

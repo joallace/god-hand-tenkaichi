@@ -1,12 +1,12 @@
 [gd_resource type="Resource" script_class="MoveData" format=3]
 
-[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_btfbi"]
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_fhnia"]
 
 [resource]
-script = ExtResource("1_btfbi")
-id = &"brawler_heavy"
+script = ExtResource("1_fhnia")
+id = &"brawler_kick_mid"
 button = 2
-pose = &"heavy"
+pose = &"kick_mid"
 startup = 14
 active = 4
 recovery = 22
@@ -16,7 +16,7 @@ guard_stun = 20
 knockback = Vector3(0, 0, 7)
 guard_damage = 45.0
 is_heavy = true
-hitbox_offset = Vector3(0.1, 1.4, 0.95)
+hitbox_offset = Vector3(0.1, 1.15, 0.95)
 hitbox_radius = 0.55
 lunge_speed = 4.0
 lunge_frames = 12
@@ -24,3 +24,4 @@ cancel_start = 16
 cancel_end = 34
 cancel_requires_hit = true
 special_cancelable = true
+charge_move = &"brawler_charge_kick"

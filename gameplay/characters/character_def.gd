@@ -12,9 +12,13 @@ extends Resource
 @export_group("Move roles")
 ## LIGHT string in order; chained through each move's `cancel_into`.
 @export var light_string: Array[StringName] = []
-## Standalone HEAVY from neutral.
+## Standalone HEAVY from neutral (mid); forward / back + HEAVY pick the
+## high / low variants (fall back to `heavy` when empty).
 @export var heavy: StringName = &""
-## HEAVY after any light in the string (reached via `cancel_into`).
+@export var heavy_high: StringName = &""
+@export var heavy_low: StringName = &""
+## HEAVY after any light in the string (reached via `cancel_into`; directional
+## variants are more HEAVY moves in that list, picked by MoveData.height).
 @export var finisher: StringName = &""
 @export var jump_attack: StringName = &""
 @export var dash_attack: StringName = &""

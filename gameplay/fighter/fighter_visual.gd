@@ -16,6 +16,10 @@ const BLEND_SPEED := 16.0
 const BLEND_SPEED_FAST := 40.0
 const FLASH_TIME := 0.12
 const WALK_CYCLE_HZ := 2.2
+## Charge strike glow: emission grows (and whitens) with the charge.
+const CHARGE_GLOW_COLOR := Color(1.0, 0.7, 0.2)
+const CHARGE_GLOW_FULL_COLOR := Color(1.0, 1.0, 0.85)
+const CHARGE_GLOW_ENERGY := 1.6
 
 ## Named poses: joint -> rotation (deg). "root" = body offset (m).
 ## Missing joints fall back to &"idle".
@@ -33,6 +37,25 @@ const POSES := {
 	&"hook": {&"torso": Vector3(5, -50, 0), &"sh_r": Vector3(80, 0, 75), &"el_r": Vector3(85, 0, 0)},
 	&"kick": {&"torso": Vector3(-15, 0, 0), &"hip_r": Vector3(100, 0, 0), &"kn_r": Vector3(-5, 0, 0),
 		&"hip_l": Vector3(-5, 0, 0), &"kn_l": Vector3(-10, 0, 0)},
+	&"kick_high": {&"torso": Vector3(-30, -10, 0), &"head": Vector3(15, 0, 0), &"hip_r": Vector3(150, 0, 0),
+		&"kn_r": Vector3(-5, 0, 0), &"hip_l": Vector3(-10, 0, 0), &"kn_l": Vector3(-10, 0, 0),
+		&"root": Vector3(0, 0.05, 0)},
+	&"kick_high_windup": {&"torso": Vector3(10, 15, 0), &"hip_r": Vector3(70, 0, 0), &"kn_r": Vector3(-100, 0, 0),
+		&"kn_l": Vector3(-25, 0, 0)},
+	&"kick_mid": {&"torso": Vector3(-15, -25, 0), &"hip_r": Vector3(95, 0, -10), &"kn_r": Vector3(-5, 0, 0),
+		&"hip_l": Vector3(-5, 0, 0), &"kn_l": Vector3(-15, 0, 0)},
+	&"kick_mid_windup": {&"torso": Vector3(0, 25, 0), &"hip_r": Vector3(70, 0, 0), &"kn_r": Vector3(-115, 0, 0),
+		&"kn_l": Vector3(-20, 0, 0)},
+	&"kick_low": {&"torso": Vector3(35, -20, 0), &"hip_l": Vector3(100, 0, 0), &"kn_l": Vector3(-130, 0, 0),
+		&"hip_r": Vector3(70, 0, -35), &"kn_r": Vector3(0, 0, 0), &"sh_l": Vector3(20, 0, -40),
+		&"root": Vector3(0, -0.45, 0)},
+	&"kick_low_windup": {&"torso": Vector3(30, 30, 0), &"hip_l": Vector3(90, 0, 0), &"kn_l": Vector3(-120, 0, 0),
+		&"hip_r": Vector3(40, 0, 0), &"kn_r": Vector3(-70, 0, 0), &"root": Vector3(0, -0.35, 0)},
+	&"charge_kick": {&"torso": Vector3(-20, -15, 0), &"hip_r": Vector3(110, 0, 0), &"kn_r": Vector3(0, 0, 0),
+		&"hip_l": Vector3(-5, 0, 0), &"kn_l": Vector3(-15, 0, 0), &"sh_l": Vector3(-30, 0, -20)},
+	&"charge_kick_windup": {&"torso": Vector3(5, 45, 0), &"hip_r": Vector3(85, 0, 0), &"kn_r": Vector3(-140, 0, 0),
+		&"kn_l": Vector3(-35, 0, 0), &"sh_l": Vector3(40, 0, -30), &"sh_r": Vector3(-30, 0, 30),
+		&"root": Vector3(0, -0.1, 0)},
 	&"heavy": {&"torso": Vector3(20, -35, 0), &"sh_r": Vector3(95, 0, 0), &"el_r": Vector3(0, 0, 0),
 		&"hip_l": Vector3(35, 0, 0), &"kn_l": Vector3(-35, 0, 0), &"hip_r": Vector3(-30, 0, 0)},
 	&"heavy_windup": {&"torso": Vector3(-5, 40, 0), &"sh_r": Vector3(-20, 0, 20), &"el_r": Vector3(120, 0, 0)},
@@ -173,6 +196,11 @@ func _update_flash(delta: float) -> void:
 		_mat.emission_enabled = true
 		_mat.emission = Color.WHITE
 		_mat.emission_energy_multiplier = 2.0 * (_flash_left / FLASH_TIME)
+	elif _fighter.is_charging_strike():
+		var r := _fighter.charge_ratio()
+		_mat.emission_enabled = true
+		_mat.emission = CHARGE_GLOW_COLOR.lerp(CHARGE_GLOW_FULL_COLOR, r)
+		_mat.emission_energy_multiplier = CHARGE_GLOW_ENERGY * r
 	else:
 		var invuln := _fighter.is_invulnerable() and _fighter.current_state_name() != &"ko"
 		_mat.emission_enabled = invuln

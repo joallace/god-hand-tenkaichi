@@ -14,5 +14,6 @@ lunge_speed = 2.5
 lunge_frames = 6
 cancel_start = 6
 cancel_end = 18
-cancel_into = Array[StringName]([&"brawler_jab2", &"brawler_finisher"])
+cancel_into = Array[StringName]([&"brawler_jab2", &"brawler_finisher_high", &"brawler_finisher", &"brawler_finisher_low"])
 special_cancelable = true
+charge_move = &"brawler_charge_punch"

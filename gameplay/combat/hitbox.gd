@@ -20,6 +20,11 @@ var origin: Vector3
 var forward: Vector3 = Vector3.FORWARD
 var right: Vector3 = Vector3.RIGHT
 var damage_mult: float = 1.0
+var guard_damage_mult: float = 1.0
+## >0: a clean hit stuns (staggers) the victim this long instead of hitstun.
+var stun_frames: int = 0
+## A blocked hit breaks the guard outright.
+var breaks_guard: bool = false
 ## Melee hitboxes (from the attacker's body) let a perfect duck stagger it.
 var is_melee: bool = true
 

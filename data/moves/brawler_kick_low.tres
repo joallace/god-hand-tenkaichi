@@ -1,0 +1,29 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_7p6e2"]
+
+[resource]
+script = ExtResource("1_7p6e2")
+id = &"brawler_kick_low"
+button = 2
+pose = &"kick_low"
+height = 2
+startup = 13
+active = 4
+recovery = 24
+damage = 65.0
+hitstun = 28
+guard_stun = 14
+knockback = Vector3(0, 2.5, 1.5)
+knockdown = true
+guard_damage = 25.0
+is_heavy = true
+hitbox_offset = Vector3(0.1, 0.35, 0.95)
+hitbox_radius = 0.5
+lunge_speed = 2.5
+lunge_frames = 8
+cancel_start = 15
+cancel_end = 34
+cancel_requires_hit = true
+special_cancelable = true
+charge_move = &"brawler_charge_kick"

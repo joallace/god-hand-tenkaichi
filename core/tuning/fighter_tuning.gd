@@ -74,6 +74,21 @@ extends Resource
 @export var combo_scaling: float = 0.92
 @export var combo_scaling_min: float = 0.35
 
+@export_group("Strikes")
+## Stick Y beyond this picks the high (forward) / low (back) HEAVY variant.
+@export var strike_dir_threshold: float = 0.5
+
+@export_group("Charge strikes")
+## Holding LIGHT/HEAVY this many frames turns the attack into its charge strike.
+@export var charge_hold_frames: int = 12
+## Charge ratio from which a clean hit stuns the victim...
+@export_range(0.0, 1.0) var charge_stun_ratio: float = 0.5
+## ...for this many frames, growing to the max at full charge.
+@export var charge_stun_frames_min: int = 36
+@export var charge_stun_frames_max: int = 60
+## Charge ratio from which a blocked hit breaks the guard outright.
+@export_range(0.0, 1.0) var charge_break_ratio: float = 1.0
+
 @export_group("Teleport & Vanish")
 @export var teleport_cost_bars: float = 1.0
 @export var teleport_max_per_combo: int = 2

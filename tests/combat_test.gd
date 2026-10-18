@@ -14,7 +14,9 @@ func _ready() -> void:
 		_test_light_hit, _test_light_string, _test_guard, _test_guard_break,
 		_test_dodge_invuln, _test_perfect_dodge, _test_charge, _test_teleport,
 		_test_vanish_battle, _test_ki_blast, _test_beam, _test_rush, _test_ultimate,
-		_test_not_enough_ki, _test_jump_attack, _test_determinism,
+		_test_not_enough_ki, _test_jump_attack, _test_strike_heights, _test_height_vs_duck,
+		_test_charge_strike_release, _test_charge_strike_stun, _test_charge_strike_guard,
+		_test_charge_punch, _test_determinism,
 	]
 	for t in tests:
 		t.call()
@@ -335,6 +337,131 @@ func _test_jump_attack() -> void:
 	_check(p2.health < p2.tuning.max_health and p1.global_position.y == 0.0, "jumping attack hits and lands")
 
 
+func _move_id(f: Fighter) -> StringName:
+	return f.current_move().id if f.current_move() else &""
+
+
+func _test_strike_heights() -> void:
+	var cases := [[Vector2.ZERO, &"brawler_kick_mid"], [Vector2(0, 1), &"brawler_kick_high"],
+		[Vector2(0, -1), &"brawler_kick_low"]]
+	for c: Array in cases:
+		var d := _new_match()
+		_src(d, 0).stick(0, 1, c[0]).press(0, B.HEAVY)
+		_run(d, 2)
+		_check(_move_id(d.fighters[0]) == c[1], "stick %s + HEAVY -> %s (got %s)" % [c[0], c[1], _move_id(d.fighters[0])])
+	# In the light string, the HEAVY finisher follows the stick too.
+	var d := _new_match()
+	_src(d, 0).press(0, B.LIGHT).stick(8, 9, Vector2(0, -1)).press(8, B.HEAVY)
+	var low := _run_until(d, func() -> bool: return _move_id(d.fighters[0]) == &"brawler_finisher_low", 30)
+	_check(low, "light -> back + HEAVY = low finisher")
+	var down := _run_until(d, func() -> bool: return d.fighters[1].current_state_name() == &"knockdown", 40)
+	_check(down, "low finisher trips")
+	d = _new_match()
+	_src(d, 0).press(0, B.LIGHT).stick(8, 9, Vector2(0, 1)).press(8, B.HEAVY)
+	_check(_run_until(d, func() -> bool: return _move_id(d.fighters[0]) == &"brawler_finisher_high", 30),
+		"light -> forward + HEAVY = high finisher")
+	var launched := _run_until(d, func() -> bool: return d.fighters[1].global_position.y > 1.0, 60)
+	_check(launched, "high finisher launches")
+
+
+## A late duck (past its invulnerability) shrinks the hurtbox: high kicks
+## sail over it, low kicks still connect.
+func _test_height_vs_duck() -> void:
+	for low: bool in [false, true]:
+		var d := _new_match()
+		var p2 := d.fighters[1]
+		_src(d, 1).flick(0, InputFrame.Dodge.FORWARD)
+		_src(d, 0).stick(1, 2, Vector2(0, -1 if low else 1)).press(1, B.HEAVY)
+		_run(d, 30)
+		if low:
+			_check(p2.health < p2.tuning.max_health, "low kick hits a ducking opponent (hp %.1f)" % p2.health)
+		else:
+			_check(is_equal_approx(p2.health, p2.tuning.max_health), "high kick whiffs over a duck (hp %.1f)" % p2.health)
+
+
+func _test_charge_strike_release() -> void:
+	# A tap never charges.
+	var d := _new_match()
+	_src(d, 0).press(0, B.HEAVY)
+	_run(d, 40)
+	_check(_event_count(&"charge_start") == 0, "tapped HEAVY doesn't charge")
+	# Hold briefly, release before the charge point: fires at once, no stun.
+	d = _new_match()
+	var p1 := d.fighters[0]
+	var p2 := d.fighters[1]
+	_src(d, 0).press(0, B.HEAVY, p1.tuning.charge_hold_frames + 4)
+	var started := _run_until(d, func() -> bool: return _event_count(&"charge_start", 0) == 1, 20)
+	_check(started and _move_id(p1) == &"brawler_charge_kick", "holding HEAVY starts the charge kick")
+	_check(int(_last_event(&"charge_start")["button"]) == B.HEAVY, "charge_start reports the button")
+	var released := _run_until(d, func() -> bool: return _event_count(&"charge_release", 0) == 1, 30)
+	_check(released and is_zero_approx(_last_event(&"charge_release")["ratio"]), "early release fires uncharged")
+	_run_until(d, func() -> bool: return _event_count(&"hit", 1) > 0, 30)
+	_check(p2.current_state_name() == &"hitstun" and _event_count(&"stagger", 1) == 0, "weak charge strike: normal hitstun")
+	var dmg := p2.tuning.max_health - p2.health
+	var base := p1.def.move(&"brawler_charge_kick").damage
+	_check(is_equal_approx(dmg, base), "uncharged damage is the base (%.1f)" % dmg)
+
+
+func _test_charge_strike_stun() -> void:
+	var d := _new_match()
+	var p1 := d.fighters[0]
+	var p2 := d.fighters[1]
+	var m := p1.def.move(&"brawler_charge_kick")
+	# Charging starts at hold_frames, reaches charge_frame, then accumulates;
+	# release at ~80% charge.
+	var hold := p1.tuning.charge_hold_frames + m.charge_frame + roundi(m.charge_max_frames * 0.8)
+	_src(d, 0).press(0, B.HEAVY, hold)
+	_run(d, p1.tuning.charge_hold_frames + m.charge_frame + 10)
+	_check(p1.is_charging_strike() and p1.charge_ratio() > 0.0, "charge kick holds while charging (%.2f)" % p1.charge_ratio())
+	var hit := _run_until(d, func() -> bool: return _event_count(&"hit", 1) > 0, 120)
+	var ratio: float = _last_event(&"charge_release").get("ratio", 0.0)
+	_check(hit and ratio > p1.tuning.charge_stun_ratio and ratio < 1.0, "released partially charged (%.2f)" % ratio)
+	_check(p2.current_state_name() == &"guard_break" and _event_count(&"stagger", 1) == 1, "charged hit stuns the victim")
+	var dmg := p2.tuning.max_health - p2.health
+	_check(dmg > m.damage * 1.5, "charged damage scales up (%.1f)" % dmg)
+	# Stunned long enough to follow up once the kick recovers.
+	_run_until(d, func() -> bool: return p1.current_state_name() == &"idle", 60)
+	_check(p2.current_state_name() == &"guard_break", "victim still stunned after the kick recovers")
+	_src(d, 0).press_at_tick(d.tick + 1, B.LIGHT)
+	var best := _max_combo(d, 0, 20)
+	_check(best >= 2, "follow-up combos off the stun (combo %d)" % best)
+
+
+func _test_charge_strike_guard() -> void:
+	for full: bool in [false, true]:
+		var d := _new_match()
+		var p1 := d.fighters[0]
+		var p2 := d.fighters[1]
+		var m := p1.def.move(&"brawler_charge_kick")
+		var hold := p1.tuning.charge_hold_frames + m.charge_frame + (m.charge_max_frames * 2 if full else m.charge_max_frames / 2)
+		_src(d, 1).press(0, B.GUARD, 300)
+		_src(d, 0).press(0, B.HEAVY, hold)
+		_run_until(d, func() -> bool: return _event_count(&"hit", 1) > 0, 200)
+		var ratio: float = _last_event(&"charge_release").get("ratio", 0.0)
+		if full:
+			_check(is_equal_approx(ratio, 1.0), "holding auto-releases at full charge")
+			_check(_event_count(&"guard_break", 1) == 1 and p2.current_state_name() == &"guard_break",
+				"full charge breaks a full guard")
+		else:
+			_check(_event_count(&"guard_break", 1) == 0 and p2.current_state_name() == &"guard_stun",
+				"half charge is blocked (guard %.1f)" % p2.guard_health)
+			_check(p2.guard_health < p2.tuning.guard_health - m.guard_damage, "charge scales guard damage")
+
+
+func _test_charge_punch() -> void:
+	var d := _new_match()
+	var p1 := d.fighters[0]
+	var p2 := d.fighters[1]
+	_src(d, 0).press(0, B.LIGHT, 40)
+	var started := _run_until(d, func() -> bool: return _event_count(&"charge_start", 0) == 1, 30)
+	_check(started and _move_id(p1) == &"brawler_charge_punch", "holding LIGHT: jab then charge punch")
+	_check(_event_count(&"hit", 1) == 1, "the jab still landed first")
+	_run(d, 90)
+	_check(_event_count(&"hit", 1) >= 2, "charge punch connects (%d hits)" % _event_count(&"hit", 1))
+	_check(p2.health < p2.tuning.max_health - 30.0 - p1.def.move(&"brawler_charge_punch").damage * 0.5,
+		"charge punch damage (hp %.1f)" % p2.health)
+
+
 ## Save, simulate a busy exchange, load, re-simulate: states must match.
 func _test_determinism() -> void:
 	var d := _new_match()
@@ -347,15 +474,16 @@ func _test_determinism() -> void:
 	var s1 := _src(d, 1)
 	var base := d.tick + 1 - s0.start_tick
 	s0.press(base, B.LIGHT).press(base + 4, B.LIGHT).press(base + 8, B.TELEPORT).press(base + 30, B.LIGHT) \
-		.press(base + 34, B.LIGHT).press(base + 38, B.HEAVY).stick(base + 80, base + 100, Vector2(0.5, 1))
+		.press(base + 34, B.LIGHT).press(base + 38, B.HEAVY).stick(base + 80, base + 100, Vector2(0.5, 1)) \
+		.press(base + 110, B.HEAVY, 50).stick(base + 160, base + 161, Vector2(0, -1)).press(base + 160, B.HEAVY)
 	s1.press(base + 20, B.GUARD, 10).flick(base + 45, InputFrame.Dodge.LEFT).press(base + 70, B.LIGHT) \
 		.press(base + 74, B.LIGHT).press(base + 110, B.CHARGE, 20)
-	_run(d, 150)
+	_run(d, 200)
 	var first := var_to_str(d.save_state())
 	d.load_state(snap)
 	s0.restore(prev[0])
 	s1.restore(prev[1])
-	_run(d, 150)
+	_run(d, 200)
 	var second := var_to_str(d.save_state())
 	_check(first == second, "save/load re-simulation is deterministic")
 	_check(d.fighters[1].health < d.fighters[1].tuning.max_health, "determinism scenario actually fought")

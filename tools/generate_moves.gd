@@ -14,6 +14,8 @@ const CHAR_DIR := "res://data/characters/"
 const LIGHT := 1   # InputFrame.Btn.LIGHT
 const HEAVY := 2   # InputFrame.Btn.HEAVY
 const BLAST := 4   # InputFrame.Btn.BLAST
+const HIGH := 1    # MoveData.Height.HIGH
+const LOW := 2     # MoveData.Height.LOW
 
 
 func _init() -> void:
@@ -26,50 +28,106 @@ func _init() -> void:
 func _brawler() -> Resource:
 	var moves: Array = []
 	# --- LIGHT string: jab, jab, hook, kick; HEAVY after any = finisher ------
+	# The finisher is directional: stick forward / neutral / back = high / mid /
+	# low kick (Fighter picks by MoveData.height). Holding LIGHT charges.
+	var finishers: Array = [&"brawler_finisher_high", &"brawler_finisher", &"brawler_finisher_low"]
 	var light_common := {
 		"button": LIGHT, "guard_stun": 10, "guard_damage": 4.0, "hitbox_radius": 0.45,
 		"special_cancelable": true, "lunge_speed": 2.5, "lunge_frames": 6,
+		"charge_move": &"brawler_charge_punch",
 	}
 	moves.append(_mk(light_common, {
 		"id": &"brawler_jab1", "pose": &"jab", "startup": 5, "active": 3, "recovery": 12,
 		"damage": 30.0, "hitstun": 20, "knockback": Vector3(0, 0, 1.5),
 		"hitbox_offset": Vector3(-0.15, 1.45, 0.85),
-		"cancel_start": 6, "cancel_end": 18, "cancel_into": [&"brawler_jab2", &"brawler_finisher"],
+		"cancel_start": 6, "cancel_end": 18, "cancel_into": [&"brawler_jab2"] + finishers,
 	}))
 	moves.append(_mk(light_common, {
 		"id": &"brawler_jab2", "pose": &"jab2", "startup": 5, "active": 3, "recovery": 12,
 		"damage": 30.0, "hitstun": 20, "knockback": Vector3(0, 0, 1.5),
 		"hitbox_offset": Vector3(0.15, 1.45, 0.85),
-		"cancel_start": 6, "cancel_end": 18, "cancel_into": [&"brawler_hook", &"brawler_finisher"],
+		"cancel_start": 6, "cancel_end": 18, "cancel_into": [&"brawler_hook"] + finishers,
 	}))
 	moves.append(_mk(light_common, {
 		"id": &"brawler_hook", "pose": &"hook", "startup": 7, "active": 3, "recovery": 14,
 		"damage": 40.0, "hitstun": 22, "knockback": Vector3(-0.5, 0, 2.0),
 		"hitbox_offset": Vector3(0.1, 1.4, 0.85), "hitbox_radius": 0.5,
-		"cancel_start": 8, "cancel_end": 22, "cancel_into": [&"brawler_kick", &"brawler_finisher"],
+		"cancel_start": 8, "cancel_end": 22, "cancel_into": [&"brawler_kick"] + finishers,
 	}))
 	moves.append(_mk(light_common, {
 		"id": &"brawler_kick", "pose": &"kick", "startup": 9, "active": 4, "recovery": 18,
 		"damage": 55.0, "hitstun": 26, "knockback": Vector3(0, 0, 3.5), "guard_damage": 8.0,
 		"hitbox_offset": Vector3(0.1, 1.0, 0.95), "hitbox_radius": 0.5,
-		"cancel_start": 10, "cancel_end": 26, "cancel_into": [&"brawler_finisher"],
+		"cancel_start": 10, "cancel_end": 26, "cancel_into": finishers,
 	}))
-	moves.append(_mk({}, {
-		"id": &"brawler_finisher", "button": HEAVY, "pose": &"finisher",
-		"startup": 10, "active": 4, "recovery": 26, "damage": 80.0, "hitstun": 30,
-		"knockback": Vector3(0, 6.0, 6.0), "knockdown": true, "is_heavy": true,
-		"guard_stun": 18, "guard_damage": 35.0, "hitbox_offset": Vector3(0.1, 1.3, 0.85),
-		"hitbox_radius": 0.55, "lunge_speed": 3.0, "lunge_frames": 8, "special_cancelable": true,
+	var finisher := {
+		"button": HEAVY, "active": 4, "hitstun": 30, "knockdown": true, "is_heavy": true,
+		"guard_stun": 18, "guard_damage": 35.0, "hitbox_radius": 0.55,
+		"lunge_speed": 3.0, "lunge_frames": 8, "special_cancelable": true,
 		"cancel_start": 12, "cancel_end": 30, "cancel_requires_hit": true,
+	}
+	# High: launcher (juggle / teleport chase). Whiffs over a duck.
+	moves.append(_mk(finisher, {
+		"id": &"brawler_finisher_high", "pose": &"kick_high", "height": HIGH,
+		"startup": 10, "recovery": 26, "damage": 70.0, "knockback": Vector3(0, 8.0, 2.0),
+		"hitbox_offset": Vector3(0.1, 1.65, 0.85), "hitbox_radius": 0.45,
 	}))
-	# --- Standalone HEAVY (guard crusher) --------------------------------------
-	moves.append(_mk({}, {
-		"id": &"brawler_heavy", "button": HEAVY, "pose": &"heavy",
-		"startup": 14, "active": 4, "recovery": 22, "damage": 90.0, "hitstun": 30,
-		"knockback": Vector3(0, 0, 7.0), "is_heavy": true, "guard_stun": 20, "guard_damage": 45.0,
-		"hitbox_offset": Vector3(0.1, 1.4, 0.95), "hitbox_radius": 0.55,
-		"lunge_speed": 4.0, "lunge_frames": 12, "special_cancelable": true,
-		"cancel_start": 16, "cancel_end": 34, "cancel_requires_hit": true,
+	# Mid: blows the victim away.
+	moves.append(_mk(finisher, {
+		"id": &"brawler_finisher", "pose": &"kick_mid",
+		"startup": 10, "recovery": 26, "damage": 80.0, "knockback": Vector3(0, 6.0, 6.0),
+		"hitbox_offset": Vector3(0.1, 1.15, 0.9),
+	}))
+	# Low: sweep, short trip.
+	moves.append(_mk(finisher, {
+		"id": &"brawler_finisher_low", "pose": &"kick_low", "height": LOW,
+		"startup": 10, "recovery": 28, "damage": 70.0, "knockback": Vector3(0, 3.0, 2.0),
+		"hitbox_offset": Vector3(0.1, 0.35, 0.95), "hitbox_radius": 0.5, "guard_damage": 25.0,
+	}))
+	# --- Standalone HEAVY: directional kicks (guard crushers). Holding charges --
+	var kick := {
+		"button": HEAVY, "active": 4, "is_heavy": true, "special_cancelable": true,
+		"cancel_requires_hit": true, "charge_move": &"brawler_charge_kick",
+	}
+	moves.append(_mk(kick, {
+		"id": &"brawler_kick_high", "pose": &"kick_high", "height": HIGH,
+		"startup": 13, "recovery": 22, "damage": 70.0, "hitstun": 30,
+		"knockback": Vector3(0, 6.5, 2.0), "knockdown": true, "guard_stun": 16, "guard_damage": 30.0,
+		"hitbox_offset": Vector3(0.1, 1.65, 0.9), "hitbox_radius": 0.45,
+		"lunge_speed": 3.0, "lunge_frames": 10, "cancel_start": 15, "cancel_end": 32,
+	}))
+	moves.append(_mk(kick, {
+		"id": &"brawler_kick_mid", "pose": &"kick_mid",
+		"startup": 14, "recovery": 22, "damage": 90.0, "hitstun": 30,
+		"knockback": Vector3(0, 0, 7.0), "guard_stun": 20, "guard_damage": 45.0,
+		"hitbox_offset": Vector3(0.1, 1.15, 0.95), "hitbox_radius": 0.55,
+		"lunge_speed": 4.0, "lunge_frames": 12, "cancel_start": 16, "cancel_end": 34,
+	}))
+	moves.append(_mk(kick, {
+		"id": &"brawler_kick_low", "pose": &"kick_low", "height": LOW,
+		"startup": 13, "recovery": 24, "damage": 65.0, "hitstun": 28,
+		"knockback": Vector3(0, 2.5, 1.5), "knockdown": true, "guard_stun": 14, "guard_damage": 25.0,
+		"hitbox_offset": Vector3(0.1, 0.35, 0.95), "hitbox_radius": 0.5,
+		"lunge_speed": 2.5, "lunge_frames": 8, "cancel_start": 15, "cancel_end": 34,
+	}))
+	# --- Charge strikes: hold at charge_frame, release early or at full -------
+	var charged := {
+		"active": 4, "is_heavy": true, "hitbox_radius": 0.55, "special_cancelable": true,
+		"cancel_requires_hit": true,
+	}
+	moves.append(_mk(charged, {
+		"id": &"brawler_charge_punch", "pose": &"heavy", "startup": 18, "recovery": 24,
+		"charge_frame": 10, "charge_max_frames": 45, "charge_damage_mult": 2.2, "charge_guard_mult": 3.0,
+		"damage": 55.0, "hitstun": 26, "knockback": Vector3(0, 0, 4.5),
+		"guard_stun": 16, "guard_damage": 15.0, "hitbox_offset": Vector3(0.1, 1.4, 0.9),
+		"lunge_speed": 6.5, "lunge_start": 10, "lunge_frames": 8, "cancel_start": 22, "cancel_end": 40,
+	}))
+	moves.append(_mk(charged, {
+		"id": &"brawler_charge_kick", "pose": &"charge_kick", "startup": 20, "recovery": 26,
+		"charge_frame": 12, "charge_max_frames": 60, "charge_damage_mult": 2.0, "charge_guard_mult": 3.0,
+		"damage": 70.0, "hitstun": 28, "knockback": Vector3(0, 0, 6.0),
+		"guard_stun": 20, "guard_damage": 20.0, "hitbox_offset": Vector3(0.1, 1.15, 0.95),
+		"lunge_speed": 7.0, "lunge_start": 12, "lunge_frames": 8, "cancel_start": 24, "cancel_end": 44,
 	}))
 	# --- Air / dash -------------------------------------------------------------
 	moves.append(_mk({}, {
@@ -158,7 +216,9 @@ func _brawler() -> Resource:
 		typed.append(load(m.resource_path))
 	d.moves = typed
 	d.light_string.assign([&"brawler_jab1", &"brawler_jab2", &"brawler_hook", &"brawler_kick"])
-	d.heavy = &"brawler_heavy"
+	d.heavy = &"brawler_kick_mid"
+	d.heavy_high = &"brawler_kick_high"
+	d.heavy_low = &"brawler_kick_low"
 	d.finisher = &"brawler_finisher"
 	d.jump_attack = &"brawler_jump_kick"
 	d.dash_attack = &"brawler_dash_punch"
