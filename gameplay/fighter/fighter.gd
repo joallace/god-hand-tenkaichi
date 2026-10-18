@@ -96,12 +96,19 @@ extends CombatEntity
 ##   Every teleport reappears around the opponent where the left stick points
 ##   (see FighterTuning.teleport_dir_threshold); neutral = behind them.
 ##
+## Jumping (one air action per jump, same overloads as on the ground):
+## LIGHT = jump attack, HEAVY = jump heavy (ki blast out of close range),
+## BLAST = ki blast, CHARGE + HEAVY / SPECIAL = special. Moves started in the
+## air stall for MoveData.air_hang_frames, lunges dive at the opponent, and
+## an air beam aims down at them.
+##
 ## Dodges (right-stick flick) have per-direction timings (duck / sway /
 ## backflip, see FighterTuning) and chain into each other from their
 ## chain_from frame, up to dodge_chain_max times (0 = no cap); LIGHT/HEAVY
-## pressed during one is queued for its attack_from frame. Knocked down: a flick
-## in the air flips back onto the feet (air tech); on the floor a button rises
-## at once and a flick rolls.
+## pressed during one is queued for its attack_from frame, except HEAVY in a
+## duck: the duck kick (CharacterDef.duck_heavy) from duck_heavy_from_frame.
+## Knocked down: a flick in the air flips back onto the feet (air tech); on
+## the floor a button rises at once and a flick rolls.
 ##
 ## Facing convention: the fighter's -Z (Godot forward) points at the opponent
 ## while locked on. InputFrame.move +Y = toward opponent, +X = strafe right.
@@ -155,6 +162,8 @@ var _yaw: float = 0.0
 var _vel: Vector3 = Vector3.ZERO
 ## True when the current state set horizontal velocity this tick (no friction).
 var _driven: bool = false
+## True when the current state holds the fighter's air motion this tick (no gravity).
+var _floating: bool = false
 var _move: MoveData
 var _move_serial: int = 0
 var _move_connected: bool = false
@@ -256,6 +265,7 @@ func feed_input(frame: InputFrame) -> void:
 func sim_tick(_tick: int) -> void:
 	_state_frame += 1
 	_driven = false
+	_floating = false
 	_tick_timers()
 	match state:
 		State.IDLE, State.WALK: _tick_neutral()
@@ -549,6 +559,8 @@ func get_hurtbox() -> Array:
 			h = tuning.duck_height
 	elif state == State.KNOCKDOWN:
 		h = tuning.lying_height
+	elif state == State.ATTACK and _move.low_profile:
+		h = tuning.duck_height
 	var r := tuning.body_radius
 	h = maxf(h, r * 2.0)
 	var base := global_position
@@ -677,9 +689,23 @@ func _start_jump() -> void:
 
 func _tick_jump() -> void:
 	_face_opponent(_turn_step())
-	if not _air_attack_used and (_consume(InputFrame.Btn.LIGHT) or _consume(InputFrame.Btn.HEAVY)):
+	if not _air_attack_used and _try_air_action():
 		_air_attack_used = true
-		_start_move_id(def.jump_attack)
+
+
+## Air version of _try_actions' attack overloads. Returns true if a move began.
+func _try_air_action() -> bool:
+	if _consume_special():
+		return _try_special()
+	if _consume(InputFrame.Btn.BLAST):
+		return _try_ki_blast()
+	if _consume(InputFrame.Btn.HEAVY):
+		if not _in_close_range() and _try_ki_blast():
+			return true
+		return _start_move_id(def.jump_heavy if def.jump_heavy != &"" else def.jump_attack)
+	if _consume(InputFrame.Btn.LIGHT):
+		return _start_move_id(def.jump_attack)
+	return false
 
 
 func _tick_attack() -> void:
@@ -690,8 +716,17 @@ func _tick_attack() -> void:
 	var track := m.startup - tuning.attack_track_lock_frames if m.track_frames < 0 else m.track_frames
 	if f <= track:
 		_face_opponent(_attack_turn_step())
-	if f >= m.lunge_start and f < m.lunge_start + m.lunge_frames:
+	var lunging := f >= m.lunge_start and f < m.lunge_start + m.lunge_frames
+	if lunging and is_airborne():
+		_vel = _dive_velocity(m.lunge_speed)
+		_driven = true
+		_floating = true
+	elif lunging:
 		_set_ground_velocity(_fwd() * m.lunge_speed)
+	elif is_airborne() and (m.air_hang_frames < 0 or f < m.air_hang_frames):
+		_set_ground_velocity(Vector3.ZERO)
+		_vel.y = 0.0
+		_floating = true
 	if _try_charge_strike(m):
 		return
 	if m.spawn_kind != &"" and not _spawned and f >= m.spawn_frame:
@@ -710,6 +745,18 @@ func _tick_attack() -> void:
 	if f >= m.total():
 		_enter(State.JUMP if is_airborne() else State.IDLE)
 		_air_attack_used = true
+
+
+## Air lunge: along the facing, descending so it touches down at the
+## opponent's feet (never rising: fighters don't fly).
+func _dive_velocity(speed: float) -> Vector3:
+	var reach := 0.0
+	if opponent != null:
+		var d := opponent.global_position - global_position
+		d.y = 0.0
+		reach = d.length()
+	var dir := _fwd() * reach + Vector3.DOWN * global_position.y
+	return dir.normalized() * speed if dir.length_squared() > 0.0001 else _fwd() * speed
 
 
 ## Holding the button that started `m` past charge_hold_frames (outside its
@@ -911,18 +958,23 @@ func _per_dodge(duck: int, sway: int, backflip: int) -> int:
 
 
 ## Queue LIGHT/HEAVY pressed during a dodge; fire it on the direction's
-## attack_from frame, or at once in a perfect-dodge counter window.
+## attack_from frame (HEAVY in a duck: the duck kick from
+## duck_heavy_from_frame), or at once in a perfect-dodge counter window.
 func _try_dodge_attack(f: int) -> bool:
 	for btn: int in [InputFrame.Btn.HEAVY, InputFrame.Btn.LIGHT]:
 		if _consume(btn):
 			_dodge_queued_btn = btn
 			break
-	var attack_from := _per_dodge(tuning.duck_attack_from_frame, tuning.sway_attack_from_frame,
-		tuning.backflip_attack_from_frame)
+	var duck_kick := _dodge_dir == InputFrame.Dodge.FORWARD and _dodge_queued_btn == InputFrame.Btn.HEAVY \
+		and def.duck_heavy != &""
+	var attack_from := tuning.duck_heavy_from_frame if duck_kick else _per_dodge(tuning.duck_attack_from_frame,
+		tuning.sway_attack_from_frame, tuning.backflip_attack_from_frame)
 	if _dodge_queued_btn == 0 or (_counter_frames <= 0 and f < attack_from):
 		return false
 	var btn := _dodge_queued_btn
 	_dodge_queued_btn = 0
+	if duck_kick:
+		return _start_move_id(def.duck_heavy)
 	if btn == InputFrame.Btn.HEAVY:
 		return _start_move_id(_heavy_for_stick())
 	return _start_move_id(def.light_string[0] if not def.light_string.is_empty() else &"")
@@ -1413,8 +1465,19 @@ func _spawn_from(m: MoveData) -> void:
 		&"beam":
 			var beam := Beam.new()
 			director.spawn_entity(beam)
-			beam.fire(self, m.spawn_move, _move_serial)
+			beam.fire(self, m.spawn_move, _move_serial, _beam_aim(m.spawn_move))
 			event.emit(&"beam", {"slot": slot, "position": global_position})
+
+
+## Beam direction: flat along the facing, or from the air down at the
+## opponent (beam height above their feet).
+func _beam_aim(shot: MoveData) -> Vector3:
+	var dir := _fwd()
+	if opponent == null or not is_airborne():
+		return dir
+	var from := global_position + Vector3.UP * shot.hitbox_offset.y
+	var to := opponent.global_position + Vector3.UP * shot.hitbox_offset.y
+	return (to - from).normalized() if (to - from).length_squared() > 0.0001 else dir
 
 
 # =============================================================================
@@ -1649,7 +1712,7 @@ func _tick_timers() -> void:
 func _apply_motion() -> void:
 	var dt := 1.0 / Tuning.match_rules.tick_rate
 	var was_air := is_airborne()
-	if was_air:
+	if was_air and not _floating:
 		_vel.y -= tuning.gravity * dt
 	elif not _driven:
 		var h := Vector2(_vel.x, _vel.z)
@@ -1670,7 +1733,7 @@ func _on_land() -> void:
 		State.JUMP:
 			_enter(State.IDLE)
 		State.ATTACK:
-			if _move == def.move(def.jump_attack):
+			if _move.land_cancel:
 				_enter(State.IDLE)
 		State.KNOCKDOWN, State.KO:
 			_vel.x *= 0.5
@@ -1826,7 +1889,7 @@ func save_state() -> Dictionary:
 	s.merge({
 		"health": health, "ki": ki, "combo_hits": combo_hits, "control": _control_enabled,
 		"state": state, "state_frame": _state_frame,
-		"state_len": _state_len, "yaw": _yaw, "vel": _vel, "driven": _driven,
+		"state_len": _state_len, "yaw": _yaw, "vel": _vel, "driven": _driven, "floating": _floating,
 		"move": _move.id if _move else &"", "move_serial": _move_serial,
 		"move_connected": _move_connected, "move_hit": _move_hit, "spawned": _spawned,
 		"damage_mult": _damage_mult, "air_attack_used": _air_attack_used,
@@ -1863,6 +1926,7 @@ func load_state(s: Dictionary) -> void:
 	_set_yaw(s["yaw"])
 	_vel = s["vel"]
 	_driven = s["driven"]
+	_floating = s["floating"]
 	_move = def.move(s["move"]) if s["move"] != &"" else null
 	_move_serial = s["move_serial"]
 	_move_connected = s["move_connected"]

@@ -1,0 +1,30 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_u0w36"]
+
+[resource]
+script = ExtResource("1_u0w36")
+id = &"brawler_duck_kick"
+button = 2
+pose = &"duck_kick"
+height = 2
+startup = 6
+active = 4
+recovery = 18
+damage = 55.0
+hitstun = 26
+guard_stun = 12
+knockback = Vector3(0, 2.5, 1.5)
+knockdown = true
+guard_ki_cost = 20.0
+guard_results = Array[int]([1, 4, 2])
+is_heavy = true
+hitbox_offset = Vector3(0.1, 0.3, 0.95)
+hitbox_radius = 0.5
+lunge_speed = 3.0
+lunge_frames = 6
+low_profile = true
+cancel_start = 8
+cancel_end = 26
+cancel_requires_hit = true
+special_cancelable = true

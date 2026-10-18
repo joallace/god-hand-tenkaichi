@@ -1,0 +1,25 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_jx4bi"]
+
+[resource]
+script = ExtResource("1_jx4bi")
+id = &"brawler_dive_kick"
+button = 2
+pose = &"dive_kick"
+startup = 8
+active = 12
+damage = 65.0
+hitstun = 28
+guard_stun = 16
+knockback = Vector3(0, 3, 4)
+knockdown = true
+guard_ki_cost = 25.0
+guard_results = Array[int]([1, 1, 4])
+is_heavy = true
+hitbox_offset = Vector3(0.1, 0.45, 0.75)
+hitbox_radius = 0.55
+lunge_speed = 9.0
+lunge_start = 6
+lunge_frames = 14
+land_cancel = true

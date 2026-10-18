@@ -12,6 +12,7 @@ startup = 8
 active = 0
 recovery = 16
 damage = 0.0
+air_hang_frames = 14
 spawn_kind = &"ki_blast"
 spawn_frame = 8
 spawn_move = ExtResource("2_compp")

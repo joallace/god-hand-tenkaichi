@@ -18,3 +18,4 @@ guard_ki_cost = 10.0
 guard_results = Array[int]([0, 0, 4])
 hitbox_offset = Vector3(0.1, 0.7, 0.8)
 hitbox_radius = 0.55
+land_cancel = true

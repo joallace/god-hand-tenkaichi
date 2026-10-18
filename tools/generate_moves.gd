@@ -179,11 +179,30 @@ func _brawler() -> Resource:
 		"lunge_speed": 7.0, "lunge_start": 12, "lunge_frames": 8, "cancel_start": 24, "cancel_end": 44,
 	}))
 	# --- Air / dash -------------------------------------------------------------
+	# Jump attacks end on landing. LIGHT: quick overhead kick.
 	moves.append(_mk({}, {
 		"id": &"brawler_jump_kick", "button": LIGHT, "pose": &"jump_kick", "guard_results": G_OVERHEAD,
 		"startup": 6, "active": 8, "recovery": 10, "damage": 50.0, "hitstun": 24,
 		"knockback": Vector3(0, 0, 3.0), "guard_stun": 12, "guard_ki_cost": 10.0,
-		"hitbox_offset": Vector3(0.1, 0.7, 0.8), "hitbox_radius": 0.55,
+		"hitbox_offset": Vector3(0.1, 0.7, 0.8), "hitbox_radius": 0.55, "land_cancel": true,
+	}))
+	# HEAVY (close range): diving kick, the lunge angles down onto the target.
+	moves.append(_mk({}, {
+		"id": &"brawler_dive_kick", "button": HEAVY, "pose": &"dive_kick", "guard_results": G_KI_HIGH,
+		"startup": 8, "active": 12, "recovery": 12, "damage": 65.0, "hitstun": 28,
+		"knockback": Vector3(0, 3.0, 4.0), "knockdown": true, "is_heavy": true,
+		"guard_stun": 16, "guard_ki_cost": 25.0, "hitbox_offset": Vector3(0.1, 0.45, 0.75),
+		"hitbox_radius": 0.55, "lunge_speed": 9.0, "lunge_start": 6, "lunge_frames": 14, "land_cancel": true,
+	}))
+	# --- Duck kick: HEAVY during a duck, God Hand style low kick that stays
+	# under highs. Trips like the low kick; supers can follow a hit.
+	moves.append(_mk({}, {
+		"id": &"brawler_duck_kick", "button": HEAVY, "pose": &"duck_kick", "height": LOW,
+		"guard_results": G_HEAVY_LOW, "low_profile": true, "is_heavy": true,
+		"startup": 6, "active": 4, "recovery": 18, "damage": 55.0, "hitstun": 26,
+		"knockback": Vector3(0, 2.5, 1.5), "knockdown": true, "guard_stun": 12, "guard_ki_cost": 20.0,
+		"hitbox_offset": Vector3(0.1, 0.3, 0.95), "hitbox_radius": 0.5, "lunge_speed": 3.0, "lunge_frames": 6,
+		"special_cancelable": true, "cancel_requires_hit": true, "cancel_start": 8, "cancel_end": 26,
 	}))
 	moves.append(_mk({}, {
 		"id": &"brawler_dash_punch", "button": LIGHT, "pose": &"dash_punch", "guard_results": G_KI,
@@ -221,6 +240,7 @@ func _brawler() -> Resource:
 		"id": &"brawler_ki_blast", "button": BLAST, "pose": &"ki_blast",
 		"startup": 8, "active": 0, "recovery": 16, "damage": 0.0,
 		"spawn_kind": &"ki_blast", "spawn_frame": 8, "spawn_move": blast_hit,
+		"air_hang_frames": 14,  # fired while jumping: brief air stall
 	}))
 	# --- Super 1: rush (auto combo when the first hit lands) -------------------
 	var rush := {"grants_hit_ki": false, "guard_stun": 12, "guard_ki_cost": 15.0, "hitbox_radius": 0.55,
@@ -257,6 +277,7 @@ func _brawler() -> Resource:
 	moves.append(_mk({}, {
 		"id": &"brawler_beam", "pose": &"beam", "startup": 18, "active": 0, "recovery": 80,
 		"damage": 0.0, "spawn_kind": &"beam", "spawn_frame": 18, "spawn_move": beam_hit,
+		"air_hang_frames": -1,  # fired while jumping: hangs until the beam ends
 	}))
 	# --- Ultimate: bigger beam (back + SPECIAL, full gauge) -----------------
 	var ult_hit := _mk({}, {
@@ -269,6 +290,7 @@ func _brawler() -> Resource:
 	moves.append(_mk({}, {
 		"id": &"brawler_ultimate", "pose": &"beam", "startup": 30, "active": 0, "recovery": 120,
 		"damage": 0.0, "spawn_kind": &"beam", "spawn_frame": 30, "spawn_move": ult_hit,
+		"air_hang_frames": -1,
 	}))
 
 	for m: Resource in moves:
@@ -288,6 +310,8 @@ func _brawler() -> Resource:
 	d.heavy_low = &"brawler_kick_low"
 	d.finisher = &"brawler_finisher"
 	d.jump_attack = &"brawler_jump_kick"
+	d.jump_heavy = &"brawler_dive_kick"
+	d.duck_heavy = &"brawler_duck_kick"
 	d.dash_attack = &"brawler_dash_punch"
 	d.ki_blast = &"brawler_ki_blast"
 	d.throw = &"brawler_throw"

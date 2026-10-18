@@ -51,6 +51,9 @@ extends Resource
 @export var duck_invuln_frames: int = 6
 @export var duck_chain_from_frame: int = 10
 @export var duck_attack_from_frame: int = 10
+## HEAVY queued during a duck fires the duck kick (CharacterDef.duck_heavy)
+## from this frame: still in the crouch, right after the duck's invuln.
+@export var duck_heavy_from_frame: int = 7
 ## Side sway (GH: lunge +2..+10/+14, upright +16..+22, next sway at +26).
 @export var sway_total_frames: int = 26
 @export var sway_invuln_frames: int = 12

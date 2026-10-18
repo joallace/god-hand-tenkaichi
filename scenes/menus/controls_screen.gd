@@ -42,7 +42,9 @@ const PAD_FIXED_ROWS := [
 ]
 ## Button combos (Fighter's BT overloads), shown for every device.
 const COMBO_ROWS := [
-	["Ki Blast", "Heavy at range"],
+	["Ki Blast", "Heavy at range (also while jumping)"],
+	["Jump attacks", "Jump + Light / Heavy / Special"],
+	["Duck kick", "Heavy during a forward dodge (duck)"],
 	["Special", "Charge + Heavy  (+Fwd: Super 2, +Back: Ultimate)"],
 	["Teleport", "Guard right after a hit / just before one"],
 	["Guard height", "Guard + Fwd: high, Back: low"],

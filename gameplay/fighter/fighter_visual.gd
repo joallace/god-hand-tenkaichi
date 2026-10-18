@@ -65,6 +65,18 @@ const POSES := {
 		&"root": Vector3(0, -0.2, 0), &"kn_l": Vector3(-50, 0, 0), &"hip_l": Vector3(40, 0, 0)},
 	&"jump_kick": {&"torso": Vector3(-10, 0, 0), &"hip_r": Vector3(80, 0, 0), &"kn_r": Vector3(0, 0, 0),
 		&"hip_l": Vector3(-30, 0, 0), &"kn_l": Vector3(-95, 0, 0)},
+	# Diving kick: tucked, then one leg stabbed down-forward, leaning back.
+	&"dive_kick": {&"torso": Vector3(-20, 0, 0), &"hip_r": Vector3(40, 0, 0), &"kn_r": Vector3(0, 0, 0),
+		&"hip_l": Vector3(85, 0, 0), &"kn_l": Vector3(-115, 0, 0), &"sh_l": Vector3(-20, 0, -45),
+		&"sh_r": Vector3(-20, 0, 45)},
+	&"dive_kick_windup": {&"torso": Vector3(15, 0, 0), &"hip_l": Vector3(95, 0, 0), &"kn_l": Vector3(-125, 0, 0),
+		&"hip_r": Vector3(100, 0, 0), &"kn_r": Vector3(-130, 0, 0)},
+	# Duck kick: stays in the crouch and sweeps one leg out along the floor.
+	&"duck_kick": {&"torso": Vector3(40, -20, 0), &"hip_l": Vector3(110, 0, 0), &"kn_l": Vector3(-140, 0, 0),
+		&"hip_r": Vector3(80, 0, -25), &"kn_r": Vector3(0, 0, 0), &"sh_l": Vector3(25, 0, -40),
+		&"root": Vector3(0, -0.5, 0)},
+	&"duck_kick_windup": {&"torso": Vector3(45, 15, 0), &"hip_l": Vector3(110, 0, 0), &"kn_l": Vector3(-140, 0, 0),
+		&"hip_r": Vector3(105, 0, 0), &"kn_r": Vector3(-145, 0, 0), &"root": Vector3(0, -0.5, 0)},
 	&"dash_punch": {&"torso": Vector3(35, -15, 0), &"sh_r": Vector3(90, 0, 0), &"el_r": Vector3(0, 0, 0),
 		&"sh_l": Vector3(-35, 0, -10), &"hip_l": Vector3(45, 0, 0), &"hip_r": Vector3(-35, 0, 0)},
 	&"ki_blast": {&"torso": Vector3(0, -25, 0), &"sh_r": Vector3(90, 0, 0), &"el_r": Vector3(0, 0, 0)},

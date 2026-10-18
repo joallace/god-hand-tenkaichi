@@ -15,11 +15,12 @@ const STANDING: Array[StringName] = [
 	&"guard", &"guard_high", &"guard_low", &"counter_guard", &"recoil", &"throw",
 	&"throw_windup", &"throw_hold", &"throw_toss", &"taunt", &"uppercut_windup",
 	&"hammer", &"hammer_windup", &"smash_left", &"smash_left_windup", &"smash_right",
-	&"smash_right_windup",
+	&"smash_right_windup", &"duck_kick", &"duck_kick_windup",
 ]
 const FOOT_TOLERANCE := 0.12
 ## Attack poses that must have a "<pose>_windup" for their startup.
-const NEEDS_WINDUP: Array[StringName] = [&"throw", &"uppercut", &"hammer", &"smash_left", &"smash_right"]
+const NEEDS_WINDUP: Array[StringName] = [&"throw", &"uppercut", &"hammer", &"smash_left", &"smash_right",
+	&"dive_kick", &"duck_kick"]
 const MOVES_DIR := "res://data/moves/"
 
 var _ok := true

@@ -16,14 +16,14 @@ func _ready() -> void:
 		_test_back_throw, _test_taunt, _test_teleport_direction, _test_smash_directions,
 		_test_dodge_invuln, _test_perfect_dodge, _test_charge, _test_teleport,
 		_test_vanish_battle, _test_ki_blast, _test_beam, _test_rush, _test_ultimate,
-		_test_not_enough_ki, _test_jump_attack, _test_strike_heights, _test_height_vs_duck,
+		_test_not_enough_ki, _test_jump_attack, _test_air_ki_blast, _test_air_specials, _test_duck_kick,_test_strike_heights, _test_height_vs_duck,
 		_test_charge_strike_release, _test_charge_strike_stun, _test_charge_strike_guard,
 		_test_charge_punch, _test_heavy_at_range_blast, _test_charge_heavy_special,
 		_test_guard_teleport, _test_guard_vanish_escape, _test_guard_vanish, _test_guard_vanish_mash,
 		_test_guard_vanish_first_hit, _test_guard_vanish_window_hp, _test_attack_tracking,
 		_test_combo_scaling, _test_anti_loop_repeat, _test_anti_loop_relaunch, _test_air_tech,
 		_test_quick_rise, _test_wakeup_roll, _test_stay_down, _test_dodge_chain, _test_dodge_lengths, _test_dodge_queued_attack,
-		_test_determinism, _test_determinism_bt3,
+		_test_determinism, _test_determinism_bt3, _test_determinism_air,
 	]
 	for t in tests:
 		t.call()
@@ -652,6 +652,109 @@ func _test_jump_attack() -> void:
 	_check(air, "jump leaves the ground")
 	_run(d, 60)
 	_check(p2.health < p2.tuning.max_health and p1.global_position.y == 0.0, "jumping attack hits and lands")
+	# Close HEAVY in the air: the dive kick angles down and knocks down.
+	d = _new_match()
+	p1 = d.fighters[0]
+	p2 = d.fighters[1]
+	_src(d, 0).press(0, B.JUMP).press(8, B.HEAVY)
+	_check(_run_until(d, func() -> bool: return _move_id(p1) == &"brawler_dive_kick", 12), "jump + HEAVY = dive kick")
+	_check(_run_until(d, func() -> bool: return p2.current_state_name() == &"knockdown", 40), "dive kick knocks down")
+	_run(d, 30)
+	_check(p1.global_position.y == 0.0 and p1.current_move() == null, "dive kick ends on landing")
+	# One air action per jump.
+	d = _new_match()
+	p1 = d.fighters[0]
+	_src(d, 0).press(0, B.JUMP).press(4, B.LIGHT).press(22, B.LIGHT)
+	var starts := 0
+	for i in 50:
+		d.step()
+		if p1.current_move() != null and p1.state_frame() == 0:
+			starts += 1
+	_check(starts == 1, "only one attack per jump (%d)" % starts)
+
+
+func _test_air_ki_blast() -> void:
+	var d := _new_match(6.0)
+	var p1 := d.fighters[0]
+	var p2 := d.fighters[1]
+	_src(d, 0).press(0, B.JUMP).press(8, B.HEAVY)
+	_check(_run_until(d, func() -> bool: return _move_id(p1) == &"brawler_ki_blast", 12), "jump + HEAVY at range = ki blast")
+	var y0 := p1.global_position.y
+	_run(d, p1.current_move().air_hang_frames - 2)
+	_check(y0 > 0.0 and is_equal_approx(p1.global_position.y, y0), "air ki blast stalls in the air (y %.2f -> %.2f)" % [y0, p1.global_position.y])
+	_check(_event_count(&"ki_blast", 0) == 1, "air ki blast fires")
+	_check(_run_until(d, func() -> bool: return p2.health < p2.tuning.max_health, 40), "air ki blast angles down and hits")
+	_check(_run_until(d, func() -> bool: return p1.global_position.y == 0.0, 40), "falls after the stall")
+
+
+func _test_air_specials() -> void:
+	# Beam: hangs in the air and fires down at the opponent.
+	var d := _new_match(6.0)
+	var p1 := d.fighters[0]
+	var p2 := d.fighters[1]
+	p1.ki = p1.ki_max()
+	_src(d, 0).press(0, B.JUMP).press(6, B.CHARGE, 4).stick(6, 10, Vector2(0, 1)).press(8, B.HEAVY)
+	_check(_run_until(d, func() -> bool: return _move_id(p1) == &"brawler_beam", 12), "jump + CHARGE + fwd HEAVY = air beam")
+	var y0 := p1.global_position.y
+	_check(_run_until(d, func() -> bool: return not d.entities.is_empty(), 30), "air beam fires")
+	var beam := d.entities[0] as Beam
+	_check(beam != null and beam._dir.y < 0.0, "air beam aims down (dir %s)" % [beam._dir if beam else Vector3.ZERO])
+	_run(d, 40)
+	_check(is_equal_approx(p1.global_position.y, y0) and y0 > 0.0, "caster hangs while beaming (y %.2f)" % p1.global_position.y)
+	_check(_event_count(&"hit", 1) >= 3, "air beam hits the grounded opponent (%d hits)" % _event_count(&"hit", 1))
+	_check(_run_until(d, func() -> bool: return p1.global_position.y == 0.0 and p1.current_move() == null, 200),
+		"lands after the air beam")
+	# Rush: SPECIAL in the air dives in and plays its auto combo.
+	d = _new_match(3.0)
+	p1 = d.fighters[0]
+	p1.ki = p1.ki_max()
+	_src(d, 0).press(0, B.JUMP).press(8, B.SPECIAL)
+	var best := _max_combo(d, 0, 140)
+	_check(_last_event(&"super_start").get("kind") == &"rush", "SPECIAL in the air starts the rush")
+	_check(best >= 5, "air rush dives in and combos (combo %d)" % best)
+
+
+func _test_duck_kick() -> void:
+	var d := _new_match()
+	var p1 := d.fighters[0]
+	var p2 := d.fighters[1]
+	var t := p1.tuning
+	_src(d, 0).flick(0, InputFrame.Dodge.FORWARD).press(2, B.HEAVY)
+	var frame := -1
+	for i in 30:
+		var was := p1.state_frame() if p1.current_state_name() == &"dodge" else -1
+		d.step()
+		if p1.current_state_name() == &"attack":
+			frame = was + 1
+			break
+	_check(_move_id(p1) == &"brawler_duck_kick", "HEAVY during a duck = duck kick (got %s)" % _move_id(p1))
+	_check(frame == t.duck_heavy_from_frame, "duck kick fires on frame %d (got %d)" % [t.duck_heavy_from_frame, frame])
+	var hb := p1.get_hurtbox()
+	_check((hb[1] as Vector3).y + float(hb[2]) <= t.duck_height + 0.001, "duck kick keeps a ducking hurtbox")
+	_check(_run_until(d, func() -> bool: return p2.current_state_name() == &"knockdown", 30), "duck kick trips")
+	# LIGHT in a duck and HEAVY in a sway keep their usual moves.
+	d = _new_match()
+	_src(d, 0).flick(0, InputFrame.Dodge.LEFT).press(2, B.HEAVY)
+	_check(_run_until(d, func() -> bool: return _move_id(d.fighters[0]) == &"brawler_kick_mid", 30), "HEAVY in a sway = normal heavy")
+	# A high kick active during the duck kick whiffs over it (control: the
+	# same kick hits a standing fighter). Out of the duck kick's reach.
+	for ducking: bool in [false, true]:
+		d = _new_match(2.2)
+		p1 = d.fighters[0]
+		var p2k := d.fighters[1]
+		_src(d, 1).stick(8, 9, Vector2(0, 1)).press(8, B.HEAVY)
+		if ducking:
+			_src(d, 0).flick(0, InputFrame.Dodge.FORWARD).press(1, B.HEAVY)
+		var in_kick_when_active := true
+		for i in 50:
+			d.step()
+			if ducking and p2k.attack_phase() == 1 and _move_id(p1) != &"brawler_duck_kick":
+				in_kick_when_active = false
+		var hit := p1.health < p1.tuning.max_health
+		if ducking:
+			_check(in_kick_when_active and not hit, "high kick whiffs over the duck kick (hp %.1f)" % p1.health)
+		else:
+			_check(hit, "control: the high kick reaches a standing fighter (hp %.1f)" % p1.health)
 
 
 func _move_id(f: Fighter) -> StringName:
@@ -1085,6 +1188,29 @@ func _test_determinism() -> void:
 	var second := var_to_str(d.save_state())
 	_check(first == second, "save/load re-simulation is deterministic")
 	_check(d.fighters[1].health < d.fighters[1].tuning.max_health, "determinism scenario actually fought")
+
+
+## Same, through air stalls, an air beam, a dive kick and a duck kick.
+func _test_determinism_air() -> void:
+	var d := _new_match(4.0)
+	d.fighters[0].ki = d.fighters[0].ki_max()
+	_run(d, 5)
+	var snap := d.save_state()
+	var prev := [_src(d, 0).snapshot(), _src(d, 1).snapshot()]
+	var s0 := _src(d, 0)
+	var s1 := _src(d, 1)
+	var base := d.tick + 1 - s0.start_tick
+	s0.press(base, B.JUMP).press(base + 8, B.HEAVY).press(base + 60, B.JUMP).press(base + 66, B.SPECIAL) \
+		.stick(base + 66, base + 67, Vector2(0, 1)).flick(base + 240, InputFrame.Dodge.FORWARD).press(base + 241, B.HEAVY)
+	s1.press(base + 30, B.JUMP).press(base + 36, B.HEAVY).stick(base + 200, base + 230, Vector2(0, 1))
+	_run(d, 280)
+	var first := var_to_str(d.save_state())
+	d.load_state(snap)
+	s0.restore(prev[0])
+	s1.restore(prev[1])
+	_run(d, 280)
+	var second := var_to_str(d.save_state())
+	_check(first == second, "save/load re-simulation is deterministic (air moves, duck kick)")
 
 
 ## Same, through throws, guard poses, taunts, smashes and steered teleports.

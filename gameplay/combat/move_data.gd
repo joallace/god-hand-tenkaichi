@@ -90,6 +90,15 @@ enum GuardResult { PLAIN, KI_GUARD, PUSH_OFF, PUSH_STOP, UNBLOCKABLE }
 ## Frames (from move start) during which the attacker still turns to track.
 ## -1 = track through startup.
 @export var track_frames: int = -1
+## Started airborne: the attacker stalls in the air (no gravity, no drift)
+## for this many frames; -1 = the whole move (air beams). A lunge started in
+## the air dives toward the opponent instead (see Fighter._dive_velocity).
+@export var air_hang_frames: int = 0
+## Touching down ends the move (jump attacks).
+@export var land_cancel: bool = false
+## Low stance: the hurtbox shrinks to FighterTuning.duck_height for the whole
+## move, so HIGH strikes whiff over it (duck kick).
+@export var low_profile: bool = false
 
 @export_group("Cancels")
 ## Window (frames from move start, inclusive) in which `cancel_into` is open.

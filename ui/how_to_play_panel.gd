@@ -11,6 +11,8 @@ const ROWS := [
 	["Light / Heavy attack", "X / Y", "J / I"],
 	["Ki Blast", "Y at range", "I at range"],
 	["Jump", "A", "K"],
+	["Jump attacks (blast / special too)", "A, then X / Y / LT + Y", "K, then J / I / U + I"],
+	["Duck kick", "Right Stick up + Y", "T + I"],
 	["Guard (Fwd: high, Back: low)", "B", "L"],
 	["Teleport (timed guard)", "B on hit / just before one", "L"],
 	["Charge Ki", "LT (hold)", "U"],

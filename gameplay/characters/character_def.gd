@@ -20,7 +20,14 @@ extends Resource
 ## HEAVY after any light in the string (reached via `cancel_into`; directional
 ## variants are more HEAVY moves in that list, picked by MoveData.height).
 @export var finisher: StringName = &""
+## LIGHT while jumping.
 @export var jump_attack: StringName = &""
+## HEAVY while jumping within close_combat_range (out of it = ki blast);
+## falls back to `jump_attack` when empty.
+@export var jump_heavy: StringName = &""
+## HEAVY pressed during a duck (forward dodge): God Hand low kick out of the
+## crouch; falls back to the stick's HEAVY when empty.
+@export var duck_heavy: StringName = &""
 @export var dash_attack: StringName = &""
 @export var ki_blast: StringName = &""
 ## THROW: grab that beats guard (stick back = throw behind you).

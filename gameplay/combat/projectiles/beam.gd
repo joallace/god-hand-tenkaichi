@@ -12,12 +12,15 @@ var _frame: int = 0
 var _mesh: MeshInstance3D
 
 
-func fire(p_caster: Fighter, p_move: MoveData, caster_move_serial: int) -> void:
+## `aim`: firing direction (ZERO = flat along the caster's facing).
+func fire(p_caster: Fighter, p_move: MoveData, caster_move_serial: int, aim: Vector3 = Vector3.ZERO) -> void:
 	caster = p_caster
 	move = p_move
 	_caster_move_serial = caster_move_serial
-	_dir = -p_caster.global_basis.z
-	_dir.y = 0.0
+	_dir = aim
+	if _dir.is_zero_approx():
+		_dir = -p_caster.global_basis.z
+		_dir.y = 0.0
 	_dir = _dir.normalized()
 	_last_contact_id = -1
 	_place()
