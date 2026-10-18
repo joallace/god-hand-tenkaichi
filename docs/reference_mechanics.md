@@ -37,7 +37,7 @@ already converted to **60 Hz frames** unless marked `@30`.
 | After a paid vanish | forced counter-attack; opponent can Z-counter it back (unlimited duel) | — | ping-pong duel with shrinking window; ends with positions only |
 | Escape from mid-combo | not possible (mid-string hits undodgeable) — anti-loop rule instead | mash-out of grabs | vanish escape from hitstun, 2 bars (approved design) |
 | Dodge invuln | vanishing step: invuln for the whole ~14f burst; dash steps: first 20% | invuln is a countdown timer refreshed each state tick + tail (10/30/60f) | 12 of 24f |
-| Dodge chaining | successful dodge re-arms instantly; attacks buffer during step and fire at its end | (unmatched) — chained back-sways are a GH staple | ~~no chaining~~ → **done:** chain from frame 16, max 2 in a row; LIGHT/HEAVY mid-dodge queues for frame 13 |
+| Dodge chaining | successful dodge re-arms instantly; attacks buffer during step and fire at its end | measured (PCSX2): back-sway re-chains at 30f (lands at 26), side sway at 26f, duck at ~9f; 9 back-sways in a row with no cap ([details](god_hand_reference.md#dodges-measured-in-pcsx2)) | ~~no chaining~~ → **done:** chain from frame 16, max 2 in a row; LIGHT/HEAVY mid-dodge queues for frame 13 |
 | Combo scaling | from **5th hit**, −3%/hit, floor 50% | — | ~~0.92^n from 2nd hit, floor 35%~~ → **done:** BT3 curve |
 | Anti-loop | same light stagger twice in one combo → push-out reaction | consecutive-hit counter caps at 4 | ~~none~~ → **done:** repeated melee move or 3rd relaunch per segment = push-out knockdown (a teleport starts a new segment) |
 | Charged smash | full in 45f; tiers <0.3 / <0.99 / full; release on first full frame = invuln lunge | hold at charge marker, ~80f pool | 45f punch / 60f kick; ≥0.5 stun, full breaks guard |
@@ -117,9 +117,10 @@ advance) and count frames; note which 60 fps patch, if any, is active.
 
 God Hand (Gene vs. a basic enemy, Level 1):
 
-- Back-sway, side-sway L/R, duck: frames from input to movement, to
-  invulnerability end (test by dodging a jab at increasing delays), total
-  length, and earliest chain into the next sway.
+- Back-sway, side-sway L/R, duck: frames from input to movement and to
+  invulnerability end (test by dodging a jab at increasing delays) — needs
+  an input display. *(Total length and earliest chain are measured: see
+  [god_hand_reference.md](god_hand_reference.md#dodges-measured-in-pcsx2).)*
 - Earliest attack out of a dodge.
 - Hitstop on a jab vs. a heavy (freeze frames).
 - Camera shake on light/heavy hits; distance/height of the default camera.

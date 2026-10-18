@@ -39,6 +39,60 @@ frames per move come from data that isn't in the repo.
 - State model: four bytes (mode / phase / step / step-arg); a state's step 0
   starts a motion, step 1 runs it to the end and returns to idle.
 
+## Dodges: measured in PCSX2
+
+From our own captures G1–G4 ([footage_capture.md](footage_capture.md)),
+recorded 2026-10-18 with PCSX2's built-in capture: 640×480, 59.94 fps, no
+dropped frames. Every game frame appears on exactly two video frames,
+which confirms the **30 Hz logic**, so video frames = our 60 Hz frames and
+every value below is a multiple of 2 (±2 accuracy). Gene at level 3
+(not 1), no enemy near.
+
+**No input display** in these clips, so all times start at **onset = the
+first frame Gene moves**, not the button press. Startup (press → onset)
+and invulnerability windows are still unmeasured (G5/G6 with an input
+display). The follow camera sits behind Gene and re-frames after each
+dodge, so travel distance can't be read either.
+
+| Dodge | Reps | Phases (frames from onset) | Back to neutral | Earliest next dodge |
+|---|---|---|---|---|
+| **Back-sway** (back handspring toward the camera) | 6 + chain of 9 | crouch +2…+6, arms thrown up +8, inverted / hands down +10…+24, **feet land +26**, landing crouch +28…+30, upright +34…+36 | movement ends ~+44; turned back into the side-on stance ~+62 | **+30** (2 game frames after landing); the chained flip replays its full crouch, arms up at +38 |
+| **Side-sway left** | 2 + 10 chained | blurred low lunge sideways +2…+10, rising +12…+14 | upright +16; facing forward again ~+30 | **≤ +26** |
+| **Side-sway right** | 2 + 10 chained | blurred low lunge sideways +2…+14, rising +16…+20 | upright +22; facing forward again ~+30 | **≤ +26** |
+| **Duck** | 5 + chain of ~15 | low pose +2…+10 (afterimage trail on the first frames), rising after | upright +16…+20 | **~+8…+10** |
+
+Notes:
+
+- **Every back-sway is frame-identical** (6/6 singles and all 9 chained
+  hit the same landmarks to the frame) — a fixed animation, no variance.
+- **Back-sway chain (G4):** 9 in a row, no cap and no lockout seen. Arms-up
+  frames 54, 84, 114, 144, 176, 208, 240, 272, 304 → spacing 30, 30, 30,
+  then 32 ×5. The 32s are probably slower mashing (one game frame late),
+  so the earliest re-flip is **30 frames after the previous onset**. The
+  last flip of the chain recovers like a single one.
+- **Side sways (G2):** all 24 alternated L, R, L, R… (stick input unknown,
+  so we can't tell whether that's forced or just how they were pressed).
+  Chained sways are spaced exactly **26 frames** apart, every time (10 in a
+  row) — consistent with a fixed cancel point at +26, after upright but
+  before the forward-facing stance returns. Right sways lunge ~4 frames
+  longer than left ones (consistent across reps).
+- **Duck (G3):** three visibly different low poses — a deep curl to one
+  side, a forward hunch, and a straight drop with the legs wide — that
+  alternate between reps (random variants, or diagonal stick input; can't
+  tell without input display). Mashed ducks (video frames 280–426) start a
+  new duck every **8–10 frames** (onsets 280, 290, 300, 310, 320, 328, 336,
+  …; mean ≈ 9.5), i.e. the duck is cancellable into another duck right as
+  the low pose ends.
+- Single-rep onsets (video frame numbers, for re-checking): G1 102, 214,
+  320, 428, 554, 678 (518–552 is a camera swing); G2 56 L, 132 R, 206 L,
+  278 R; G3 38, 70, 120, 168, 238.
+
+**Compared with ours** (`FighterTuning`: one 24f dodge, chain from frame 16,
+max 2 in a row): GH's back-sway is a much longer committal move (lands at
+26, chainable at 30) and its duck a much shorter one (re-duck at ~9); side
+sways sit in between (26). GH puts no visible cap on chaining (9 back-sways
+in a row).
+
 ## Invulnerability ("muteki")
 
 - **A float countdown timer on the character**, not a hurtbox toggle.
@@ -180,7 +234,7 @@ frames per move come from data that isn't in the repo.
 
 | God Hand mechanic | Us |
 |---|---|
-| Right-stick sways / duck / back-sway | ✅ (frame data still unmeasured) |
+| Right-stick sways / duck / back-sway | ✅ (GH lengths/chains measured, see [Dodges](#dodges-measured-in-pcsx2); startup/invuln unmeasured) |
 | Invuln as state + tail | ✅ in effect (dodge invuln, wake-up tail) |
 | Attacks track in startup, lock at commit | ✅ (6°/frame, lock 2f before active) |
 | Tech out of knockdowns | ✅ air tech, quick rise, rolls |
