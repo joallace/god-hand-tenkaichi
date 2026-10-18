@@ -41,7 +41,7 @@ const INTERRUPTED: Array[int] = [S.HITSTUN, S.KNOCKDOWN, S.GUARD_BREAK, S.KO, S.
 const SAVED: Array[StringName] = [
 	&"_clock", &"_plan", &"_dodge_at", &"_dodge_dir", &"_walk", &"_walk_until",
 	&"_next_think", &"_opp_state", &"_opp_serial", &"_opp_known_at", &"_opp_seen_state",
-	&"_threat_serial", &"_my_serial", &"_my_state", &"_my_frame", &"_reflex_done",
+	&"_threat_serial", &"_my_serial", &"_my_state", &"_my_frame", &"_reflex_done", &"_rise_done",
 	&"_string_left", &"_chase", &"_followup", &"_counter_until", &"_contact_serial",
 	&"_contact_blocked", &"_punish_key", &"_last_held", &"_last_move",
 ]
@@ -77,6 +77,8 @@ var _my_serial: int = -1
 var _my_state: int = S.IDLE
 var _my_frame: int = 0
 var _reflex_done: bool = false
+## Get-up choice already made for the current knockdown (after landing).
+var _rise_done: bool = false
 ## LIGHT presses left before the finisher in the current string.
 var _string_left: int = 0
 ## The finisher being planned is a launcher to teleport after.
@@ -170,6 +172,7 @@ func _track_my_state() -> void:
 	if st != _my_state or me.state_frame() < _my_frame:
 		_my_state = st
 		_reflex_done = false
+		_rise_done = false
 		if st in INTERRUPTED:
 			_clear_plan()
 			_followup = false
@@ -196,6 +199,8 @@ func _decide() -> void:
 	match me.state:
 		S.HITSTUN:
 			_hitstun_reflex()
+		S.KNOCKDOWN:
+			_knockdown_reflex()
 		S.VANISH_WAIT:
 			_vanish_reflex()
 		S.DODGE:
@@ -231,6 +236,30 @@ func _hitstun_reflex() -> void:
 		return
 	if _roll(cfg.vanish_escape_chance):
 		_tap(B.GUARD, _clock + _reaction())
+
+
+## Knocked down: flip out in the air, or pick a get-up once on the floor.
+func _knockdown_reflex() -> void:
+	var t := me.tuning
+	if me.is_airborne():
+		if _reflex_done:
+			return
+		_reflex_done = true
+		if _roll(cfg.air_tech_chance):
+			_dodge_dir = D.BACK
+			_dodge_at = _clock + maxi(t.air_tech_min_frames - me.state_frame(), 0) + _reaction()
+		return
+	if _rise_done or me.lying_frames() < 0:
+		return
+	_rise_done = true
+	if not _roll(cfg.wakeup_option_chance):
+		return  # stay down until the automatic get-up
+	var at := _clock + maxi(t.knockdown_min_frames - me.lying_frames(), 0) + _reaction()
+	if _roll(cfg.wakeup_roll_chance):
+		_dodge_dir = [D.LEFT, D.RIGHT, D.BACK][rng.randi_range(0, 2)]
+		_dodge_at = at
+	else:
+		_tap(B.GUARD, at)
 
 
 ## Answer a vanish within the (shrinking) window, if fast enough.

@@ -19,7 +19,9 @@ func _ready() -> void:
 		_test_charge_punch, _test_heavy_at_range_blast, _test_charge_heavy_special,
 		_test_guard_teleport, _test_guard_vanish_escape, _test_guard_vanish, _test_guard_vanish_mash,
 		_test_guard_vanish_first_hit, _test_guard_vanish_window_hp, _test_attack_tracking,
-		_test_combo_scaling, _test_anti_loop_repeat, _test_anti_loop_relaunch, _test_determinism,
+		_test_combo_scaling, _test_anti_loop_repeat, _test_anti_loop_relaunch, _test_air_tech,
+		_test_quick_rise, _test_wakeup_roll, _test_stay_down, _test_dodge_chain, _test_dodge_queued_attack,
+		_test_determinism,
 	]
 	for t in tests:
 		t.call()
@@ -690,6 +692,107 @@ func _test_anti_loop_relaunch() -> void:
 				"relaunch past the cap pushes out (%.2f m/s)" % speed)
 		else:
 			_check(hit and speed < p2.tuning.loop_pushout_speed, "relaunch under the cap juggles (%.2f m/s)" % speed)
+
+
+## Put `f` into a knockdown: airborne (rising at `vy`) or about to land.
+func _knock_down(f: Fighter, airborne: bool, vy: float = 3.0) -> void:
+	f._enter(Fighter.State.KNOCKDOWN)
+	f._land_frame = -1
+	f.global_position.y = 1.0 if airborne else 0.0
+	f._vel = Vector3(0, vy if airborne else 0.0, 0)
+
+
+func _test_air_tech() -> void:
+	var d := _new_match()
+	var p2 := d.fighters[1]
+	var t := p2.tuning
+	_knock_down(p2, true)
+	_src(d, 1).flick(t.air_tech_min_frames - 10, InputFrame.Dodge.BACK)  # too early: expires
+	_run(d, t.air_tech_min_frames)
+	_check(p2.current_state_name() == &"knockdown", "air tech flick before the window does nothing")
+	var start := p2.global_position
+	_src(d, 1).flick(d.tick + 1 - _src(d, 1).start_tick, InputFrame.Dodge.LEFT)
+	_run(d, 1)
+	_check(p2.current_state_name() == &"dodge" and p2.dodge_kind() == Fighter.DodgeKind.AIR_TECH and p2.is_invulnerable(),
+		"dodge flick in the air flips out (air tech, invulnerable)")
+	var landed := _run_until(d, func() -> bool: return not p2.is_airborne(), 120)
+	_run(d, 1)
+	var away := (p2.global_position - start).dot(-(d.fighters[0].global_position - start).normalized())
+	_check(landed and p2.current_state_name() == &"idle" and p2.lying_frames() < 0 and away > 0.0,
+		"air tech lands on the feet, away from the opponent (%s, %.2f m)" % [p2.current_state_name(), away])
+
+
+func _test_quick_rise() -> void:
+	var d := _new_match()
+	var p2 := d.fighters[1]
+	var t := p2.tuning
+	_knock_down(p2, false)
+	_run(d, 2)
+	_src(d, 1).press(t.knockdown_min_frames + 2, B.LIGHT)
+	var rose := _run_until(d, func() -> bool: return p2.current_state_name() == &"wakeup", t.knockdown_frames)
+	_check(rose and p2.state_frame() <= 1 and _event_count(&"wakeup", 1) == 1, "button while lying rises early")
+	_run(d, 30)
+	_check(p2.current_move() == null, "quick-rise button doesn't also attack")
+
+
+func _test_wakeup_roll() -> void:
+	for dir: InputFrame.Dodge in [InputFrame.Dodge.LEFT, InputFrame.Dodge.BACK]:
+		var d := _new_match()
+		var p2 := d.fighters[1]
+		var t := p2.tuning
+		_knock_down(p2, false)
+		_run(d, 2)
+		var start := p2.global_position
+		_src(d, 1).flick(t.knockdown_min_frames + 2, dir)
+		var rolled := _run_until(d, func() -> bool: return p2.current_state_name() == &"dodge", t.knockdown_frames)
+		_check(rolled and p2.dodge_kind() == Fighter.DodgeKind.ROLL and p2.is_invulnerable(), "flick while lying rolls (%d)" % dir)
+		_run(d, t.dodge_move_frames + 2)
+		_check(p2.global_position.distance_to(start) > 1.0, "roll moves (%.2f m)" % p2.global_position.distance_to(start))
+
+
+func _test_stay_down() -> void:
+	var d := _new_match()
+	var p2 := d.fighters[1]
+	_knock_down(p2, false)
+	_run_until(d, func() -> bool: return p2.lying_frames() >= 0, 10)
+	_run(d, p2.tuning.knockdown_frames - 1)
+	var down := p2.current_state_name() == &"knockdown"
+	_run(d, 2)
+	_check(down and p2.current_state_name() == &"wakeup", "no input stays down knockdown_frames, then gets up")
+
+
+func _test_dodge_chain() -> void:
+	var d := _new_match(3.0)
+	var p1 := d.fighters[0]
+	var t := p1.tuning
+	var s := _src(d, 0)
+	s.flick(0, InputFrame.Dodge.LEFT).flick(5, InputFrame.Dodge.RIGHT)  # too early: expires
+	_run(d, t.dodge_chain_from_frame + 2)
+	_check(_event_count(&"dodge", 0) == 1, "dodge flick before dodge_chain_from_frame doesn't chain")
+	d = _new_match(3.0)
+	p1 = d.fighters[0]
+	s = _src(d, 0)
+	var at := 0
+	for i in t.dodge_chain_max + 2:
+		s.flick(at, InputFrame.Dodge.LEFT if i % 2 == 0 else InputFrame.Dodge.RIGHT)
+		at += t.dodge_chain_from_frame + 1
+	_run(d, at + 5)
+	_check(_event_count(&"dodge", 0) == t.dodge_chain_max + 1, "dodges chain up to dodge_chain_max (%d dodges)" % _event_count(&"dodge", 0))
+
+
+func _test_dodge_queued_attack() -> void:
+	var d := _new_match(3.0)
+	var p1 := d.fighters[0]
+	var t := p1.tuning
+	_src(d, 0).flick(0, InputFrame.Dodge.LEFT).press(3, B.LIGHT)
+	var frame := -1
+	for i in 40:
+		var was := p1.state_frame() if p1.current_state_name() == &"dodge" else -1
+		d.step()
+		if p1.current_state_name() == &"attack":
+			frame = was + 1
+			break
+	_check(frame == t.dodge_attack_from_frame, "attack pressed mid-dodge fires on frame %d (got %d)" % [t.dodge_attack_from_frame, frame])
 
 
 ## Save, simulate a busy exchange, load, re-simulate: states must match.

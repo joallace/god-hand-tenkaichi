@@ -11,7 +11,8 @@ var _events: Array = []  # [slot, kind, data]
 func _ready() -> void:
 	var tests: Array[Callable] = [
 		_test_fights, _test_levels_ordered, _test_defense_scales, _test_perfect_dodge,
-		_test_vanish_battle_response, _test_determinism, _test_save_load, _test_full_match,
+		_test_vanish_battle_response, _test_knockdown_options, _test_determinism, _test_save_load,
+		_test_full_match,
 	]
 	for t in tests:
 		t.call()
@@ -189,6 +190,39 @@ func _vanish_answers(lvl: int) -> int:
 				break
 		answered += _count(&"vanish", 1)
 	return answered
+
+
+## Knock a passive CPU down `trials` times (launched, or flat on the floor).
+## Returns how often it took an option: air tech (never lay down) when
+## launched, an early get-up (rise/roll before knockdown_frames) when flat.
+func _knockdown_options(lvl: int, airborne: bool, trials: int) -> int:
+	var d := _new_match([-1, lvl], 40 + lvl, 3.0)
+	_make_passive(d, 1)
+	var f := d.fighters[1]
+	var taken := 0
+	for i in trials:
+		f._enter(Fighter.State.KNOCKDOWN)
+		f._land_frame = -1
+		f.global_position.y = 1.0 if airborne else 0.0
+		f._vel = Vector3(0, 6.0 if airborne else 0.0, 0)
+		var longest := -1
+		for k in 150:
+			d.step()
+			longest = maxi(longest, f.lying_frames())
+			if f.current_state_name() == &"idle":
+				break
+		if airborne and longest < 0 or not airborne and longest < f.tuning.knockdown_frames - 1:
+			taken += 1
+	return taken
+
+
+func _test_knockdown_options() -> void:
+	var top := Tuning.cpu.level_count() - 1
+	var techs := _knockdown_options(top, true, 8)
+	_check(techs >= 4 and _knockdown_options(0, true, 8) == 0, "top CPU air techs launches, weakest never (%d/8)" % techs)
+	var rises := _knockdown_options(top, false, 8)
+	var weak_rises := _knockdown_options(0, false, 8)
+	_check(rises >= 4 and weak_rises < rises, "top CPU gets up early more often (%d/8 vs %d/8)" % [rises, weak_rises])
 
 
 func _test_vanish_battle_response() -> void:

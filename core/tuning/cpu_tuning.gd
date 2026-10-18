@@ -50,6 +50,12 @@ extends Resource
 @export var vanish_respond_chance: Vector2 = Vector2(0.05, 0.9)
 ## Chance to guard or sway an incoming ki blast / beam.
 @export var projectile_defend_chance: Vector2 = Vector2(0.1, 0.9)
+## Chance to flip back onto the feet when launched (air tech).
+@export var air_tech_chance: Vector2 = Vector2(0.0, 0.85)
+## Chance to get up early (quick rise or roll) instead of staying down.
+@export var wakeup_option_chance: Vector2 = Vector2(0.1, 0.9)
+## Of those early get-ups, the share that roll away.
+@export var wakeup_roll_chance: Vector2 = Vector2(0.2, 0.6)
 
 @export_group("Offense")
 ## Neutral game: chance to press forward / attack rather than wait or guard.

@@ -33,13 +33,13 @@ already converted to **60 Hz frames** unless marked `@30`.
 | After a paid vanish | forced counter-attack; opponent can Z-counter it back (unlimited duel) | — | ping-pong duel with shrinking window; ends with positions only |
 | Escape from mid-combo | not possible (mid-string hits undodgeable) — anti-loop rule instead | mash-out of grabs | vanish escape from hitstun, 2 bars (approved design) |
 | Dodge invuln | vanishing step: invuln for the whole ~14f burst; dash steps: first 20% | invuln is a countdown timer refreshed each state tick + tail (10/30/60f) | 12 of 24f |
-| Dodge chaining | successful dodge re-arms instantly; attacks buffer during step and fire at its end | (unmatched) — chained back-sways are a GH staple | dodge cannot cancel into dodge |
+| Dodge chaining | successful dodge re-arms instantly; attacks buffer during step and fire at its end | (unmatched) — chained back-sways are a GH staple | ~~no chaining~~ → **done:** chain from frame 16, max 2 in a row; LIGHT/HEAVY mid-dodge queues for frame 13 |
 | Combo scaling | from **5th hit**, −3%/hit, floor 50% | — | ~~0.92^n from 2nd hit, floor 35%~~ → **done:** BT3 curve |
 | Anti-loop | same light stagger twice in one combo → push-out reaction | consecutive-hit counter caps at 4 | ~~none~~ → **done:** repeated melee move or 3rd relaunch per segment = push-out knockdown (a teleport starts a new segment) |
 | Charged smash | full in 45f; tiers <0.3 / <0.99 / full; release on first full frame = invuln lunge | hold at charge marker, ~80f pool | 45f punch / 60f kick; ≥0.5 stun, full breaks guard |
 | Guard | chip **cannot KO**; per-move guard results (push, ki-guard, attacker recoil); throws beat guard | no guard | chip can KO; guard meter 100 → 50f break |
 | Throws | through guard; break = guard press within 10f | grab: ±45° facing, 3 m, blocked by invuln | none |
-| Knockdown → get-up | auto at 180f; **any button = get-up any time**; direction = roll L/R/F/B; can guard on wake | tech in a motion window → quick recovery with 10f invuln; wake-up attack if button pressed late | fixed 24f lie + 12f wakeup, 20f invuln, no options |
+| Knockdown → get-up | auto at 180f; **any button = get-up any time**; direction = roll L/R/F/B; can guard on wake | tech in a motion window → quick recovery with 10f invuln; wake-up attack if button pressed late | ~~fixed 24f lie~~ → **done:** air tech (flick in the air from 18f = backflip onto the feet), quick rise on any button / up flick from 8f lying, sway/backflip roll on a flick, auto get-up at 40f |
 | Stun | 30/60/90f, each press −6f | dizzy 300f, each press −10f | guard break 50f / charge stagger 36–60f, no mash |
 | Attack tracking | turn max(1.8°, 30% of diff) per frame @30 | enemies 5.6°/f during windup, **locked at commit**, then a 10f fast slide | ~~12°/f through startup~~ → **done:** 6°/f, locks 2f before active |
 | Ki on being hit | none (attacker gains per-move kiGain) | tension + dmg/maxHP×10 (max 10) | +3 per hit taken |
@@ -75,13 +75,13 @@ headless. Ordered by how much they should change *feel*.
    one combo → push-out / forced knockdown instead of a relaunch. Today the
    only loop limit is the 35% damage floor.
 
-4. **Get-up options.** Let a knocked-down fighter rise early with any button
+4. *(Implemented, plus a God Hand style air tech.)* **Get-up options.** Let a knocked-down fighter rise early with any button
    and roll with a stick direction (reuse sway/backflip motion), keeping wake-up
    invuln; stay down on no input up to a max (BT3: 180f — ours could be ~60f).
    Gives the defender a mix-up instead of a fixed timing the attacker can
    meaty.
 
-5. **Dodge chaining.** Allow cancelling a dodge into another dodge after the
+5. *(Implemented; chain timing still to be checked against PCSX2.)* **Dodge chaining.** Allow cancelling a dodge into another dodge after the
    invuln frames (or immediately after a perfect dodge), and buffer an attack
    pressed during a dodge to fire on the first vulnerable frame. Measure God
    Hand's real chain timing first (see PCSX2 list).

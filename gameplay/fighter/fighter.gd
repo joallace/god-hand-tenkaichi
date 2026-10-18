@@ -26,13 +26,15 @@ extends CombatEntity
 ##            guard_ratio() -> float, in_vanish_battle() -> bool,
 ##            charge_ratio() -> float, is_charging_strike() -> bool,
 ##            move_opens_string() -> bool, guard_vanish_window() -> int,
-##            frames_since_guard_press() -> int
+##            frames_since_guard_press() -> int, dodge_kind() -> DodgeKind,
+##            lying_frames() -> int
 ##
 ## `event` kinds (payload keys; every payload also has "slot" = emitter slot):
 ##   &"hit"            {attacker_slot, damage, position, heavy, blocked, combo}
 ##                     (emitted by the VICTIM)
 ##   &"perfect_dodge"  {attacker_slot, dodge: StringName, position}
-##   &"dodge"          {dodge: StringName}            (dodge started)
+##   &"dodge"          {dodge: StringName, kind: StringName} (dodge started;
+##                     kind &"dodge" | &"air_tech" | &"roll")
 ##   &"guard_break"    {position}                     (guard health hit 0)
 ##   &"stagger"        {position}                     (perfect-ducked attacker,
 ##                                                     or stunned by a charge strike)
@@ -48,7 +50,7 @@ extends CombatEntity
 ##   &"ultimate_start" {freeze_frames}
 ##   &"not_enough_ki"  {needed, have}
 ##   &"knockdown"      {position}
-##   &"wakeup"         {}
+##   &"wakeup"         {}                             (also on a quick rise)
 ##   &"ko"             {position}
 ##
 ## Strikes: HEAVY reads the stick when it starts (forward = high, neutral =
@@ -66,6 +68,12 @@ extends CombatEntity
 ##     the first hit of a guardable melee string lands (vanish instead of
 ##     blocking; a press soon after the previous one never vanishes).
 ##
+## Dodges (right-stick flick) chain into each other from
+## dodge_chain_from_frame, up to dodge_chain_max times; LIGHT/HEAVY pressed
+## during one is queued for its first vulnerable frame. Knocked down: a flick
+## in the air flips back onto the feet (air tech); on the floor a button rises
+## at once and a flick rolls.
+##
 ## Facing convention: the fighter's -Z (Godot forward) points at the opponent
 ## while locked on. InputFrame.move +Y = toward opponent, +X = strafe right.
 ## Fighter-space Vector3 (MoveData offsets): x = right, y = up, z = forward.
@@ -81,6 +89,8 @@ enum State {
 	CHARGE, HITSTUN, KNOCKDOWN, WAKEUP, TELEPORT, VANISH_WAIT, KO,
 }
 enum TeleportKind { OFFENSE, ESCAPE }
+## DODGE state flavors: a normal dodge, an air recovery flip, a get-up roll.
+enum DodgeKind { DODGE, AIR_TECH, ROLL }
 
 const STATE_NAMES: Array[StringName] = [
 	&"idle", &"walk", &"dash", &"jump", &"attack", &"dodge", &"guard",
@@ -88,6 +98,7 @@ const STATE_NAMES: Array[StringName] = [
 	&"wakeup", &"teleport", &"vanish_wait", &"ko",
 ]
 const DODGE_NAMES: Array[StringName] = [&"none", &"duck", &"backflip", &"sway_l", &"sway_r"]
+const DODGE_KIND_NAMES: Array[StringName] = [&"dodge", &"air_tech", &"roll"]
 ## Number of InputFrame.Btn bits tracked by the press buffer.
 const BUFFER_SIZE := 10
 const NEVER := 1 << 20
@@ -118,6 +129,11 @@ var _spawned: bool = false
 var _damage_mult: float = 1.0
 var _air_attack_used: bool = false
 var _dodge_dir: int = InputFrame.Dodge.NONE
+var _dodge_kind: int = DodgeKind.DODGE
+## Dodges chained in a row (0 for the first).
+var _dodge_chain: int = 0
+## LIGHT/HEAVY queued during a dodge (0 = none).
+var _dodge_queued_btn: int = 0
 var _counter_frames: int = 0
 var _invuln_frames: int = 0
 ## Frame (of the current knockdown/KO state) the fighter landed; -1 airborne.
@@ -235,6 +251,9 @@ func reset_for_round(xform: Transform3D) -> void:
 	_heavy_height = MoveData.Height.MID
 	_air_attack_used = false
 	_dodge_dir = InputFrame.Dodge.NONE
+	_dodge_kind = DodgeKind.DODGE
+	_dodge_chain = 0
+	_dodge_queued_btn = 0
 	_counter_frames = 0
 	_invuln_frames = 0
 	_land_frame = -1
@@ -291,6 +310,8 @@ func is_invulnerable() -> bool:
 		State.TELEPORT, State.KO:
 			return true
 		State.DODGE:
+			if _dodge_kind == DodgeKind.AIR_TECH:
+				return true  # until it lands
 			return _state_frame >= tuning.dodge_invuln_start \
 				and _state_frame < tuning.dodge_invuln_start + tuning.dodge_invuln_frames
 		State.KNOCKDOWN:
@@ -362,6 +383,17 @@ func guard_vanish_window() -> int:
 
 func frames_since_guard_press() -> int:
 	return _since_guard_press
+
+
+func dodge_kind() -> DodgeKind:
+	return _dodge_kind as DodgeKind
+
+
+## Frames spent lying on the ground in the current knockdown; -1 otherwise.
+func lying_frames() -> int:
+	if state != State.KNOCKDOWN or _land_frame < 0:
+		return -1
+	return _state_frame - _land_frame
 
 
 ## 0 startup, 1 active, 2 recovery; -1 when not attacking.
@@ -458,7 +490,7 @@ func get_hurtbox() -> Array:
 
 ## Apply a hitbox that overlapped this fighter. Returns the Contact outcome.
 func receive_hit(hb: Hitbox) -> Contact:
-	if state == State.DODGE and _state_frame < tuning.perfect_dodge_frames:
+	if state == State.DODGE and _dodge_kind == DodgeKind.DODGE and _state_frame < tuning.perfect_dodge_frames:
 		_on_perfect_dodge(hb)
 		return Contact.PERFECT_DODGE
 	if is_invulnerable() or get_hurtbox().is_empty():
@@ -680,15 +712,6 @@ func _pick_cancel(m: MoveData, btn: int) -> StringName:
 	return first
 
 
-## Neutral attack buttons (used for perfect-dodge counters).
-func _try_attack_buttons_neutral() -> bool:
-	if _consume(InputFrame.Btn.HEAVY):
-		return _start_move_id(_heavy_for_stick())
-	if _consume(InputFrame.Btn.LIGHT):
-		return _start_move_id(def.light_string[0])
-	return false
-
-
 func _start_move_id(move_id: StringName) -> bool:
 	var m := def.move(move_id) if move_id != &"" else null
 	if m == null:
@@ -716,21 +739,38 @@ func _start_move(m: MoveData) -> void:
 	_damage_mult = mult
 
 
-func _try_dodge() -> bool:
-	if _dodge_buf_frames <= 0 or _dodge_buf_dir == InputFrame.Dodge.NONE:
+func _dodge_buffered() -> bool:
+	return _dodge_buf_frames > 0 and _dodge_buf_dir != InputFrame.Dodge.NONE
+
+
+func _try_dodge(kind: DodgeKind = DodgeKind.DODGE) -> bool:
+	if not _dodge_buffered():
 		return false
-	_dodge_dir = _dodge_buf_dir
+	var chained := state == State.DODGE
+	_dodge_dir = InputFrame.Dodge.BACK if kind == DodgeKind.AIR_TECH else _dodge_buf_dir
 	_dodge_buf_frames = 0
 	_dodge_buf_dir = InputFrame.Dodge.NONE
 	_enter(State.DODGE)
+	_dodge_kind = kind
+	_dodge_chain = _dodge_chain + 1 if chained else 0
+	_dodge_queued_btn = 0
 	_vel.x = 0.0
 	_vel.z = 0.0
-	event.emit(&"dodge", {"slot": slot, "dodge": DODGE_NAMES[_dodge_dir]})
+	if kind == DodgeKind.AIR_TECH:
+		_vel.y = tuning.air_tech_lift
+	event.emit(&"dodge", {"slot": slot, "dodge": DODGE_NAMES[_dodge_dir], "kind": DODGE_KIND_NAMES[kind]})
 	return true
 
 
 func _tick_dodge() -> void:
 	var f := _state_frame
+	if _dodge_kind == DodgeKind.AIR_TECH:
+		_face_opponent(_turn_step())
+		_set_ground_velocity(-_fwd() * tuning.air_tech_back_speed)
+		return  # ends on landing (_on_land)
+	if _dodge_kind == DodgeKind.DODGE and _dodge_chain < tuning.dodge_chain_max \
+			and (f >= tuning.dodge_chain_from_frame or _counter_frames > 0) and _try_dodge():
+		return
 	var move_frames := maxi(tuning.dodge_move_frames, 1)
 	match _dodge_dir:
 		InputFrame.Dodge.LEFT, InputFrame.Dodge.RIGHT:
@@ -742,10 +782,26 @@ func _tick_dodge() -> void:
 			_set_ground_velocity(-_fwd() * speed if f <= move_frames else Vector3.ZERO)
 		_:
 			_set_ground_velocity(Vector3.ZERO)
-	if _counter_frames > 0 and _try_attack_buttons_neutral():
+	if _try_dodge_attack(f):
 		return
 	if f >= tuning.dodge_total_frames:
 		_enter(State.IDLE)
+
+
+## Queue LIGHT/HEAVY pressed during a dodge; fire it on the first vulnerable
+## frame, or at once in a perfect-dodge counter window.
+func _try_dodge_attack(f: int) -> bool:
+	for btn: int in [InputFrame.Btn.HEAVY, InputFrame.Btn.LIGHT]:
+		if _consume(btn):
+			_dodge_queued_btn = btn
+			break
+	if _dodge_queued_btn == 0 or (_counter_frames <= 0 and f < tuning.dodge_attack_from_frame):
+		return false
+	var btn := _dodge_queued_btn
+	_dodge_queued_btn = 0
+	if btn == InputFrame.Btn.HEAVY:
+		return _start_move_id(_heavy_for_stick())
+	return _start_move_id(def.light_string[0] if not def.light_string.is_empty() else &"")
 
 
 ## Move `step` meters along an arc around the opponent (sidestep).
@@ -805,13 +861,43 @@ func _tick_hitstun() -> void:
 func _tick_knockdown() -> void:
 	if _land_frame < 0 and not is_airborne():
 		_land_frame = _state_frame
-	if state == State.KO or _land_frame < 0:
+	if state == State.KO:
 		return
-	if _state_frame - _land_frame >= tuning.knockdown_frames:
-		_end_opponent_combo()
-		_enter(State.WAKEUP)
-		_invuln_frames = tuning.wakeup_invuln_frames
-		event.emit(&"wakeup", {"slot": slot})
+	if _land_frame < 0:
+		if _state_frame >= tuning.air_tech_min_frames and _try_dodge(DodgeKind.AIR_TECH):
+			_end_opponent_combo()
+		return
+	var lying := _state_frame - _land_frame
+	if lying >= tuning.knockdown_min_frames:
+		if _dodge_buffered() and _dodge_buf_dir != InputFrame.Dodge.FORWARD:
+			_end_opponent_combo()
+			_try_dodge(DodgeKind.ROLL)
+			_invuln_frames = tuning.wakeup_invuln_frames
+			return
+		if _consume_rise():
+			_wake_up()
+			return
+	if lying >= tuning.knockdown_frames:
+		_wake_up()
+
+
+## Quick rise: any action button, or an up flick (duck), while lying.
+func _consume_rise() -> bool:
+	if _dodge_buffered():  # only FORWARD reaches here
+		_dodge_buf_frames = 0
+		_dodge_buf_dir = InputFrame.Dodge.NONE
+		return true
+	var any := false
+	for btn: int in [InputFrame.Btn.LIGHT, InputFrame.Btn.HEAVY, InputFrame.Btn.GUARD, InputFrame.Btn.JUMP]:
+		any = _consume(btn) or any
+	return any
+
+
+func _wake_up() -> void:
+	_end_opponent_combo()
+	_enter(State.WAKEUP)
+	_invuln_frames = tuning.wakeup_invuln_frames
+	event.emit(&"wakeup", {"slot": slot})
 
 
 func _tick_wakeup() -> void:
@@ -1239,6 +1325,11 @@ func _on_land() -> void:
 		State.KNOCKDOWN, State.KO:
 			_vel.x *= 0.5
 			_vel.z *= 0.5
+		State.DODGE:
+			if _dodge_kind == DodgeKind.AIR_TECH:
+				_vel.x = 0.0
+				_vel.z = 0.0
+				_enter(State.IDLE)
 
 
 func _set_ground_velocity(v: Vector3) -> void:
@@ -1401,6 +1492,7 @@ func save_state() -> Dictionary:
 		"since_guard_press": _since_guard_press, "guard_press_armed": _guard_press_armed,
 		"move_opens_string": _move_opens_string, "combo_moves_taken": _combo_moves_taken.duplicate(),
 		"combo_relaunches": _combo_relaunches, "combo_last_melee": _combo_last_melee,
+		"dodge_kind": _dodge_kind, "dodge_chain": _dodge_chain, "dodge_queued_btn": _dodge_queued_btn,
 	})
 	return s
 
@@ -1458,6 +1550,9 @@ func load_state(s: Dictionary) -> void:
 	_combo_moves_taken = (s["combo_moves_taken"] as Array[StringName]).duplicate()
 	_combo_relaunches = s["combo_relaunches"]
 	_combo_last_melee = s["combo_last_melee"]
+	_dodge_kind = s["dodge_kind"]
+	_dodge_chain = s["dodge_chain"]
+	_dodge_queued_btn = s["dodge_queued_btn"]
 	health_changed.emit(health, tuning.max_health)
 	ki_changed.emit(ki, ki_max())
 	combo_changed.emit(combo_hits)

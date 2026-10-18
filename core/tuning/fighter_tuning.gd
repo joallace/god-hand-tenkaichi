@@ -56,6 +56,14 @@ extends Resource
 @export var perfect_dodge_hitstop: int = 6
 ## Stagger applied to an attacker whose melee hit was perfectly ducked.
 @export var perfect_duck_stagger_frames: int = 40
+## A dodge flick from this frame of a dodge (or any frame of a perfect-dodge
+## counter window) chains into another dodge, at most dodge_chain_max times
+## in a row. Frames between the invuln end and this stay punishable.
+@export var dodge_chain_from_frame: int = 16
+@export var dodge_chain_max: int = 2
+## LIGHT/HEAVY pressed during a dodge is queued and fires on this frame (the
+## first vulnerable one), or at once inside a perfect-dodge counter window.
+@export var dodge_attack_from_frame: int = 13
 
 @export_group("Guard")
 @export var guard_chip_ratio: float = 0.15
@@ -72,8 +80,16 @@ extends Resource
 @export_group("Hit reactions")
 @export var hitstop_light: int = 4
 @export var hitstop_heavy: int = 8
-## Frames spent lying on the ground after landing, before getting up.
-@export var knockdown_frames: int = 24
+## Longest a fighter stays lying on the ground (no input) before getting up.
+@export var knockdown_frames: int = 40
+## From this many frames lying, a button gets up at once (quick rise) and a
+## dodge flick rolls (sway left/right, backflip back; up = quick rise).
+@export var knockdown_min_frames: int = 8
+## Airborne knockdown: from this frame after the last hit, a dodge flick
+## flips back and lands on the feet (God Hand style air recovery).
+@export var air_tech_min_frames: int = 18
+@export var air_tech_back_speed: float = 5.0
+@export var air_tech_lift: float = 4.0
 @export var wakeup_invuln_frames: int = 20
 ## Length of the get-up (Wakeup) state; invuln may outlast it.
 @export var wakeup_frames: int = 12
