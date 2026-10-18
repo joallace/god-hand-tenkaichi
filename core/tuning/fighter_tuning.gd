@@ -37,17 +37,38 @@ extends Resource
 @export var ground_friction: float = 30.0
 
 @export_group("Dodge")
-@export var dodge_total_frames: int = 24
+## Per-direction timings follow God Hand's dodges measured in PCSX2
+## (docs/god_hand_reference.md#dodges-measured-in-pcsx2): a short, quickly
+## repeatable duck, a mid-length side sway, a long committal back-sway.
+## Invulnerability lasts dodge_invuln_start .. +<dir>_invuln_frames (GH's
+## invuln is still unmeasured); every frame between its end and
+## <dir>_chain_from_frame stays punishable, so endless chains aren't safe.
+## total = back to neutral, chain_from = earliest next dodge, attack_from =
+## when a LIGHT/HEAVY pressed mid-dodge fires.
 @export var dodge_invuln_start: int = 1
-@export var dodge_invuln_frames: int = 12
+## Duck (GH: low +2..+10, upright +16..+20, re-duck every 8-10).
+@export var duck_total_frames: int = 18
+@export var duck_invuln_frames: int = 6
+@export var duck_chain_from_frame: int = 10
+@export var duck_attack_from_frame: int = 10
+## Side sway (GH: lunge +2..+10/+14, upright +16..+22, next sway at +26).
+@export var sway_total_frames: int = 26
+@export var sway_invuln_frames: int = 12
+@export var sway_move_frames: int = 12
+@export var sway_chain_from_frame: int = 26
+@export var sway_attack_from_frame: int = 18
+## Back-sway (GH: lands +26, upright +34..+36, next back-sway at +30).
+@export var backflip_total_frames: int = 36
+@export var backflip_invuln_frames: int = 20
+@export var backflip_move_frames: int = 26
+@export var backflip_chain_from_frame: int = 30
+@export var backflip_attack_from_frame: int = 30
 ## Hit attempted during the first N frames of a dodge = perfect dodge.
 @export var perfect_dodge_frames: int = 4
 @export var perfect_dodge_counter_frames: int = 30
 @export var sway_distance: float = 1.6
 @export var backflip_distance: float = 2.8
 @export var duck_cooldown_frames: int = 0
-## Frames over which sway/backflip travel their distance.
-@export var dodge_move_frames: int = 12
 ## Last N frames of an attack's recovery can be canceled into a dodge.
 @export var dodge_cancel_recovery_frames: int = 8
 ## Damage multiplier of the counter attack after a perfect dodge.
@@ -56,14 +77,12 @@ extends Resource
 @export var perfect_dodge_hitstop: int = 6
 ## Stagger applied to an attacker whose melee hit was perfectly ducked.
 @export var perfect_duck_stagger_frames: int = 40
-## A dodge flick from this frame of a dodge (or any frame of a perfect-dodge
+## A dodge flick from <dir>_chain_from_frame (or any frame of a perfect-dodge
 ## counter window) chains into another dodge, at most dodge_chain_max times
-## in a row. Frames between the invuln end and this stay punishable.
-@export var dodge_chain_from_frame: int = 16
-@export var dodge_chain_max: int = 2
-## LIGHT/HEAVY pressed during a dodge is queued and fires on this frame (the
-## first vulnerable one), or at once inside a perfect-dodge counter window.
-@export var dodge_attack_from_frame: int = 13
+## in a row; 0 = no cap (GH: 9 back-sways in a row, no lockout). A queued
+## LIGHT/HEAVY fires at <dir>_attack_from_frame, or at once in a counter
+## window.
+@export var dodge_chain_max: int = 0
 
 @export_group("Guard")
 ## BT3 guard: no guard meter. Each move has a GuardResult per guard pose

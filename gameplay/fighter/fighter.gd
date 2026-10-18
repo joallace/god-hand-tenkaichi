@@ -96,9 +96,10 @@ extends CombatEntity
 ##   Every teleport reappears around the opponent where the left stick points
 ##   (see FighterTuning.teleport_dir_threshold); neutral = behind them.
 ##
-## Dodges (right-stick flick) chain into each other from
-## dodge_chain_from_frame, up to dodge_chain_max times; LIGHT/HEAVY pressed
-## during one is queued for its first vulnerable frame. Knocked down: a flick
+## Dodges (right-stick flick) have per-direction timings (duck / sway /
+## backflip, see FighterTuning) and chain into each other from their
+## chain_from frame, up to dodge_chain_max times (0 = no cap); LIGHT/HEAVY
+## pressed during one is queued for its attack_from frame. Knocked down: a flick
 ## in the air flips back onto the feet (air tech); on the floor a button rises
 ## at once and a flick rolls.
 ##
@@ -375,8 +376,8 @@ func is_invulnerable() -> bool:
 		State.DODGE:
 			if _dodge_kind == DodgeKind.AIR_TECH:
 				return true  # until it lands
-			return _state_frame >= tuning.dodge_invuln_start \
-				and _state_frame < tuning.dodge_invuln_start + tuning.dodge_invuln_frames
+			return _state_frame >= tuning.dodge_invuln_start and _state_frame < tuning.dodge_invuln_start \
+				+ _per_dodge(tuning.duck_invuln_frames, tuning.sway_invuln_frames, tuning.backflip_invuln_frames)
 		State.KNOCKDOWN:
 			return _land_frame >= 0  # lying on the ground
 	return false
@@ -875,34 +876,50 @@ func _tick_dodge() -> void:
 		_face_opponent(_turn_step())
 		_set_ground_velocity(-_fwd() * tuning.air_tech_back_speed)
 		return  # ends on landing (_on_land)
-	if _dodge_kind == DodgeKind.DODGE and _dodge_chain < tuning.dodge_chain_max \
-			and (f >= tuning.dodge_chain_from_frame or _counter_frames > 0) and _try_dodge():
+	var chain_from := _per_dodge(tuning.duck_chain_from_frame, tuning.sway_chain_from_frame,
+		tuning.backflip_chain_from_frame)
+	if _dodge_kind == DodgeKind.DODGE \
+			and (tuning.dodge_chain_max <= 0 or _dodge_chain < tuning.dodge_chain_max) \
+			and (f >= chain_from or _counter_frames > 0) and _try_dodge():
 		return
-	var move_frames := maxi(tuning.dodge_move_frames, 1)
 	match _dodge_dir:
 		InputFrame.Dodge.LEFT, InputFrame.Dodge.RIGHT:
-			if f <= move_frames:
-				_sway_step(tuning.sway_distance / move_frames, _dodge_dir == InputFrame.Dodge.RIGHT)
+			var sway_frames := maxi(tuning.sway_move_frames, 1)
+			if f <= sway_frames:
+				_sway_step(tuning.sway_distance / sway_frames, _dodge_dir == InputFrame.Dodge.RIGHT)
 			_set_ground_velocity(Vector3.ZERO)
 		InputFrame.Dodge.BACK:
-			var speed := tuning.backflip_distance / (move_frames / float(Tuning.match_rules.tick_rate))
-			_set_ground_velocity(-_fwd() * speed if f <= move_frames else Vector3.ZERO)
+			var flip_frames := maxi(tuning.backflip_move_frames, 1)
+			var speed := tuning.backflip_distance / (flip_frames / float(Tuning.match_rules.tick_rate))
+			_set_ground_velocity(-_fwd() * speed if f <= flip_frames else Vector3.ZERO)
 		_:
 			_set_ground_velocity(Vector3.ZERO)
 	if _try_dodge_attack(f):
 		return
-	if f >= tuning.dodge_total_frames:
+	if f >= _per_dodge(tuning.duck_total_frames, tuning.sway_total_frames, tuning.backflip_total_frames):
 		_enter(State.IDLE)
 
 
-## Queue LIGHT/HEAVY pressed during a dodge; fire it on the first vulnerable
-## frame, or at once in a perfect-dodge counter window.
+## Pick the duck / sway / backflip value for the current dodge direction.
+func _per_dodge(duck: int, sway: int, backflip: int) -> int:
+	match _dodge_dir:
+		InputFrame.Dodge.FORWARD:
+			return duck
+		InputFrame.Dodge.BACK:
+			return backflip
+	return sway
+
+
+## Queue LIGHT/HEAVY pressed during a dodge; fire it on the direction's
+## attack_from frame, or at once in a perfect-dodge counter window.
 func _try_dodge_attack(f: int) -> bool:
 	for btn: int in [InputFrame.Btn.HEAVY, InputFrame.Btn.LIGHT]:
 		if _consume(btn):
 			_dodge_queued_btn = btn
 			break
-	if _dodge_queued_btn == 0 or (_counter_frames <= 0 and f < tuning.dodge_attack_from_frame):
+	var attack_from := _per_dodge(tuning.duck_attack_from_frame, tuning.sway_attack_from_frame,
+		tuning.backflip_attack_from_frame)
+	if _dodge_queued_btn == 0 or (_counter_frames <= 0 and f < attack_from):
 		return false
 	var btn := _dodge_queued_btn
 	_dodge_queued_btn = 0

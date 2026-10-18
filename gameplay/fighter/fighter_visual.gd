@@ -275,7 +275,7 @@ func _apply_procedural() -> void:
 			_add_rot(&"kn_r", -maxf(s, 0.0))
 		&"dodge":
 			if f.dodge_direction() == InputFrame.Dodge.BACK:
-				var p := clampf(f.state_frame() / float(maxi(f.tuning.dodge_move_frames, 1)), 0.0, 1.0)
+				var p := clampf(f.state_frame() / float(maxi(f.tuning.backflip_move_frames, 1)), 0.0, 1.0)
 				var spin: Node3D = _joints[&"spin"]
 				spin.rotation_degrees.x = 360.0 * p
 				_body.position.y += sin(PI * p) * 0.8

@@ -87,11 +87,12 @@ Notes:
   320, 428, 554, 678 (518–552 is a camera swing); G2 56 L, 132 R, 206 L,
   278 R; G3 38, 70, 120, 168, 238.
 
-**Compared with ours** (`FighterTuning`: one 24f dodge, chain from frame 16,
-max 2 in a row): GH's back-sway is a much longer committal move (lands at
-26, chainable at 30) and its duck a much shorter one (re-duck at ~9); side
-sways sit in between (26). GH puts no visible cap on chaining (9 back-sways
-in a row).
+**Ours now follows these** (`FighterTuning`, per direction): duck 18f
+(chain from 10), side sway 26f (chain at 26), back-sway 36f (travels over
+26f, chain from 30), no chain cap. Invuln (6 / 12 / 20f from frame 1) is
+still our pick and always ends before the chain frame, so chains stay
+punishable. Previously one 24f dodge for all directions, chain from 16,
+max 2 in a row.
 
 ## Invulnerability ("muteki")
 

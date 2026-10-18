@@ -22,7 +22,7 @@ func _ready() -> void:
 		_test_guard_teleport, _test_guard_vanish_escape, _test_guard_vanish, _test_guard_vanish_mash,
 		_test_guard_vanish_first_hit, _test_guard_vanish_window_hp, _test_attack_tracking,
 		_test_combo_scaling, _test_anti_loop_repeat, _test_anti_loop_relaunch, _test_air_tech,
-		_test_quick_rise, _test_wakeup_roll, _test_stay_down, _test_dodge_chain, _test_dodge_queued_attack,
+		_test_quick_rise, _test_wakeup_roll, _test_stay_down, _test_dodge_chain, _test_dodge_lengths, _test_dodge_queued_attack,
 		_test_determinism, _test_determinism_bt3,
 	]
 	for t in tests:
@@ -967,7 +967,7 @@ func _test_wakeup_roll() -> void:
 		_src(d, 1).flick(t.knockdown_min_frames + 2, dir)
 		var rolled := _run_until(d, func() -> bool: return p2.current_state_name() == &"dodge", t.knockdown_frames)
 		_check(rolled and p2.dodge_kind() == Fighter.DodgeKind.ROLL and p2.is_invulnerable(), "flick while lying rolls (%d)" % dir)
-		_run(d, t.dodge_move_frames + 2)
+		_run(d, maxi(t.sway_move_frames, t.backflip_move_frames) + 2)
 		_check(p2.global_position.distance_to(start) > 1.0, "roll moves (%.2f m)" % p2.global_position.distance_to(start))
 
 
@@ -987,18 +987,62 @@ func _test_dodge_chain() -> void:
 	var p1 := d.fighters[0]
 	var t := p1.tuning
 	var s := _src(d, 0)
-	s.flick(0, InputFrame.Dodge.LEFT).flick(5, InputFrame.Dodge.RIGHT)  # too early: expires
-	_run(d, t.dodge_chain_from_frame + 2)
-	_check(_event_count(&"dodge", 0) == 1, "dodge flick before dodge_chain_from_frame doesn't chain")
+	s.flick(0, InputFrame.Dodge.BACK).flick(5, InputFrame.Dodge.BACK)  # too early: expires
+	_run(d, t.backflip_chain_from_frame + 2)
+	_check(_event_count(&"dodge", 0) == 1, "backflip flick before backflip_chain_from_frame doesn't chain")
+	# Back-sways chain with no cap (GH), each leaving a vulnerable gap.
 	d = _new_match(3.0)
 	p1 = d.fighters[0]
 	s = _src(d, 0)
+	var n := 6
 	var at := 0
+	for i in n:
+		s.flick(at, InputFrame.Dodge.BACK)
+		at += t.backflip_chain_from_frame + 1
+	_run(d, t.dodge_invuln_start + t.backflip_invuln_frames + 2)
+	_check(p1.current_state_name() == &"dodge" and not p1.is_invulnerable(),
+		"backflip is punishable between its invuln end and its chain frame")
+	_run(d, at)
+	_check(_event_count(&"dodge", 0) == n, "back-sways chain without a cap (%d dodges)" % _event_count(&"dodge", 0))
+	# Ducks re-chain much sooner than back-sways.
+	d = _new_match(3.0)
+	s = _src(d, 0)
+	at = 0
+	for i in n:
+		s.flick(at, InputFrame.Dodge.FORWARD)
+		at += t.duck_chain_from_frame + 1
+	_run(d, at)
+	_check(_event_count(&"dodge", 0) == n, "ducks chain every %d frames (%d dodges)" % [t.duck_chain_from_frame + 1, _event_count(&"dodge", 0)])
+	# A positive dodge_chain_max still caps the chain.
+	var cap := t.dodge_chain_max
+	t.dodge_chain_max = 2
+	d = _new_match(3.0)
+	s = _src(d, 0)
+	at = 0
 	for i in t.dodge_chain_max + 2:
-		s.flick(at, InputFrame.Dodge.LEFT if i % 2 == 0 else InputFrame.Dodge.RIGHT)
-		at += t.dodge_chain_from_frame + 1
-	_run(d, at + 5)
-	_check(_event_count(&"dodge", 0) == t.dodge_chain_max + 1, "dodges chain up to dodge_chain_max (%d dodges)" % _event_count(&"dodge", 0))
+		s.flick(at, InputFrame.Dodge.FORWARD)
+		at += t.duck_chain_from_frame + 1
+	_run(d, at)
+	var capped := _event_count(&"dodge", 0)
+	t.dodge_chain_max = cap
+	_check(capped == 3, "dodge_chain_max = 2 allows 3 dodges in a row (%d)" % capped)
+
+
+## Each dodge direction lasts its own total (GH-measured duck < sway < back-sway).
+func _test_dodge_lengths() -> void:
+	for dir: InputFrame.Dodge in [InputFrame.Dodge.FORWARD, InputFrame.Dodge.LEFT, InputFrame.Dodge.BACK]:
+		var d := _new_match(3.0)
+		var p1 := d.fighters[0]
+		var t := p1.tuning
+		var want: int = {InputFrame.Dodge.FORWARD: t.duck_total_frames, InputFrame.Dodge.LEFT: t.sway_total_frames,
+			InputFrame.Dodge.BACK: t.backflip_total_frames}[dir]
+		_src(d, 0).flick(0, dir)
+		_run_until(d, func() -> bool: return p1.current_state_name() == &"dodge", 5)
+		var frames := 0  # ticks spent in the dodge state
+		while p1.current_state_name() == &"dodge" and frames < want * 2:
+			frames += 1
+			d.step()
+		_check(frames == want, "dodge %d lasts %d frames (got %d)" % [dir, want, frames])
 
 
 func _test_dodge_queued_attack() -> void:
@@ -1013,7 +1057,7 @@ func _test_dodge_queued_attack() -> void:
 		if p1.current_state_name() == &"attack":
 			frame = was + 1
 			break
-	_check(frame == t.dodge_attack_from_frame, "attack pressed mid-dodge fires on frame %d (got %d)" % [t.dodge_attack_from_frame, frame])
+	_check(frame == t.sway_attack_from_frame, "attack pressed mid-sway fires on frame %d (got %d)" % [t.sway_attack_from_frame, frame])
 
 
 ## Save, simulate a busy exchange, load, re-simulate: states must match.
