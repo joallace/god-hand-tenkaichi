@@ -23,6 +23,12 @@ extends Resource
 @export var gravity: float = 24.0
 @export var body_radius: float = 0.45
 @export var turn_speed_deg: float = 720.0
+## Turn speed while an attack tracks the opponent during startup. Slower than
+## turn_speed_deg so an early sway outruns it (God Hand enemies ~340 deg/s).
+@export var attack_track_turn_deg: float = 360.0
+## Moves without an explicit track_frames stop tracking this many frames
+## before their first active frame (the swing commits).
+@export var attack_track_lock_frames: int = 2
 ## Hurtbox capsule heights (m): standing, ducking, lying on the ground.
 @export var body_height: float = 1.8
 @export var duck_height: float = 0.9
@@ -71,9 +77,17 @@ extends Resource
 @export var wakeup_invuln_frames: int = 20
 ## Length of the get-up (Wakeup) state; invuln may outlast it.
 @export var wakeup_frames: int = 12
-## Damage scaling per hit in a combo (multiplied), with a floor.
-@export var combo_scaling: float = 0.92
-@export var combo_scaling_min: float = 0.35
+## Combo damage scaling (BT3-style): the first N hits of a combo deal full
+## damage, then each further hit loses `combo_scaling_step`, down to the floor.
+@export var combo_scaling_start_hit: int = 4
+@export var combo_scaling_step: float = 0.03
+@export var combo_scaling_min: float = 0.5
+## Anti-loop: a melee move that already hit this combo segment (since the
+## combo started or the attacker's last teleport) pushes the victim out into
+## a knockdown instead of its normal reaction. So does a relaunch of an
+## airborne victim beyond this many per segment.
+@export var juggle_max_relaunches: int = 2
+@export var loop_pushout_speed: float = 8.0
 
 @export_group("Strikes")
 ## Stick Y beyond this picks the high (forward) / low (back) HEAVY variant.
@@ -99,9 +113,18 @@ extends Resource
 @export var teleport_followup_window: int = 20
 ## Frames after one of your hits lands in which TELEPORT (or GUARD) teleports.
 @export var teleport_hit_window: int = 30
-## GUARD pressed at most this many frames before a guardable melee hit lands
-## vanishes (starts a vanish battle) instead of blocking, if ki allows.
-@export var guard_vanish_window: int = 6
+## GUARD pressed at most this many frames before the first hit of a melee
+## string lands vanishes (starts a vanish battle) instead of blocking, if ki
+## allows. The window tightens as health drops (BT3: 4/3/2 frames at 30 Hz).
+@export var guard_vanish_window: int = 8
+@export var guard_vanish_window_hurt: int = 6
+@export var guard_vanish_window_critical: int = 4
+@export_range(0.0, 1.0) var guard_vanish_hurt_ratio: float = 0.7
+@export_range(0.0, 1.0) var guard_vanish_critical_ratio: float = 0.3
+## A GUARD press only opens the window if the previous one was at least this
+## many frames earlier: mashing GUARD never vanishes.
+@export var guard_vanish_rearm_frames: int = 60
+@export var guard_vanish_cost_bars: float = 1.0
 @export var vanish_escape_cost_bars: float = 2.0
 ## Each successive exchange in a vanish battle costs this many extra bars...
 @export var vanish_battle_cost_step_bars: float = 0.5

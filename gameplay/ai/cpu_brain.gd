@@ -282,18 +282,23 @@ func _defend_melee(m: MoveData) -> void:
 	var hit_in := m.startup - opp.state_frame() - 1  # ticks until its first active frame
 	var can_dodge := me.state in CAN_DODGE or me.state == S.CHARGE
 	var can_guard := not m.is_unblockable
-	var vanish_ki := me.ki >= VanishBattle.cost_for(t, 0)
+	var window := me.guard_vanish_window()
+	# Only a string opener can be vanished, and only with a clean (unmashed) press.
+	var can_vanish := opp.move_opens_string() \
+			and me.ki >= VanishBattle.cost_from(t, t.guard_vanish_cost_bars, 0)
 	var dodge := can_dodge and (not can_guard or _roll(cfg.dodge_preference))
 	_clear_plan()
-	if not dodge and can_guard and me.state != S.GUARD_STUN and vanish_ki \
+	if not dodge and can_guard and me.state != S.GUARD_STUN and can_vanish \
 			and hit_in > 1 and _roll(cfg.guard_vanish_chance):
 		# (Re)press GUARD just before the hit: vanish instead of blocking.
-		var at := _clock + hit_in - rng.randi_range(1, mini(t.guard_vanish_window - 1, hit_in - 1))
-		_hold(B.GUARD, maxi(at, _clock + 1), hit_in + m.active + t.teleport_frames)
-		return
+		var at := maxi(_clock + hit_in - rng.randi_range(1, mini(window - 1, hit_in - 1)), _clock + 1)
+		if me.frames_since_guard_press() + (at - _clock) >= t.guard_vanish_rearm_frames:
+			_hold(B.GUARD, at, hit_in + m.active + t.teleport_frames)
+			return
 	# Pressing GUARD inside the vanish window would vanish instead of block.
 	var fresh_guard := me.state != S.GUARD and me.state != S.GUARD_STUN
-	if not dodge and fresh_guard and vanish_ki and hit_in < t.guard_vanish_window:
+	var clean_press := me.frames_since_guard_press() >= t.guard_vanish_rearm_frames
+	if not dodge and fresh_guard and can_vanish and clean_press and hit_in < window:
 		dodge = can_dodge
 	if dodge:
 		_dodge(_dodge_for(m), _clock + hit_in)

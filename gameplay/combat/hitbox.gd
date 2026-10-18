@@ -27,6 +27,9 @@ var stun_frames: int = 0
 var breaks_guard: bool = false
 ## Melee hitboxes (from the attacker's body) let a perfect duck stagger it.
 var is_melee: bool = true
+## First hit of a move that starts a string (not a cancel/chain out of a
+## move that connected): only these can be guard-vanished.
+var opens_string: bool = true
 
 
 func world_knockback() -> Vector3:

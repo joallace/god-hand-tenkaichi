@@ -24,7 +24,9 @@ extends CombatEntity
 ##            state_frame() -> int, attack_phase() -> int,
 ##            dodge_direction() -> int, tint() -> Color,
 ##            guard_ratio() -> float, in_vanish_battle() -> bool,
-##            charge_ratio() -> float, is_charging_strike() -> bool
+##            charge_ratio() -> float, is_charging_strike() -> bool,
+##            move_opens_string() -> bool, guard_vanish_window() -> int,
+##            frames_since_guard_press() -> int
 ##
 ## `event` kinds (payload keys; every payload also has "slot" = emitter slot):
 ##   &"hit"            {attacker_slot, damage, position, heavy, blocked, combo}
@@ -60,8 +62,9 @@ extends CombatEntity
 ##     back = ultimate.
 ##   - GUARD pressed at the right time = teleport / vanish: right after
 ##     landing a hit (offensive teleport), in hitstun (vanish escape), in a
-##     vanish battle's window, or within guard_vanish_window frames before a
-##     guardable melee hit lands (vanish instead of blocking).
+##     vanish battle's window, or within guard_vanish_window() frames before
+##     the first hit of a guardable melee string lands (vanish instead of
+##     blocking; a press soon after the previous one never vanishes).
 ##
 ## Facing convention: the fighter's -Z (Godot forward) points at the opponent
 ## while locked on. InputFrame.move +Y = toward opponent, +X = strafe right.
@@ -120,6 +123,17 @@ var _invuln_frames: int = 0
 ## Frame (of the current knockdown/KO state) the fighter landed; -1 airborne.
 var _land_frame: int = -1
 var _since_hit_landed: int = NEVER
+## Frames since GUARD was last pressed, and whether that press was clean
+## (the one before it was guard_vanish_rearm_frames earlier) so it may vanish.
+var _since_guard_press: int = NEVER
+var _guard_press_armed: bool = false
+## The current move doesn't continue a string that connected (Hitbox.opens_string).
+var _move_opens_string: bool = true
+## Victim side of the anti-loop rule, for the current combo segment: melee
+## moves that hit, relaunches taken, and the last melee move activation seen.
+var _combo_moves_taken: Array[StringName] = []
+var _combo_relaunches: int = 0
+var _combo_last_melee: int = -1
 var _teleports_in_combo: int = 0
 var _tp_kind: int = TeleportKind.OFFENSE
 var _vanish_battle: VanishBattle
@@ -167,6 +181,11 @@ func feed_input(frame: InputFrame) -> void:
 		_held[i] = _held[i] + 1 if frame.held & (1 << i) else 0
 	if frame.just_pressed(InputFrame.Btn.HEAVY):
 		_heavy_height = _height_for_stick(frame.move().y)
+	if frame.just_pressed(InputFrame.Btn.GUARD):
+		_guard_press_armed = _since_guard_press >= tuning.guard_vanish_rearm_frames
+		_since_guard_press = 0
+	else:
+		_since_guard_press = mini(_since_guard_press + 1, NEVER)
 	if frame.dodge != InputFrame.Dodge.NONE:
 		_dodge_buf_dir = frame.dodge
 		_dodge_buf_frames = keep
@@ -220,6 +239,10 @@ func reset_for_round(xform: Transform3D) -> void:
 	_invuln_frames = 0
 	_land_frame = -1
 	_since_hit_landed = NEVER
+	_since_guard_press = NEVER
+	_guard_press_armed = false
+	_move_opens_string = true
+	_clear_combo_segment()
 	_teleports_in_combo = 0
 	_vanish_battle = null
 	_last_contact_id = -1
@@ -321,6 +344,26 @@ func is_charging_strike() -> bool:
 	return state == State.ATTACK and _charging and _state_frame >= _move.charge_frame
 
 
+## The current move starts a string (its first hit can be guard-vanished).
+func move_opens_string() -> bool:
+	return state == State.ATTACK and _move_opens_string
+
+
+## Frames before a melee hit in which a clean GUARD press vanishes; tightens
+## as health drops.
+func guard_vanish_window() -> int:
+	var r := health_ratio()
+	if r < tuning.guard_vanish_critical_ratio:
+		return tuning.guard_vanish_window_critical
+	if r < tuning.guard_vanish_hurt_ratio:
+		return tuning.guard_vanish_window_hurt
+	return tuning.guard_vanish_window
+
+
+func frames_since_guard_press() -> int:
+	return _since_guard_press
+
+
 ## 0 startup, 1 active, 2 recovery; -1 when not attacking.
 func attack_phase() -> int:
 	if state != State.ATTACK:
@@ -371,6 +414,7 @@ func get_active_hitboxes() -> Array[Hitbox]:
 	hb.origin = global_position
 	hb.damage_mult = _damage_mult
 	hb.is_melee = true
+	hb.opens_string = _move_opens_string and sub == 0
 	if m.is_charge_strike():
 		var t := tuning
 		var r := charge_ratio()
@@ -523,9 +567,9 @@ func _tick_attack() -> void:
 	if _charging and _tick_charge_hold(m):
 		return
 	var f := _state_frame
-	var track := m.startup if m.track_frames < 0 else m.track_frames
+	var track := m.startup - tuning.attack_track_lock_frames if m.track_frames < 0 else m.track_frames
 	if f <= track:
-		_face_opponent(_turn_step())
+		_face_opponent(_attack_turn_step())
 	if f >= m.lunge_start and f < m.lunge_start + m.lunge_frames:
 		_set_ground_velocity(_fwd() * m.lunge_speed)
 	if _try_charge_strike(m):
@@ -570,7 +614,7 @@ func _try_charge_strike(m: MoveData) -> bool:
 func _tick_charge_hold(m: MoveData) -> bool:
 	if _state_frame < m.charge_frame:
 		return false
-	_face_opponent(_turn_step())
+	_face_opponent(_attack_turn_step())
 	_set_ground_velocity(Vector3.ZERO)
 	if _try_dodge():
 		return true
@@ -660,6 +704,7 @@ func _start_move(m: MoveData) -> void:
 		_counter_frames = 0
 	elif state == State.ATTACK:
 		mult = _damage_mult  # keep a counter bonus through auto chains
+	_move_opens_string = not (state == State.ATTACK and _move_connected)
 	_move = m
 	_move_serial += 1
 	_move_connected = false
@@ -807,6 +852,7 @@ func _hold_for_teleport(frames: int) -> void:
 		_state_len = 0
 	_state_len = maxi(_state_len, _state_frame + frames)
 	_vel = Vector3.ZERO
+	_clear_combo_segment()  # the follow-up may reuse the string
 
 
 ## Defensive vanish (from hitstun): starts a vanish battle.
@@ -817,24 +863,30 @@ func _try_vanish_escape() -> bool:
 	return _start_vanish_battle()
 
 
-## Guard pressed just before a guardable melee hit: vanish instead of blocking.
+## Guard pressed just before the first hit of a melee string: vanish instead
+## of blocking. Mashing GUARD doesn't count (see _guard_press_armed).
 func _try_guard_vanish(hb: Hitbox) -> bool:
-	if not hb.is_melee or hb.attacker == null or opponent == null:
+	if not hb.is_melee or not hb.opens_string or hb.attacker == null or opponent == null:
 		return false
-	var since_press := _held[_bit(InputFrame.Btn.GUARD)]
-	if since_press < 1 or since_press > tuning.guard_vanish_window:
+	if not _guard_press_armed or _since_guard_press >= guard_vanish_window():
 		return false
-	if ki < VanishBattle.cost_for(tuning, 0):
+	if ki < VanishBattle.cost_from(tuning, tuning.guard_vanish_cost_bars, 0):
 		return false  # just block; no not_enough_ki nag on every guard
 	_consume_teleport()
-	return _start_vanish_battle()
+	if not _start_vanish_battle(tuning.guard_vanish_cost_bars):
+		return false
+	_since_guard_press = NEVER  # used up: the next press is clean again
+	return true
 
 
 ## Pay the opening cost and vanish behind the opponent, who must respond.
-func _start_vanish_battle() -> bool:
-	if not _spend_ki(VanishBattle.cost_for(tuning, 0)):
+func _start_vanish_battle(opening_bars: float = -1.0) -> bool:
+	if opening_bars < 0.0:
+		opening_bars = tuning.vanish_escape_cost_bars
+	if not _spend_ki(VanishBattle.cost_from(tuning, opening_bars, 0)):
 		return false
 	var b := VanishBattle.new()
+	b.base_bars = opening_bars
 	b.serial = (director.tick if director else 0) * 4 + slot
 	_vanish_battle = b
 	opponent._vanish_battle = b
@@ -848,7 +900,7 @@ func _try_vanish_respond() -> bool:
 	if not _consume_teleport():
 		return false
 	var e := _vanish_battle.exchange + 1
-	if not _spend_ki(VanishBattle.cost_for(tuning, e)):
+	if not _spend_ki(_vanish_battle.cost(tuning, e)):
 		return false
 	_do_vanish_exchange(e)
 	return true
@@ -1013,12 +1065,15 @@ func _take_hit(hb: Hitbox) -> void:
 	var m := hb.move
 	var attacker := hb.attacker
 	var in_combo := state == State.HITSTUN or state == State.KNOCKDOWN or state == State.GUARD_BREAK
-	if attacker != null and not in_combo:
-		attacker._set_combo(0)
-		attacker._teleports_in_combo = 0
+	if not in_combo:
+		_clear_combo_segment()
+		if attacker != null:
+			attacker._set_combo(0)
+			attacker._teleports_in_combo = 0
 	var scale := 1.0
 	if attacker != null:
-		scale = maxf(pow(tuning.combo_scaling, attacker.combo_hits), tuning.combo_scaling_min)
+		var scaled_hits := maxi(attacker.combo_hits - tuning.combo_scaling_start_hit + 1, 0)
+		scale = maxf(1.0 - tuning.combo_scaling_step * scaled_hits, tuning.combo_scaling_min)
 	var dmg := m.damage * hb.damage_mult * scale
 	_set_health(health - dmg)
 	_add_ki(tuning.ki_gain_on_hit_taken)
@@ -1028,8 +1083,11 @@ func _take_hit(hb: Hitbox) -> void:
 		attacker._on_hit_dealt(m)
 	var kb := hb.world_knockback()
 	var was_juggle := state == State.KNOCKDOWN
+	var loop := _is_loop_hit(hb, was_juggle)
 	if health <= 0.0:
 		_enter_ko(kb)
+	elif loop:
+		_push_out(hb)
 	elif m.knockdown or was_juggle:
 		_enter(State.KNOCKDOWN)
 		_land_frame = -1
@@ -1045,6 +1103,37 @@ func _take_hit(hb: Hitbox) -> void:
 		_state_len = m.hitstun
 		_vel = Vector3(kb.x, kb.y if is_airborne() else 0.0, kb.z)
 	_emit_hit(hb, dmg, false)
+
+
+## Anti-loop bookkeeping for a clean hit: true if it repeats a melee move of
+## the current combo segment or relaunches past juggle_max_relaunches.
+func _is_loop_hit(hb: Hitbox, was_juggle: bool) -> bool:
+	if was_juggle:
+		_combo_relaunches += 1
+	var loop := was_juggle and _combo_relaunches > tuning.juggle_max_relaunches
+	var activation := hb.hit_id >> 8
+	if hb.is_melee and hb.attacker != null and activation != _combo_last_melee:
+		_combo_last_melee = activation
+		if hb.move.id in _combo_moves_taken:
+			loop = true
+		else:
+			_combo_moves_taken.append(hb.move.id)
+	return loop
+
+
+## Loop breaker: knocked away along the hit with no lift, ending the combo.
+func _push_out(hb: Hitbox) -> void:
+	_enter(State.KNOCKDOWN)
+	_land_frame = -1
+	var away := Vector3(hb.forward.x, 0.0, hb.forward.z).normalized() * tuning.loop_pushout_speed
+	_vel = Vector3(away.x, minf(_vel.y, 0.0), away.z)
+	event.emit(&"knockdown", {"slot": slot, "position": global_position})
+
+
+func _clear_combo_segment() -> void:
+	_combo_moves_taken.clear()
+	_combo_relaunches = 0
+	_combo_last_melee = -1
 
 
 func _enter_ko(kb: Vector3) -> void:
@@ -1160,6 +1249,10 @@ func _set_ground_velocity(v: Vector3) -> void:
 
 func _turn_step() -> float:
 	return deg_to_rad(tuning.turn_speed_deg) / Tuning.match_rules.tick_rate
+
+
+func _attack_turn_step() -> float:
+	return deg_to_rad(tuning.attack_track_turn_deg) / Tuning.match_rules.tick_rate
 
 
 func _face_opponent(max_step: float) -> void:
@@ -1305,6 +1398,9 @@ func save_state() -> Dictionary:
 		"dodge_buf_frames": _dodge_buf_frames, "input": _input.to_array(),
 		"held": _held.duplicate(), "charging": _charging, "charge": _charge,
 		"charge_btn": _charge_btn, "heavy_height": _heavy_height,
+		"since_guard_press": _since_guard_press, "guard_press_armed": _guard_press_armed,
+		"move_opens_string": _move_opens_string, "combo_moves_taken": _combo_moves_taken.duplicate(),
+		"combo_relaunches": _combo_relaunches, "combo_last_melee": _combo_last_melee,
 	})
 	return s
 
@@ -1356,6 +1452,12 @@ func load_state(s: Dictionary) -> void:
 	_charge = s["charge"]
 	_charge_btn = s["charge_btn"]
 	_heavy_height = s["heavy_height"]
+	_since_guard_press = s["since_guard_press"]
+	_guard_press_armed = s["guard_press_armed"]
+	_move_opens_string = s["move_opens_string"]
+	_combo_moves_taken = (s["combo_moves_taken"] as Array[StringName]).duplicate()
+	_combo_relaunches = s["combo_relaunches"]
+	_combo_last_melee = s["combo_last_melee"]
 	health_changed.emit(health, tuning.max_health)
 	ki_changed.emit(ki, ki_max())
 	combo_changed.emit(combo_hits)

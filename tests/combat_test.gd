@@ -17,7 +17,9 @@ func _ready() -> void:
 		_test_not_enough_ki, _test_jump_attack, _test_strike_heights, _test_height_vs_duck,
 		_test_charge_strike_release, _test_charge_strike_stun, _test_charge_strike_guard,
 		_test_charge_punch, _test_heavy_at_range_blast, _test_charge_heavy_special,
-		_test_guard_teleport, _test_guard_vanish_escape, _test_guard_vanish, _test_determinism,
+		_test_guard_teleport, _test_guard_vanish_escape, _test_guard_vanish, _test_guard_vanish_mash,
+		_test_guard_vanish_first_hit, _test_guard_vanish_window_hp, _test_attack_tracking,
+		_test_combo_scaling, _test_anti_loop_repeat, _test_anti_loop_relaunch, _test_determinism,
 	]
 	for t in tests:
 		t.call()
@@ -121,8 +123,6 @@ func _test_light_string() -> void:
 		s.press(i, B.LIGHT)
 	var best := _max_combo(d, 0, 90)
 	_check(best >= 4, "4-hit light string combos (max combo %d)" % best)
-	var dmg := d.fighters[1].tuning.max_health - d.fighters[1].health
-	_check(dmg < 30.0 + 30.0 + 40.0 + 55.0 + 0.01, "combo damage is scaled (%.1f)" % dmg)
 	# Finisher: light, then heavy -> knockdown.
 	d = _new_match()
 	_src(d, 0).press(0, B.LIGHT).press(8, B.HEAVY)
@@ -416,7 +416,8 @@ func _test_guard_vanish() -> void:
 		else:
 			_check(_event_count(&"vanish", 1) == 1 and _event_count(&"hit", 1) == 0 and is_equal_approx(p2.health, p2.tuning.max_health),
 				"GUARD just before a hit vanishes instead")
-			_check(is_equal_approx(p2.ki, p2.ki_max() - VanishBattle.cost_for(p2.tuning, 0)), "guard vanish costs ki")
+			_check(is_equal_approx(p2.ki, p2.ki_max() - p2.tuning.guard_vanish_cost_bars * p2.tuning.ki_bar_size),
+				"guard vanish costs ki (%.1f)" % p2.ki)
 
 
 func _test_jump_attack() -> void:
@@ -553,6 +554,142 @@ func _test_charge_punch() -> void:
 	_check(_event_count(&"hit", 1) >= 2, "charge punch connects (%d hits)" % _event_count(&"hit", 1))
 	_check(p2.health < p2.tuning.max_health - 30.0 - p1.def.move(&"brawler_charge_punch").damage * 0.5,
 		"charge punch damage (hp %.1f)" % p2.health)
+
+
+## A GUARD press soon after the previous one blocks instead of vanishing.
+func _test_guard_vanish_mash() -> void:
+	var d := _new_match()
+	var p1 := d.fighters[0]
+	var p2 := d.fighters[1]
+	p2.ki = p2.ki_max()
+	var startup := p1.def.move(p1.def.light_string[0]).startup
+	_src(d, 0).press(0, B.LIGHT)
+	_src(d, 1).press(0, B.GUARD).press(maxi(startup - 2, 2), B.GUARD, 60)
+	_run(d, 40)
+	_check(_event_count(&"vanish", 1) == 0 and _event_count(&"hit", 1) == 1 and _last_event(&"hit")["blocked"],
+		"mashed GUARD blocks instead of vanishing")
+
+
+## Only the first hit of a string can be guard-vanished.
+func _test_guard_vanish_first_hit() -> void:
+	var d := _new_match()
+	var p1 := d.fighters[0]
+	var p2 := d.fighters[1]
+	p2.ki = p2.ki_max()
+	_src(d, 1).press(0, B.GUARD, 200)
+	_run(d, 70)
+	_src(d, 0).press_at_tick(d.tick + 1, B.LIGHT)
+	var blocked := _run_until(d, func() -> bool: return _event_count(&"hit", 1) == 1, 30)
+	# Clean re-press (the last one was long ago) right before the cancelled jab2.
+	_src(d, 0).press_at_tick(d.tick + 1, B.LIGHT)
+	var jab2 := p1.def.light_string[1]
+	_run_until(d, func() -> bool: return _move_id(p1) == jab2, 30)
+	var s1 := _src(d, 1)
+	s1.frames.resize(d.tick - s1.start_tick + 1)
+	s1.press_at_tick(d.tick + 2, B.GUARD, 40)
+	_run(d, 30)
+	_check(blocked and _event_count(&"hit", 1) == 2 and _last_event(&"hit")["blocked"] and _event_count(&"vanish", 1) == 0,
+		"string follow-ups can't be guard-vanished")
+	_check(p1.def.light_string.size() > 1, "light string has a follow-up")
+
+
+func _test_guard_vanish_window_hp() -> void:
+	var p := _new_match().fighters[1]
+	var t := p.tuning
+	_check(p.guard_vanish_window() == t.guard_vanish_window, "full-health guard vanish window")
+	p.health = t.max_health * (t.guard_vanish_hurt_ratio - 0.01)
+	_check(p.guard_vanish_window() == t.guard_vanish_window_hurt, "hurt guard vanish window")
+	p.health = t.max_health * (t.guard_vanish_critical_ratio - 0.01)
+	_check(p.guard_vanish_window() == t.guard_vanish_window_critical, "critical guard vanish window")
+
+
+## Attacks turn slowly during startup and lock before active: an early
+## sidestep makes them whiff.
+func _test_attack_tracking() -> void:
+	var d := _new_match()
+	var p1 := d.fighters[0]
+	var p2 := d.fighters[1]
+	_src(d, 0).press(0, B.LIGHT)
+	_run(d, 1)
+	var fwd0 := -p1.global_basis.z
+	p2.global_position = p1.global_position + (p2.global_position - p1.global_position).rotated(Vector3.UP, deg_to_rad(70.0))
+	var m := p1.def.move(p1.def.light_string[0])
+	_run(d, m.startup)
+	var turned := rad_to_deg(fwd0.angle_to(-p1.global_basis.z))
+	_run(d, 30)
+	var limit := p1.tuning.attack_track_turn_deg / 60.0 * (m.startup - p1.tuning.attack_track_lock_frames)
+	_check(turned > 1.0 and turned <= limit + 0.5, "attack tracks slowly during startup (%.1f deg <= %.1f)" % [turned, limit])
+	_check(_event_count(&"hit", 1) == 0, "sidestepped jab whiffs")
+
+
+## First N hits full damage, then -step per hit.
+func _test_combo_scaling() -> void:
+	var d := _new_match()
+	var p1 := d.fighters[0]
+	var t := p1.tuning
+	var ids: Array[StringName] = []
+	for i in t.combo_scaling_start_hit + 1:
+		var btn := B.LIGHT if i < t.combo_scaling_start_hit else B.HEAVY
+		_src(d, 0).press_at_tick(d.tick + 1, btn)
+		var n := i + 1
+		_run_until(d, func() -> bool: return _event_count(&"hit", 1) == n, 40)
+		ids.append(_move_id(p1))
+	var hits: Array = []
+	for e: Array in _events:
+		if e[0] == 1 and e[1] == &"hit":
+			hits.append(e[2]["damage"])
+	var ok := hits.size() == ids.size()
+	for i in mini(hits.size(), ids.size()):
+		var scale := 1.0 if i < t.combo_scaling_start_hit else 1.0 - t.combo_scaling_step
+		ok = ok and is_equal_approx(hits[i], p1.def.move(ids[i]).damage * scale)
+	_check(ok, "first %d hits unscaled, then -%d%% (%s %s)" % [t.combo_scaling_start_hit, roundi(t.combo_scaling_step * 100), ids, hits])
+
+
+## The same move landing twice in one combo pushes the victim out.
+func _test_anti_loop_repeat() -> void:
+	var d := _new_match()
+	var p1 := d.fighters[0]
+	var p2 := d.fighters[1]
+	_src(d, 0).press(0, B.LIGHT)
+	_run_until(d, func() -> bool: return _event_count(&"hit", 1) == 1, 30)
+	_run_until(d, func() -> bool: return p1.current_state_name() == &"idle", 40)
+	p2._state_len = 500  # keep the victim reeling
+	_src(d, 0).press_at_tick(d.tick + 1, B.LIGHT)
+	_run_until(d, func() -> bool: return _event_count(&"hit", 1) == 2, 30)
+	_check(p2.current_state_name() == &"knockdown" and _event_count(&"knockdown", 1) == 1,
+		"repeated move in a combo pushes out into a knockdown")
+	# A teleport starts a fresh segment: the same string may follow.
+	d = _new_match()
+	p1 = d.fighters[0]
+	p2 = d.fighters[1]
+	p1.ki = p1.ki_max()
+	_src(d, 0).press(0, B.LIGHT).press(8, B.TELEPORT)
+	_run_until(d, func() -> bool: return p1.current_state_name() == &"teleport", 30)
+	_run_until(d, func() -> bool: return p1.current_state_name() != &"teleport", 30)
+	_src(d, 0).press_at_tick(d.tick + 1, B.LIGHT)
+	_run_until(d, func() -> bool: return _event_count(&"hit", 1) == 2, 30)
+	_check(p2.current_state_name() == &"hitstun", "same move after a teleport still combos")
+
+
+## Relaunching an airborne victim past the cap pushes out instead.
+func _test_anti_loop_relaunch() -> void:
+	for capped: bool in [false, true]:
+		var d := _new_match()
+		var p1 := d.fighters[0]
+		var p2 := d.fighters[1]
+		p2._enter(Fighter.State.KNOCKDOWN)
+		p2._land_frame = -1
+		p2.global_position.y = 1.0
+		p2._vel = Vector3(0, 3.0, 0)
+		p2._combo_relaunches = p2.tuning.juggle_max_relaunches if capped else 0
+		_src(d, 0).press(0, B.LIGHT)
+		var hit := _run_until(d, func() -> bool: return _event_count(&"hit", 1) == 1, 30)
+		var speed := Vector2(p2._vel.x, p2._vel.z).length()
+		if capped:
+			_check(hit and is_equal_approx(speed, p2.tuning.loop_pushout_speed) and p2._vel.y <= 0.0,
+				"relaunch past the cap pushes out (%.2f m/s)" % speed)
+		else:
+			_check(hit and speed < p2.tuning.loop_pushout_speed, "relaunch under the cap juggles (%.2f m/s)" % speed)
 
 
 ## Save, simulate a busy exchange, load, re-simulate: states must match.
