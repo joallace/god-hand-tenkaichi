@@ -110,6 +110,8 @@ dynamic difficulty).
 
 ## What still needs PCSX2
 
+How to record or pick footage for these: [footage_capture.md](footage_capture.md).
+
 These live in unmatched code or disc data. Record at 60 fps (or use frame
 advance) and count frames; note which 60 fps patch, if any, is active.
 
