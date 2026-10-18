@@ -47,7 +47,12 @@ static func headline_text(res: Dictionary) -> String:
 	if res.is_empty():
 		return "NO CONTEST"
 	var winner: int = int(res.get("winner_slot", -1))
-	return "DRAW!" if winner < 0 else "PLAYER %d WINS!" % (winner + 1)
+	if winner < 0:
+		return "DRAW!"
+	var cfg := res.get("config") as MatchConfig
+	if cfg != null and cfg.player_tag(winner) == "CPU":
+		return "CPU WINS!"
+	return "PLAYER %d WINS!" % (winner + 1)
 
 
 static func tally_text(wins: PackedInt32Array, cfg: MatchConfig) -> String:
@@ -55,7 +60,7 @@ static func tally_text(wins: PackedInt32Array, cfg: MatchConfig) -> String:
 		return ""
 	var names: PackedStringArray = []
 	for i in wins.size():
-		var n := "P%d" % (i + 1)
+		var n := cfg.player_tag(i) if cfg != null else "P%d" % (i + 1)
 		if cfg != null and i < cfg.players.size():
 			n += " (%s)" % MenuHelpers.character_name(cfg.players[i].character_id)
 		names.append(n)

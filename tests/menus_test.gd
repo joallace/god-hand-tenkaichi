@@ -13,6 +13,7 @@ func _ready() -> void:
 	await _test_pad_ui_actions()
 	await _test_main_menu()
 	await _test_join_screen()
+	await _test_join_screen_cpu()
 	await _test_controls_screen()
 	await _test_controls_overlay()
 	await _test_results_screen()
@@ -172,6 +173,50 @@ func _test_join_screen() -> void:
 		check(cfg.players[0].device_kind == Bindings.Kind.PAD and cfg.players[0].device_id == 0, "P1 config = pad 0")
 		check(cfg.players[1].device_kind == Bindings.Kind.KEYBOARD and cfg.players[1].slot == 1, "P2 config = keyboard slot 1")
 		check(cfg.round_time_seconds == 0 and cfg.is_infinite_time(), "config infinite timer")
+	j.queue_free()
+	await frames(2)
+
+
+func _test_join_screen_cpu() -> void:
+	JoinScreen.pending_mode = MatchConfig.Mode.VERSUS_CPU
+	var j := spawn(Game.SCENE_JOIN) as JoinScreen
+	j.auto_start = false
+	var requested: Array = []
+	j.match_requested.connect(func(c: MatchConfig) -> void: requested.append(c))
+	await frames(3)
+	var cpu := j.cpu_slot()
+	check(cpu == 1 and j.slots[cpu].state == JoinScreen.SlotState.READY, "CPU slot is pre-joined and ready")
+	check(j.rows().has(JoinScreen.Row.CPU_LEVEL), "CPU mode offers a CPU level row")
+	var start_level := j.slots[cpu].cpu_level
+	check(start_level == Tuning.cpu.clamp_level(-1) or JoinScreen._memory.has("cpu_level"), "CPU level starts at the default")
+
+	await pad_tap(0, JOY_BUTTON_START)
+	check(j.slots[0].state == JoinScreen.SlotState.JOINED, "pad 0 joins the human slot")
+	await pad_tap(0, JOY_BUTTON_DPAD_DOWN)
+	check(j.slots[0].cursor == JoinScreen.Row.CPU_CHARACTER, "down from fighter reaches CPU fighter row")
+	await pad_tap(0, JOY_BUTTON_DPAD_DOWN)
+	check(j.slots[0].cursor == JoinScreen.Row.CPU_LEVEL, "next row is CPU level")
+	await pad_tap(0, JOY_BUTTON_DPAD_LEFT)
+	check(j.slots[cpu].cpu_level == maxi(start_level - 1, 0), "left lowers the CPU level")
+	for i in Tuning.cpu.level_count() + 2:
+		await pad_tap(0, JOY_BUTTON_DPAD_RIGHT)
+	check(j.slots[cpu].cpu_level == Tuning.cpu.level_count() - 1, "CPU level clamps at the top")
+	check(j._cpu_level_label.text.contains(Tuning.cpu.level_name(Tuning.cpu.level_count() - 1)), "CPU level label shows the level name")
+
+	await pad_tap(0, JOY_BUTTON_A)
+	check(j.all_ready(), "human ready + CPU ready")
+	await seconds(UiTheme.tuning().join_start_delay + 0.3)
+	check(requested.size() == 1, "CPU match requested after countdown")
+	if requested.size() == 1:
+		var cfg: MatchConfig = requested[0]
+		check(cfg.mode == MatchConfig.Mode.VERSUS_CPU, "config mode VERSUS_CPU")
+		check(cfg.players[1].input_kind == PlayerSlotConfig.InputKind.CPU
+				and cfg.players[1].cpu_level == Tuning.cpu.level_count() - 1, "config carries CPU and its level")
+		check(cfg.player_tag(1) == "CPU" and cfg.player_tag(0) == "P1", "player tags name the CPU")
+		var src := cfg.players[1].create_input_source() as CpuInput
+		check(src != null and src.brain.level == Tuning.cpu.level_count() - 1, "CPU input source built at that level")
+	JoinScreen._memory = {}
+	JoinScreen.pending_mode = MatchConfig.Mode.LOCAL_VERSUS
 	j.queue_free()
 	await frames(2)
 

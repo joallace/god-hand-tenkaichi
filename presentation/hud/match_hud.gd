@@ -91,11 +91,13 @@ func _build_panel(f: Fighter, right_side: bool) -> void:
 	var name_label := _label(t.name_font_size, pcolor)
 	name_label.name = "Name%d" % (f.slot + 1)
 	var char_name := ""
+	var tag := "P%d" % (f.slot + 1)
 	if director.config != null:
+		tag = director.config.player_tag(f.slot)
 		for pc in director.config.players:
 			if pc.slot == f.slot:
 				char_name = String(pc.character_id).to_upper()
-	name_label.text = "P%d  %s" % [f.slot + 1, char_name] if not right_side else "%s  P%d" % [char_name, f.slot + 1]
+	name_label.text = "%s  %s" % [tag, char_name] if not right_side else "%s  %s" % [char_name, tag]
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT if right_side else HORIZONTAL_ALIGNMENT_LEFT
 	root.add_child(name_label)
 	p["name"] = name_label

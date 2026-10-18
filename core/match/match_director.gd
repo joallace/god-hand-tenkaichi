@@ -213,6 +213,7 @@ func save_state() -> Dictionary:
 		"round_number": round_number, "round_frames_left": round_frames_left,
 		"wins": wins.duplicate(), "hitstop": hitstop,
 		"fighters": fighters.map(func(f: Fighter) -> Dictionary: return f.save_state()),
+		"sources": sources.map(func(src: InputSource) -> Dictionary: return src.save_state()),
 	}
 
 
@@ -226,3 +227,5 @@ func load_state(s: Dictionary) -> void:
 	hitstop = s["hitstop"]
 	for i in fighters.size():
 		fighters[i].load_state(s["fighters"][i])
+	for i in sources.size():
+		sources[i].load_state(s["sources"][i])

@@ -1,0 +1,8 @@
+[gd_resource type="Resource" script_class="CpuTuning" format=3]
+
+[ext_resource type="Script" path="res://core/tuning/cpu_tuning.gd" id="1_b6j7x"]
+
+[resource]
+script = ExtResource("1_b6j7x")
+level_names = PackedStringArray("Punching Bag", "Rookie", "Easy", "Normal", "Hard", "Expert", "Master", "God Hand")
+level_blurbs = PackedStringArray("Barely fights back. Learn the controls.", "Slow reactions, short combos.", "Blocks now and then, rarely punishes.", "Guards and dodges some attacks, finishes its strings.", "Quick reactions, punishes mistakes, uses ki.", "Perfect dodges often, teleports after launchers.", "Near-instant reactions, wins most vanish battles.", "Frame-perfect. Good luck.")

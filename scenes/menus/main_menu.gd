@@ -21,7 +21,7 @@ func _ready() -> void:
 
 	_list = MenuHelpers.vlist([
 		MenuHelpers.button("P1 vs P2 (Local)", _on_local_versus),
-		MenuHelpers.button("P1 vs CPU  -  Coming soon", Callable(), true),
+		MenuHelpers.button("P1 vs CPU", _on_versus_cpu),
 		MenuHelpers.button("Online  -  Coming soon", Callable(), true),
 		MenuHelpers.button("How to Play", _on_how_to_play),
 		MenuHelpers.button("Controls", _on_controls),
@@ -54,6 +54,11 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _on_local_versus() -> void:
 	JoinScreen.pending_mode = MatchConfig.Mode.LOCAL_VERSUS
+	Game.goto(Game.SCENE_JOIN)
+
+
+func _on_versus_cpu() -> void:
+	JoinScreen.pending_mode = MatchConfig.Mode.VERSUS_CPU
 	Game.goto(Game.SCENE_JOIN)
 
 

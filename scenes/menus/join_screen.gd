@@ -19,11 +19,11 @@ extends Control
 ##   are filled) and back out with their PAUSE key (or ESC). While only one
 ##   keyboard player is joined, arrow keys also navigate for it.
 ##
-## FUTURE MODES (hooks): the screen is driven by `slot_types`.
+## Modes: the screen is driven by `slot_types`.
 ##   VERSUS_CPU: slot_types = [HUMAN, CPU]. CPU slots are pre-joined & ready
-##     (see _configure_for_mode); TODO let P1 move a cursor onto the CPU panel
-##     to pick its character / cpu_level.
-##   ONLINE: slot_types = [HUMAN, REMOTE]. A lobby/network layer should call
+##     (see _configure_for_mode); the human gets two extra rows, "CPU fighter"
+##     and "CPU level" (Tuning.cpu.level_names), to set the CPU up.
+##   ONLINE (future): slot_types = [HUMAN, REMOTE]. A lobby/network layer should call
 ##     set_remote_slot(slot, peer_id, character_id, ready) as messages arrive;
 ##     only HUMAN slots accept local devices. _build_config() already maps
 ##     REMOTE -> PlayerSlotConfig.InputKind.NETWORK.
@@ -34,8 +34,7 @@ signal match_requested(config: MatchConfig)
 enum SlotType { HUMAN, CPU, REMOTE }
 enum SlotState { EMPTY, JOINED, READY }
 enum Cmd { UP, DOWN, LEFT, RIGHT, CONFIRM, BACK }
-enum Row { CHARACTER, ROUNDS, TIMER }
-const ROW_COUNT := 3
+enum Row { CHARACTER, CPU_CHARACTER, CPU_LEVEL, ROUNDS, TIMER }
 
 ## Set before Game.goto(Game.SCENE_JOIN) to choose which mode this screen sets up.
 static var pending_mode: MatchConfig.Mode = MatchConfig.Mode.LOCAL_VERSUS
@@ -51,6 +50,8 @@ class Slot:
 	var cursor: int = Row.CHARACTER
 	var peer_id: int = 0
 	var join_order: int = 0
+	## CPU slots: difficulty, an index into Tuning.cpu.level_names.
+	var cpu_level: int = Tuning.cpu.clamp_level(-1)
 
 var mode: MatchConfig.Mode = MatchConfig.Mode.LOCAL_VERSUS
 var slots: Array[Slot] = []
@@ -70,6 +71,8 @@ var _blink := 0.0
 var _ui: Array[Dictionary] = []
 var _rounds_label: Label
 var _timer_label: Label
+var _cpu_level_label: Label
+var _cpu_blurb_label: Label
 var _status_label: Label
 
 
@@ -327,10 +330,10 @@ func _command(idx: int, cmd: int) -> void:
 		SlotState.JOINED:
 			match cmd:
 				Cmd.UP:
-					s.cursor = posmod(s.cursor - 1, ROW_COUNT)
+					_move_cursor(s, -1)
 					Sfx.play(&"ui_move")
 				Cmd.DOWN:
-					s.cursor = posmod(s.cursor + 1, ROW_COUNT)
+					_move_cursor(s, 1)
 					Sfx.play(&"ui_move")
 				Cmd.LEFT:
 					_change_row(s, -1)
@@ -348,11 +351,36 @@ func _command(idx: int, cmd: int) -> void:
 	_refresh()
 
 
+## Rows a joined player can pick, top to bottom, for this mode.
+func rows() -> Array[int]:
+	if cpu_slot() >= 0:
+		return [Row.CHARACTER, Row.CPU_CHARACTER, Row.CPU_LEVEL, Row.ROUNDS, Row.TIMER]
+	return [Row.CHARACTER, Row.ROUNDS, Row.TIMER]
+
+
+func cpu_slot() -> int:
+	for i in slots.size():
+		if slots[i].type == SlotType.CPU:
+			return i
+	return -1
+
+
+func _move_cursor(s: Slot, dir: int) -> void:
+	var r := rows()
+	s.cursor = r[posmod(maxi(r.find(s.cursor), 0) + dir, r.size())]
+
+
 func _change_row(s: Slot, dir: int) -> void:
+	var n := MenuHelpers.character_ids().size()
 	match s.cursor:
 		Row.CHARACTER:
-			var n := MenuHelpers.character_ids().size()
 			s.char_index = posmod(s.char_index + dir, maxi(n, 1))
+		Row.CPU_CHARACTER:
+			var cpu := slots[cpu_slot()]
+			cpu.char_index = posmod(cpu.char_index + dir, maxi(n, 1))
+		Row.CPU_LEVEL:
+			var cpu := slots[cpu_slot()]
+			cpu.cpu_level = clampi(cpu.cpu_level + dir, 0, Tuning.cpu.level_count() - 1)
 		Row.ROUNDS:
 			rounds_to_win = clampi(rounds_to_win + dir, 1, 5)
 		Row.TIMER:
@@ -389,6 +417,7 @@ func build_config() -> MatchConfig:
 	var cfg := MatchConfig.from_defaults(mode)
 	cfg.rounds_to_win = rounds_to_win
 	cfg.round_time_seconds = _time_options[time_index]
+	cfg.rng_seed = randi()
 	var ids := MenuHelpers.character_ids()
 	for i in slots.size():
 		var s := slots[i]
@@ -398,6 +427,7 @@ func build_config() -> MatchConfig:
 		match s.type:
 			SlotType.CPU:
 				p.input_kind = PlayerSlotConfig.InputKind.CPU
+				p.cpu_level = s.cpu_level
 			SlotType.REMOTE:
 				p.input_kind = PlayerSlotConfig.InputKind.NETWORK
 				p.peer_id = s.peer_id
@@ -430,6 +460,9 @@ func _remember() -> void:
 	for s in slots:
 		chars.append(s.char_index)
 	_memory = {"rounds": rounds_to_win, "time": _time_options[time_index], "chars": chars}
+	var cpu := cpu_slot()
+	if cpu >= 0:
+		_memory["cpu_level"] = slots[cpu].cpu_level
 
 
 func _restore_memory() -> void:
@@ -443,6 +476,9 @@ func _restore_memory() -> void:
 	var n := MenuHelpers.character_ids().size()
 	for i in mini(chars.size(), slots.size()):
 		slots[i].char_index = clampi(int(chars[i]), 0, n - 1)
+	var cpu := cpu_slot()
+	if cpu >= 0 and _memory.has("cpu_level"):
+		slots[cpu].cpu_level = Tuning.cpu.clamp_level(int(_memory["cpu_level"]))
 
 
 # --- UI ----------------------------------------------------------------------
@@ -490,7 +526,7 @@ func _build_player_panel(i: int, color: Color) -> Dictionary:
 	var col := VBoxContainer.new()
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
 	panel.add_child(col)
-	var header := MenuHelpers.title("PLAYER %d" % (i + 1), &"HeaderLabel")
+	var header := MenuHelpers.title("CPU" if slots[i].type == SlotType.CPU else "PLAYER %d" % (i + 1), &"HeaderLabel")
 	header.add_theme_color_override("font_color", color)
 	col.add_child(header)
 	var device := MenuHelpers.label("", &"HintLabel", HORIZONTAL_ALIGNMENT_CENTER)
@@ -514,11 +550,17 @@ func _build_settings_panel() -> Control:
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
 	panel.add_child(col)
 	col.add_child(MenuHelpers.title("MATCH RULES", &"HeaderLabel"))
+	_cpu_level_label = MenuHelpers.label("", &"", HORIZONTAL_ALIGNMENT_CENTER)
+	_cpu_blurb_label = MenuHelpers.label("", &"HintLabel", HORIZONTAL_ALIGNMENT_CENTER)
+	_cpu_blurb_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_rounds_label = MenuHelpers.label("", &"", HORIZONTAL_ALIGNMENT_CENTER)
 	_timer_label = MenuHelpers.label("", &"", HORIZONTAL_ALIGNMENT_CENTER)
-	for l in [_rounds_label, _timer_label]:
-		l.add_theme_font_size_override("font_size", UiTheme.tuning().font_button)
+	for l in [_cpu_level_label, _cpu_blurb_label, _rounds_label, _timer_label]:
+		if l != _cpu_blurb_label:
+			l.add_theme_font_size_override("font_size", UiTheme.tuning().font_button)
 		col.add_child(l)
+	_cpu_level_label.visible = cpu_slot() >= 0
+	_cpu_blurb_label.visible = cpu_slot() >= 0
 	col.add_child(MenuHelpers.label("Any joined player:\nup/down to pick a row,\nleft/right to change it",
 			&"HintLabel", HORIZONTAL_ALIGNMENT_CENTER))
 	return panel
@@ -556,7 +598,7 @@ func _refresh() -> void:
 		character.visible = s.state != SlotState.EMPTY
 		match s.type:
 			SlotType.CPU:
-				device.text = "CPU"
+				device.text = "Level %d/%d" % [s.cpu_level + 1, Tuning.cpu.level_count()]
 			SlotType.REMOTE:
 				device.text = "Online peer %d" % s.peer_id if s.peer_id != 0 else "Waiting for opponent..."
 			_:
@@ -575,8 +617,19 @@ func _refresh() -> void:
 				state.add_theme_color_override("font_color", u.color_ready)
 				hint.text = "B / %s to cancel" % _back_key_name(i)
 		var on_char := s.state == SlotState.JOINED and s.cursor == Row.CHARACTER
-		character.text = ("<  %s  >" % cname) if on_char else cname
+		var tags := ""
+		if s.type == SlotType.CPU:
+			hint.text = "Scroll down past your fighter to pick the CPU's fighter and level"
+			tags = _cursor_tags(Row.CPU_CHARACTER)
+			on_char = tags != ""
+		character.text = ("%s<  %s  >" % [tags, cname]) if on_char else cname
 		character.add_theme_color_override("font_color", ui["color"] if on_char else u.color_text)
+	var cpu := cpu_slot()
+	if cpu >= 0:
+		var lvl := slots[cpu].cpu_level
+		_cpu_level_label.text = "%sCPU level  <  %s  >" % [_cursor_tags(Row.CPU_LEVEL), Tuning.cpu.level_name(lvl)]
+		_cpu_level_label.add_theme_color_override("font_color", _row_color(Row.CPU_LEVEL))
+		_cpu_blurb_label.text = Tuning.cpu.level_blurb(lvl)
 	_rounds_label.text = "%sRounds to win  <  %d  >" % [_cursor_tags(Row.ROUNDS), rounds_to_win]
 	_rounds_label.add_theme_color_override("font_color", _row_color(Row.ROUNDS))
 	_timer_label.text = "%sTimer  <  %s  >" % [_cursor_tags(Row.TIMER), MenuHelpers.round_time_label(_time_options[time_index])]

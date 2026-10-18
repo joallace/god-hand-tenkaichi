@@ -20,8 +20,9 @@ before autoloads exist. See `tests/README.md`. Always wrap Godot calls in
 - `core/` — mode-agnostic foundation.
   - `input/`: `InputFrame` (the only thing gameplay reads; fighter-space move,
     `Btn` bitmask, dodge flick), `InputSource` subclasses (`LocalDeviceInput`
-    per device id, `CpuInput` / `NetworkInput` stubs), `Bindings` autoload
-    (rebindable controls, `user://controls.cfg`).
+    per device id, `CpuInput` wrapping a `CpuBrain`, `NetworkInput` stub),
+    `Bindings` autoload (rebindable controls, `user://controls.cfg`). Sources
+    round-trip through `save_state`/`load_state` with the director.
   - `match/`: `MatchConfig` + `PlayerSlotConfig` (built by menus),
     `MatchDirector` (fixed 60 Hz tick loop, rounds, timer incl. infinite,
     hitstop, save/load state).
@@ -32,6 +33,10 @@ before autoloads exist. See `tests/README.md`. Always wrap Godot calls in
 - `gameplay/` — `Fighter` (state machine, public contract in its header),
   `CombatSystem`, `MoveData`, projectiles, `CharacterDef`/`CharacterRegistry`,
   `FighterVisual` (placeholder primitives, read-only view of the fighter).
+  - `ai/CpuBrain`: the CPU opponent. Reads public fighter state behind a
+    reaction delay and emits `InputFrame`s (no cheating, no fighter changes).
+    Difficulty levels and every behavior knob live in `data/tuning/cpu.tres`
+    (`Vector2` = weakest..strongest level, lerped per level).
 - `presentation/` — match scene, arena, split-screen `ViewLayout`,
   `FighterCamera`, HUD, VFX, pause menu. Observes signals only.
   - `audio/`: `Sfx` autoload (play by sound name, voice pool, keyed loops,
@@ -63,5 +68,6 @@ before autoloads exist. See `tests/README.md`. Always wrap Godot calls in
 
 ## Known gaps
 
-CPU AI and online are stubs. `MatchDirector.load_state` doesn't yet rebuild
-spawned projectiles/beams.
+Online is a stub. `MatchDirector.load_state` doesn't yet rebuild spawned
+projectiles/beams. The CPU only knows the moveset roles in `CharacterDef`
+(string, heavies, supers), not character-specific tricks.

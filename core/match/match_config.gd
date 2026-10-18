@@ -13,6 +13,9 @@ enum Layout { SPLIT_SCREEN, SINGLE_VIEW }
 ## Seconds per round; 0 = infinite timer.
 @export var round_time_seconds: int = 99
 @export var arena_id: StringName = &"default"
+## Seeds match randomness (CPU decisions). The join screen randomizes it;
+## online peers would have to share it.
+@export var rng_seed: int = 0
 
 
 static func from_defaults(p_mode: Mode = Mode.LOCAL_VERSUS) -> MatchConfig:
@@ -34,6 +37,14 @@ func layout() -> Layout:
 		if p.input_kind == PlayerSlotConfig.InputKind.LOCAL:
 			locals += 1
 	return Layout.SPLIT_SCREEN if locals >= 2 else Layout.SINGLE_VIEW
+
+
+## Short on-screen name of a slot: "P1", "P2", or "CPU".
+func player_tag(slot: int) -> String:
+	for p in players:
+		if p.slot == slot and p.input_kind == PlayerSlotConfig.InputKind.CPU:
+			return "CPU"
+	return "P%d" % (slot + 1)
 
 
 ## Slots whose camera should be rendered on this machine.

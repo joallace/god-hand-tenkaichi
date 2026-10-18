@@ -37,3 +37,13 @@ func resync(tick: int) -> void:
 
 func reset() -> void:
 	_previous = InputFrame.new()
+
+
+## Rollback snapshot of the source's own state (edge tracking; subclasses
+## with decision state, like CpuInput, extend it).
+func save_state() -> Dictionary:
+	return {"previous": _previous.to_array()}
+
+
+func load_state(s: Dictionary) -> void:
+	_previous = InputFrame.from_array(s["previous"])
