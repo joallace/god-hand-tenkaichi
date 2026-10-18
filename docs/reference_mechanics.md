@@ -7,6 +7,10 @@ Research notes from reading the two community decompilations (2026-10-18):
 - **God Hand** — https://github.com/LucasPicoli/god-hand-decomp (~47% code
   matched; the player dodge/cancel dispatcher is still unmatched asm).
 
+Full per-game notes, with "steer toward this game" idea lists:
+[bt3_reference.md](bt3_reference.md) and
+[god_hand_reference.md](god_hand_reference.md).
+
 Only *mechanics and numbers* are recorded here, in our own words. Never copy
 code from either repo into this project (game code belongs to the rights
 holders; the BT3 port code is AGPL).

@@ -66,6 +66,13 @@ before autoloads exist. See `tests/README.md`. Always wrap Godot calls in
   `InputSource` + `MatchConfig` setup, not fighter changes.
 - Presentation never writes gameplay state.
 
+## Design references
+
+`docs/bt3_reference.md` and `docs/god_hand_reference.md` hold mechanics and
+numbers from the two games' decompilations (converted to 60 Hz), with ideas
+for steering toward each; `docs/reference_mechanics.md` compares them with
+ours. Describe mechanics in our own words; never copy decomp code.
+
 ## Known gaps
 
 Online is a stub. `MatchDirector.load_state` doesn't yet rebuild spawned
