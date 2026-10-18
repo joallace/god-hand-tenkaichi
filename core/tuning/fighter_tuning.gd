@@ -66,10 +66,11 @@ extends Resource
 @export_group("Hit reactions")
 @export var hitstop_light: int = 4
 @export var hitstop_heavy: int = 8
-@export var knockdown_frames: int = 50
-@export var wakeup_invuln_frames: int = 30
+## Frames spent lying on the ground after landing, before getting up.
+@export var knockdown_frames: int = 24
+@export var wakeup_invuln_frames: int = 20
 ## Length of the get-up (Wakeup) state; invuln may outlast it.
-@export var wakeup_frames: int = 20
+@export var wakeup_frames: int = 12
 ## Damage scaling per hit in a combo (multiplied), with a floor.
 @export var combo_scaling: float = 0.92
 @export var combo_scaling_min: float = 0.35
