@@ -302,6 +302,7 @@ func join(kind: int, device: int) -> int:
 	_join_counter += 1
 	s.join_order = _join_counter
 	_punch_panel(idx)
+	Sfx.play(&"ui_confirm")
 	_refresh()
 	return idx
 
@@ -312,6 +313,7 @@ func leave(idx: int) -> void:
 		return
 	s.state = SlotState.EMPTY
 	s.device_id = -1
+	Sfx.play(&"ui_back")
 	_refresh()
 
 
@@ -321,19 +323,25 @@ func _command(idx: int, cmd: int) -> void:
 		SlotState.READY:
 			if cmd == Cmd.BACK:
 				s.state = SlotState.JOINED
+				Sfx.play(&"ui_back")
 		SlotState.JOINED:
 			match cmd:
 				Cmd.UP:
 					s.cursor = posmod(s.cursor - 1, ROW_COUNT)
+					Sfx.play(&"ui_move")
 				Cmd.DOWN:
 					s.cursor = posmod(s.cursor + 1, ROW_COUNT)
+					Sfx.play(&"ui_move")
 				Cmd.LEFT:
 					_change_row(s, -1)
+					Sfx.play(&"ui_move")
 				Cmd.RIGHT:
 					_change_row(s, 1)
+					Sfx.play(&"ui_move")
 				Cmd.CONFIRM:
 					s.state = SlotState.READY
 					_punch_panel(idx)
+					Sfx.play(&"ui_confirm")
 				Cmd.BACK:
 					leave(idx)
 					return
@@ -411,6 +419,7 @@ func _start() -> void:
 
 
 func _back_to_menu() -> void:
+	Sfx.play(&"ui_back")
 	_remember()
 	_started = true
 	Game.goto(Game.SCENE_MAIN_MENU)

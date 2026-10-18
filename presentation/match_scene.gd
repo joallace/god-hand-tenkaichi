@@ -9,6 +9,7 @@ extends Node
 ##   │  ├─ MatchDirector          simulation; spawns Fighter1/Fighter2
 ##   │  └─ Vfx (VfxManager)       visual-only effects
 ##   ├─ MatchEventHub             deduplicated fighter events for presentation
+##   ├─ MatchSfx                  sound effects (via the Sfx autoload)
 ##   ├─ ViewLayout (Control)      split screen / single view SubViewports,
 ##   │                            each with a FighterCamera sharing World3D
 ##   ├─ MatchHud (CanvasLayer 10) global top bar + announcer
@@ -23,6 +24,7 @@ var views: ViewLayout
 var hud: MatchHud
 var pause_menu: PauseMenu
 var vfx: VfxManager
+var sfx: MatchSfx
 
 var _ending := false
 
@@ -50,6 +52,10 @@ func _ready() -> void:
 	vfx = VfxManager.new()
 	world.add_child(vfx)
 	vfx.setup(hub)
+
+	sfx = MatchSfx.new()
+	add_child(sfx)
+	sfx.setup(director, hub)
 
 	views = ViewLayout.new()
 	add_child(views)

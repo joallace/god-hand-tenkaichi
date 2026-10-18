@@ -38,6 +38,7 @@ extends CombatEntity
 ##   &"reappear"       {position}                     (end of any vanish)
 ##   &"ki_blast"       {position}
 ##   &"super_start"    {kind: &"rush"|&"beam"|&"ultimate"}
+##   &"beam"           {position}                     (beam fired)
 ##   &"ultimate_start" {freeze_frames}
 ##   &"not_enough_ki"  {needed, have}
 ##   &"knockdown"      {position}
@@ -809,6 +810,7 @@ func _spawn_from(m: MoveData) -> void:
 			var beam := Beam.new()
 			director.spawn_entity(beam)
 			beam.fire(self, m.spawn_move, _move_serial)
+			event.emit(&"beam", {"slot": slot, "position": global_position})
 
 
 # =============================================================================

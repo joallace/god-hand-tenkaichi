@@ -20,6 +20,7 @@ config/icon="res://icon.svg"
 Tuning="*res://core/tuning/tuning_db.gd"
 Bindings="*res://core/input/bindings_store.gd"
 Game="*res://core/game.gd"
+Sfx="*res://presentation/audio/sfx.gd"
 
 [display]
 

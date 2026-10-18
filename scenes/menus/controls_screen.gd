@@ -339,6 +339,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event.is_action_pressed("ui_cancel"):
 		get_viewport().set_input_as_handled()
+		Sfx.play(&"ui_back")
 		save_and_back()
 	elif get_viewport().gui_get_focus_owner() == null and (
 			event.is_action_pressed("ui_up") or event.is_action_pressed("ui_down")):

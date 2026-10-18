@@ -35,7 +35,9 @@ static func button(text: String, on_press: Callable = Callable(), disabled := fa
 	b.custom_minimum_size = UiTheme.tuning().button_min_size
 	b.disabled = disabled
 	b.focus_mode = Control.FOCUS_NONE if disabled else Control.FOCUS_ALL
-	b.pressed.connect(func() -> void: punch(b))
+	b.pressed.connect(func() -> void:
+		punch(b)
+		Sfx.play(&"ui_confirm"))
 	if on_press.is_valid():
 		b.pressed.connect(on_press)
 	return b

@@ -17,6 +17,7 @@ const REGISTRY := {
 	"hud": preload("res://core/tuning/hud_tuning.gd"),
 	"vfx": preload("res://core/tuning/vfx_tuning.gd"),
 	"arena": preload("res://core/tuning/arena_tuning.gd"),
+	"sfx": preload("res://core/tuning/sfx_tuning.gd"),
 }
 
 var input: InputTuning
@@ -27,6 +28,7 @@ var camera: CameraTuning
 var hud: HudTuning
 var vfx: VfxTuning
 var arena: ArenaTuning
+var sfx: SfxTuning
 
 
 func _init() -> void:

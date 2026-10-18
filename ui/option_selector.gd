@@ -45,6 +45,7 @@ func cycle(dir: int) -> void:
 		return
 	index = n
 	MenuHelpers.punch(self)
+	Sfx.play(&"ui_move")
 	value_changed.emit(index)
 
 

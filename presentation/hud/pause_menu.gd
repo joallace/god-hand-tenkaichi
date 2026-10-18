@@ -118,6 +118,7 @@ func open(slot: int) -> void:
 	director.paused = true
 	get_tree().paused = true
 	visible = true
+	Sfx.play(&"pause")
 	_subtitle.text = "P%d paused" % (slot + 1)
 	# The press that opened us must not immediately resume.
 	_pause_held = _sample_pause_buttons()
@@ -200,6 +201,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event.is_action_pressed(&"ui_cancel"):
 		get_viewport().set_input_as_handled()
+		Sfx.play(&"ui_back")
 		resume()
 
 
