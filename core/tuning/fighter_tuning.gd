@@ -97,8 +97,11 @@ extends Resource
 @export var teleport_frames: int = 8
 ## After reappearing, frames in which a follow-up attack still links.
 @export var teleport_followup_window: int = 20
-## Frames after one of your hits lands in which TELEPORT can be used.
+## Frames after one of your hits lands in which TELEPORT (or GUARD) teleports.
 @export var teleport_hit_window: int = 30
+## GUARD pressed at most this many frames before a guardable melee hit lands
+## vanishes (starts a vanish battle) instead of blocking, if ki allows.
+@export var guard_vanish_window: int = 6
 @export var vanish_escape_cost_bars: float = 2.0
 ## Each successive exchange in a vanish battle costs this many extra bars...
 @export var vanish_battle_cost_step_bars: float = 0.5
@@ -112,7 +115,9 @@ extends Resource
 @export var super2_cost_bars: float = 2.0
 @export var ultimate_cost_bars: float = 5.0
 @export var ki_blast_cost: float = 10.0
-## Stick Y beyond this picks forward/back SPECIAL variants.
+## HEAVY from neutral farther than this (m) from the opponent fires a ki blast.
+@export var close_combat_range: float = 3.0
+## Stick Y beyond this picks the forward (super2) / back (ultimate) SPECIAL.
 @export var special_dir_threshold: float = 0.5
 ## Global freeze before the ultimate's startup (cinematic beat).
 @export var ultimate_freeze_frames: int = 45

@@ -10,10 +10,17 @@ extends Node
 ##
 ## Sticks on gamepads are fixed (left = move, right = dodge); the d-pad also
 ## moves. On keyboard, move and dodge directions are rebindable actions.
+##
+## Defaults follow Budokai Tenkaichi: GUARD also teleports/vanishes when timed,
+## CHARGE + HEAVY is the special, HEAVY at range is a ki blast (see Fighter).
+## BLAST / SPECIAL / TELEPORT are optional dedicated shortcuts, unbound ({})
+## by default.
 
 signal changed(slot: int)
 
 const SAVE_PATH := "user://controls.cfg"
+## Bump when the defaults change incompatibly; older saves are discarded.
+const SAVE_VERSION := 2
 const SLOT_COUNT := 2
 
 enum Kind { PAD, KEYBOARD }
@@ -31,12 +38,12 @@ const KEYBOARD_DIR_ACTIONS: Array[String] = [
 const DEFAULT_PAD := {
 	"LIGHT": {"t": "btn", "i": JOY_BUTTON_X},
 	"HEAVY": {"t": "btn", "i": JOY_BUTTON_Y},
-	"BLAST": {"t": "btn", "i": JOY_BUTTON_B},
+	"BLAST": {},
 	"JUMP": {"t": "btn", "i": JOY_BUTTON_A},
-	"GUARD": {"t": "btn", "i": JOY_BUTTON_RIGHT_SHOULDER},
-	"CHARGE": {"t": "btn", "i": JOY_BUTTON_LEFT_SHOULDER},
-	"SPECIAL": {"t": "axis", "i": JOY_AXIS_TRIGGER_RIGHT, "s": 1},
-	"TELEPORT": {"t": "axis", "i": JOY_AXIS_TRIGGER_LEFT, "s": 1},
+	"GUARD": {"t": "btn", "i": JOY_BUTTON_B},
+	"CHARGE": {"t": "axis", "i": JOY_AXIS_TRIGGER_LEFT, "s": 1},
+	"SPECIAL": {},
+	"TELEPORT": {},
 	"DASH": {"t": "btn", "i": JOY_BUTTON_LEFT_STICK},
 	"PAUSE": {"t": "btn", "i": JOY_BUTTON_START},
 }
@@ -48,9 +55,9 @@ const DEFAULT_KEYBOARD: Array[Dictionary] = [
 		"DODGE_FORWARD": {"t": "key", "i": KEY_T}, "DODGE_BACK": {"t": "key", "i": KEY_G},
 		"DODGE_LEFT": {"t": "key", "i": KEY_F}, "DODGE_RIGHT": {"t": "key", "i": KEY_H},
 		"LIGHT": {"t": "key", "i": KEY_J}, "HEAVY": {"t": "key", "i": KEY_I},
-		"BLAST": {"t": "key", "i": KEY_L}, "JUMP": {"t": "key", "i": KEY_K},
-		"GUARD": {"t": "key", "i": KEY_E}, "CHARGE": {"t": "key", "i": KEY_Q},
-		"SPECIAL": {"t": "key", "i": KEY_U}, "TELEPORT": {"t": "key", "i": KEY_O},
+		"BLAST": {}, "JUMP": {"t": "key", "i": KEY_K},
+		"GUARD": {"t": "key", "i": KEY_L}, "CHARGE": {"t": "key", "i": KEY_U},
+		"SPECIAL": {}, "TELEPORT": {},
 		"DASH": {"t": "key", "i": KEY_SHIFT}, "PAUSE": {"t": "key", "i": KEY_ESCAPE},
 	},
 	{ # Slot 1 / layout B: arrows + numpad
@@ -59,9 +66,9 @@ const DEFAULT_KEYBOARD: Array[Dictionary] = [
 		"DODGE_FORWARD": {"t": "key", "i": KEY_KP_8}, "DODGE_BACK": {"t": "key", "i": KEY_KP_5},
 		"DODGE_LEFT": {"t": "key", "i": KEY_KP_4}, "DODGE_RIGHT": {"t": "key", "i": KEY_KP_6},
 		"LIGHT": {"t": "key", "i": KEY_KP_1}, "HEAVY": {"t": "key", "i": KEY_KP_2},
-		"BLAST": {"t": "key", "i": KEY_KP_3}, "JUMP": {"t": "key", "i": KEY_KP_0},
-		"GUARD": {"t": "key", "i": KEY_KP_7}, "CHARGE": {"t": "key", "i": KEY_KP_9},
-		"SPECIAL": {"t": "key", "i": KEY_KP_ADD}, "TELEPORT": {"t": "key", "i": KEY_KP_SUBTRACT},
+		"BLAST": {}, "JUMP": {"t": "key", "i": KEY_KP_0},
+		"GUARD": {"t": "key", "i": KEY_KP_3}, "CHARGE": {"t": "key", "i": KEY_KP_7},
+		"SPECIAL": {}, "TELEPORT": {},
 		"DASH": {"t": "key", "i": KEY_KP_ENTER}, "PAUSE": {"t": "key", "i": KEY_BACKSPACE},
 	},
 ]
@@ -118,6 +125,7 @@ func reset_defaults(slot: int) -> void:
 
 func save_to_disk() -> void:
 	var cfg := ConfigFile.new()
+	cfg.set_value("meta", "version", SAVE_VERSION)
 	for slot in SLOT_COUNT:
 		for kind in [Kind.PAD, Kind.KEYBOARD]:
 			var section := "slot%d_%s" % [slot, Kind.find_key(kind)]
@@ -130,6 +138,8 @@ func load_from_disk() -> void:
 	var cfg := ConfigFile.new()
 	if cfg.load(SAVE_PATH) != OK:
 		return
+	if cfg.get_value("meta", "version", 1) < SAVE_VERSION:
+		return  # saved against old defaults; start fresh
 	for slot in SLOT_COUNT:
 		for kind in [Kind.PAD, Kind.KEYBOARD]:
 			var section := "slot%d_%s" % [slot, Kind.find_key(kind)]

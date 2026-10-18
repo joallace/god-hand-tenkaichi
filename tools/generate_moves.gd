@@ -179,7 +179,7 @@ func _brawler() -> Resource:
 		"damage": 120.0, "hitstun": 40, "knockback": Vector3(0, 8.0, 9.0), "knockdown": true,
 		"is_heavy": true, "hitstop": 14, "hitbox_offset": Vector3(0, 1.3, 0.85),
 	}))
-	# --- Super 2: beam (back + SPECIAL) -----------------------------------------
+	# --- Super 2: beam (forward + SPECIAL) -----------------------------------------
 	var beam_hit := _mk({}, {
 		"id": &"brawler_beam_shot", "active": 60, "damage": 18.0, "hitstun": 18,
 		"knockback": Vector3(0, 0, 1.0), "guard_stun": 12, "guard_damage": 12.0, "hitstop": 1,
@@ -191,7 +191,7 @@ func _brawler() -> Resource:
 		"id": &"brawler_beam", "pose": &"beam", "startup": 18, "active": 0, "recovery": 80,
 		"damage": 0.0, "spawn_kind": &"beam", "spawn_frame": 18, "spawn_move": beam_hit,
 	}))
-	# --- Ultimate: bigger beam (forward + SPECIAL, full gauge) -----------------
+	# --- Ultimate: bigger beam (back + SPECIAL, full gauge) -----------------
 	var ult_hit := _mk({}, {
 		"id": &"brawler_ultimate_shot", "active": 100, "damage": 22.0, "hitstun": 18,
 		"knockback": Vector3(0, 0, 1.0), "guard_stun": 14, "guard_damage": 25.0, "hitstop": 1,

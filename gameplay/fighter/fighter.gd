@@ -53,6 +53,16 @@ extends CombatEntity
 ## mid, back = low; MoveData.height). Holding LIGHT/HEAVY turns the attack
 ## into its `charge_move`, which can be released early or held to full.
 ##
+## Budokai Tenkaichi button overloads (the BLAST / SPECIAL / TELEPORT buttons
+## still work as optional dedicated shortcuts):
+##   - HEAVY outside close_combat_range (from neutral) = ki blast.
+##   - CHARGE held + HEAVY = special: neutral = super1, forward = super2,
+##     back = ultimate.
+##   - GUARD pressed at the right time = teleport / vanish: right after
+##     landing a hit (offensive teleport), in hitstun (vanish escape), in a
+##     vanish battle's window, or within guard_vanish_window frames before a
+##     guardable melee hit lands (vanish instead of blocking).
+##
 ## Facing convention: the fighter's -Z (Godot forward) points at the opponent
 ## while locked on. InputFrame.move +Y = toward opponent, +X = strafe right.
 ## Fighter-space Vector3 (MoveData offsets): x = right, y = up, z = forward.
@@ -410,6 +420,8 @@ func receive_hit(hb: Hitbox) -> Contact:
 	if is_invulnerable() or get_hurtbox().is_empty():
 		return Contact.NONE
 	if _can_block(hb):
+		if _try_guard_vanish(hb):
+			return Contact.NONE
 		_take_blocked(hb)
 		return Contact.BLOCKED
 	_take_hit(hb)
@@ -451,13 +463,15 @@ func _try_actions(allow_guard: bool) -> bool:
 		return true
 	if _try_teleport():
 		return true
-	if _consume(InputFrame.Btn.SPECIAL):
+	if _consume_special():
 		if _try_special():
 			return true
 	if _consume(InputFrame.Btn.BLAST):
 		if _try_ki_blast():
 			return true
 	if _consume(InputFrame.Btn.HEAVY):
+		if not _in_close_range() and _try_ki_blast():
+			return true
 		return _start_move_id(_heavy_for_stick())
 	if _consume(InputFrame.Btn.LIGHT):
 		return _start_move_id(def.light_string[0] if not def.light_string.is_empty() else &"")
@@ -590,6 +604,9 @@ func _heavy_for_stick() -> StringName:
 
 
 func _try_cancel_into(m: MoveData) -> bool:
+	# Before the loop: CHARGE + HEAVY must not be read as a HEAVY cancel.
+	if m.special_cancelable and _move_connected and _consume_special():
+		return _try_special()
 	for btn: int in [InputFrame.Btn.HEAVY, InputFrame.Btn.LIGHT, InputFrame.Btn.BLAST]:
 		if not _buffered(btn):
 			continue
@@ -600,8 +617,6 @@ func _try_cancel_into(m: MoveData) -> bool:
 		if btn == InputFrame.Btn.BLAST:
 			return _try_ki_blast()
 		return _start_move_id(next_id)
-	if m.special_cancelable and _move_connected and _consume(InputFrame.Btn.SPECIAL):
-		return _try_special()
 	return false
 
 
@@ -729,6 +744,8 @@ func _tick_charge() -> void:
 	if not _input.is_held(InputFrame.Btn.CHARGE):
 		_enter(State.IDLE)
 		return
+	if _consume_special() and _try_special():
+		return
 	_add_ki(tuning.ki_charge_per_frame)
 
 
@@ -762,13 +779,13 @@ func _tick_wakeup() -> void:
 
 ## Offensive vanish: right after landing a hit, reappear behind the victim.
 func _try_teleport() -> bool:
-	if not _buffered(InputFrame.Btn.TELEPORT) or opponent == null:
+	if not _teleport_buffered() or opponent == null:
 		return false
 	if not opponent._is_teleport_target() or _since_hit_landed > tuning.teleport_hit_window:
 		return false
 	if _teleports_in_combo >= tuning.teleport_max_per_combo:
 		return false
-	_consume(InputFrame.Btn.TELEPORT)
+	_consume_teleport()
 	if not _spend_ki(tuning.teleport_cost_bars * tuning.ki_bar_size):
 		return false
 	_teleports_in_combo += 1
@@ -794,9 +811,27 @@ func _hold_for_teleport(frames: int) -> void:
 
 ## Defensive vanish (from hitstun): starts a vanish battle.
 func _try_vanish_escape() -> bool:
-	if not _buffered(InputFrame.Btn.TELEPORT) or opponent == null:
+	if not _teleport_buffered() or opponent == null:
 		return false
-	_consume(InputFrame.Btn.TELEPORT)
+	_consume_teleport()
+	return _start_vanish_battle()
+
+
+## Guard pressed just before a guardable melee hit: vanish instead of blocking.
+func _try_guard_vanish(hb: Hitbox) -> bool:
+	if not hb.is_melee or hb.attacker == null or opponent == null:
+		return false
+	var since_press := _held[_bit(InputFrame.Btn.GUARD)]
+	if since_press < 1 or since_press > tuning.guard_vanish_window:
+		return false
+	if ki < VanishBattle.cost_for(tuning, 0):
+		return false  # just block; no not_enough_ki nag on every guard
+	_consume_teleport()
+	return _start_vanish_battle()
+
+
+## Pay the opening cost and vanish behind the opponent, who must respond.
+func _start_vanish_battle() -> bool:
 	if not _spend_ki(VanishBattle.cost_for(tuning, 0)):
 		return false
 	var b := VanishBattle.new()
@@ -810,7 +845,7 @@ func _try_vanish_escape() -> bool:
 
 ## Responder answering a vanish within the window.
 func _try_vanish_respond() -> bool:
-	if not _consume(InputFrame.Btn.TELEPORT):
+	if not _consume_teleport():
 		return false
 	var e := _vanish_battle.exchange + 1
 	if not _spend_ki(VanishBattle.cost_for(tuning, e)):
@@ -843,7 +878,7 @@ func _tick_vanish_wait() -> void:
 		return
 	if _state_frame >= tuning.teleport_frames:
 		_face_opponent(_turn_step())
-		if _buffered(InputFrame.Btn.TELEPORT) and _try_vanish_respond():
+		if _teleport_buffered() and _try_vanish_respond():
 			return
 	if _state_frame >= _state_len:
 		_end_vanish_battle(opponent.slot if opponent else -1)
@@ -896,13 +931,13 @@ func _try_special() -> bool:
 	var cost := t.super1_cost_bars
 	var kind := &"rush"
 	if y > t.special_dir_threshold:
-		move_id = def.ultimate
-		cost = t.ultimate_cost_bars
-		kind = &"ultimate"
-	elif y < -t.special_dir_threshold:
 		move_id = def.super2
 		cost = t.super2_cost_bars
 		kind = &"beam"
+	elif y < -t.special_dir_threshold:
+		move_id = def.ultimate
+		cost = t.ultimate_cost_bars
+		kind = &"ultimate"
 	if def.move(move_id) == null or not _spend_ki(cost * t.ki_bar_size):
 		return false
 	_start_move_id(move_id)
@@ -1204,6 +1239,34 @@ func _consume(btn: int) -> bool:
 		_buffer[i] = 0
 		return true
 	return false
+
+
+## SPECIAL, or HEAVY pressed while holding CHARGE.
+func _consume_special() -> bool:
+	if _consume(InputFrame.Btn.SPECIAL):
+		return true
+	return _input.is_held(InputFrame.Btn.CHARGE) and _consume(InputFrame.Btn.HEAVY)
+
+
+## TELEPORT, or GUARD (teleports only where the timing allows it).
+func _teleport_buffered() -> bool:
+	return _buffered(InputFrame.Btn.TELEPORT) or _buffered(InputFrame.Btn.GUARD)
+
+
+func _consume_teleport() -> bool:
+	var tp := _consume(InputFrame.Btn.TELEPORT)
+	var guard := _consume(InputFrame.Btn.GUARD)
+	return tp or guard
+
+
+## Within close_combat_range of the opponent (ground plane): HEAVY strikes
+## instead of firing a ki blast.
+func _in_close_range() -> bool:
+	if opponent == null:
+		return true
+	var d := opponent.global_position - global_position
+	d.y = 0.0
+	return d.length() <= tuning.close_combat_range
 
 
 func _age_buffer() -> void:

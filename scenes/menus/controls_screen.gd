@@ -27,9 +27,10 @@ signal closed
 const SCENE_PATH := "res://scenes/menus/controls_screen.tscn"
 
 const ACTION_NAMES := {
-	"LIGHT": "Light Attack", "HEAVY": "Heavy Attack", "BLAST": "Ki Blast",
-	"JUMP": "Jump", "GUARD": "Guard", "CHARGE": "Charge Ki", "SPECIAL": "Special",
-	"TELEPORT": "Teleport", "DASH": "Dash", "PAUSE": "Pause",
+	"LIGHT": "Light Attack", "HEAVY": "Heavy Attack", "BLAST": "Ki Blast (shortcut)",
+	"JUMP": "Jump", "GUARD": "Guard / Teleport", "CHARGE": "Charge Ki / Special",
+	"SPECIAL": "Special (shortcut)", "TELEPORT": "Teleport (shortcut)", "DASH": "Dash",
+	"PAUSE": "Pause",
 	"MOVE_FORWARD": "Move Forward", "MOVE_BACK": "Move Back",
 	"MOVE_LEFT": "Move Left", "MOVE_RIGHT": "Move Right",
 	"DODGE_FORWARD": "Dodge Forward", "DODGE_BACK": "Dodge Back",
@@ -38,6 +39,12 @@ const ACTION_NAMES := {
 const PAD_FIXED_ROWS := [
 	["Move", "Left Stick / D-Pad"],
 	["Dodge", "Right Stick flick"],
+]
+## Button combos (Fighter's BT overloads), shown for every device.
+const COMBO_ROWS := [
+	["Ki Blast", "Heavy at range"],
+	["Special", "Charge + Heavy  (+Fwd: Super 2, +Back: Ultimate)"],
+	["Teleport", "Guard right after a hit / just before one"],
 ]
 
 ## When true, Back emits `closed` and frees this node instead of going to
@@ -156,6 +163,8 @@ func _rebuild_rows() -> void:
 	if kind == Bindings.Kind.PAD:
 		for fr in PAD_FIXED_ROWS:
 			_rows_box.add_child(_make_row(fr[0], fr[1] + "   (fixed)", false))
+	for cr in COMBO_ROWS:
+		_rows_box.add_child(_make_row(cr[0], cr[1], false))
 
 	for action in Bindings.actions_for(kind):
 		var row := _make_row(ACTION_NAMES.get(action, String(action).capitalize()), "", true)

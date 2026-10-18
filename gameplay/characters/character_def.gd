@@ -23,11 +23,11 @@ extends Resource
 @export var jump_attack: StringName = &""
 @export var dash_attack: StringName = &""
 @export var ki_blast: StringName = &""
-## Neutral SPECIAL.
+## Neutral SPECIAL (CHARGE + HEAVY).
 @export var super1: StringName = &""
-## Back + SPECIAL.
+## Forward + SPECIAL.
 @export var super2: StringName = &""
-## Forward + SPECIAL with a full gauge.
+## Back + SPECIAL with a full gauge.
 @export var ultimate: StringName = &""
 
 @export_group("Stats")

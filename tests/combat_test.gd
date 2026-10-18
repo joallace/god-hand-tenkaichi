@@ -16,7 +16,8 @@ func _ready() -> void:
 		_test_vanish_battle, _test_ki_blast, _test_beam, _test_rush, _test_ultimate,
 		_test_not_enough_ki, _test_jump_attack, _test_strike_heights, _test_height_vs_duck,
 		_test_charge_strike_release, _test_charge_strike_stun, _test_charge_strike_guard,
-		_test_charge_punch, _test_determinism,
+		_test_charge_punch, _test_heavy_at_range_blast, _test_charge_heavy_special,
+		_test_guard_teleport, _test_guard_vanish_escape, _test_guard_vanish, _test_determinism,
 	]
 	for t in tests:
 		t.call()
@@ -284,7 +285,7 @@ func _test_beam() -> void:
 	var p1 := d.fighters[0]
 	var p2 := d.fighters[1]
 	p1.ki = p1.ki_max()
-	_src(d, 0).stick(0, 2, Vector2(0, -1)).press(0, B.SPECIAL)
+	_src(d, 0).stick(0, 2, Vector2(0, 1)).press(0, B.SPECIAL)
 	_run(d, 2)
 	_check(is_equal_approx(p1.ki, p1.ki_max() - p1.tuning.super2_cost_bars * p1.tuning.ki_bar_size), "beam costs 2 bars")
 	_run(d, 30)
@@ -309,7 +310,7 @@ func _test_ultimate() -> void:
 	var p1 := d.fighters[0]
 	var p2 := d.fighters[1]
 	p1.ki = p1.ki_max()
-	_src(d, 0).stick(0, 1, Vector2(0, 1)).press(0, B.SPECIAL)
+	_src(d, 0).stick(0, 1, Vector2(0, -1)).press(0, B.SPECIAL)
 	_run(d, 2)
 	_check(_event_count(&"ultimate_start", 0) == 1 and d.hitstop > 0, "ultimate emits ultimate_start and freezes")
 	_check(is_zero_approx(p1.ki), "ultimate consumes the full gauge")
@@ -324,6 +325,98 @@ func _test_not_enough_ki() -> void:
 	_src(d, 0).press(0, B.SPECIAL).press(3, B.BLAST)
 	_run(d, 10)
 	_check(_event_count(&"not_enough_ki", 0) == 2 and p1.current_state_name() == &"idle", "specials need ki")
+
+
+func _test_heavy_at_range_blast() -> void:
+	var d := _new_match(5.0)
+	var p1 := d.fighters[0]
+	_src(d, 0).press(0, B.HEAVY)
+	var spawned := _run_until(d, func() -> bool: return not d.entities.is_empty(), 20)
+	_check(spawned and d.entities[0] is KiBlast and p1.current_move().id == p1.def.ki_blast,
+		"HEAVY at range throws a ki blast")
+	d = _new_match()
+	p1 = d.fighters[0]
+	_src(d, 0).press(0, B.HEAVY)
+	_run(d, 3)
+	_check(d.entities.is_empty() and p1.current_move() != null and p1.current_move().id == p1.def.heavy,
+		"HEAVY in close combat strikes")
+	# No ki at range: falls back to the strike.
+	d = _new_match(5.0)
+	p1 = d.fighters[0]
+	p1.ki = 0.0
+	_src(d, 0).press(0, B.HEAVY)
+	_run(d, 3)
+	_check(d.entities.is_empty() and p1.current_move() != null and p1.current_move().id == p1.def.heavy,
+		"HEAVY at range without ki strikes")
+
+
+func _test_charge_heavy_special() -> void:
+	var cases := [[Vector2.ZERO, &"rush"], [Vector2(0, 1), &"beam"], [Vector2(0, -1), &"ultimate"]]
+	for c: Array in cases:
+		var d := _new_match(6.0)
+		var p1 := d.fighters[0]
+		p1.ki = p1.ki_max()
+		_src(d, 0).press(0, B.CHARGE, 20).stick(8, 12, c[0]).press(10, B.HEAVY)
+		_run(d, 8)
+		_check(p1.current_state_name() == &"charge", "holding CHARGE charges before HEAVY")
+		_run(d, 6)
+		_check(_last_event(&"super_start").get("kind") == c[1], "CHARGE + HEAVY %s -> %s" % [c[0], c[1]])
+	# Pressed together from neutral.
+	var d := _new_match(3.0)
+	d.fighters[0].ki = d.fighters[0].ki_max()
+	_src(d, 0).press(0, B.CHARGE, 5).press(0, B.HEAVY)
+	_run(d, 3)
+	_check(_last_event(&"super_start").get("kind") == &"rush", "CHARGE + HEAVY on the same frame")
+
+
+func _test_guard_teleport() -> void:
+	var d := _new_match()
+	var p1 := d.fighters[0]
+	p1.ki = p1.ki_max()
+	_src(d, 0).press(0, B.LIGHT).press(8, B.GUARD)
+	var started := _run_until(d, func() -> bool: return p1.current_state_name() == &"teleport", 30)
+	_check(started and _event_count(&"teleport", 0) == 1, "GUARD right after a hit teleports")
+	# Without a recent hit GUARD just guards.
+	d = _new_match(4.0)
+	p1 = d.fighters[0]
+	p1.ki = p1.ki_max()
+	_src(d, 0).press(0, B.GUARD, 10)
+	_run(d, 5)
+	_check(p1.current_state_name() == &"guard" and _event_count(&"teleport") == 0, "GUARD in neutral guards")
+
+
+func _test_guard_vanish_escape() -> void:
+	var d := _new_match()
+	var p2 := d.fighters[1]
+	p2.ki = p2.ki_max()
+	_src(d, 0).press(0, B.LIGHT)
+	_src(d, 1).press(7, B.GUARD)
+	var esc := _run_until(d, func() -> bool: return p2.current_state_name() == &"teleport", 30)
+	_check(esc and _event_count(&"vanish", 1) == 1, "GUARD in hitstun vanishes")
+
+
+func _test_guard_vanish() -> void:
+	var startup := 0
+	for early: bool in [false, true]:
+		var d := _new_match()
+		var p1 := d.fighters[0]
+		var p2 := d.fighters[1]
+		p2.ki = p2.ki_max()
+		startup = p1.def.move(p1.def.light_string[0]).startup
+		var at := 0 if early else maxi(startup - 2, 0)
+		if early:
+			_src(d, 0).press(20, B.LIGHT)  # guard held long before the hit
+		else:
+			_src(d, 0).press(0, B.LIGHT)
+		_src(d, 1).press(at, B.GUARD, 60)
+		_run(d, 40)
+		if early:
+			_check(_event_count(&"vanish", 1) == 0 and _event_count(&"hit", 1) == 1 and _last_event(&"hit")["blocked"],
+				"GUARD held early blocks normally")
+		else:
+			_check(_event_count(&"vanish", 1) == 1 and _event_count(&"hit", 1) == 0 and is_equal_approx(p2.health, p2.tuning.max_health),
+				"GUARD just before a hit vanishes instead")
+			_check(is_equal_approx(p2.ki, p2.ki_max() - VanishBattle.cost_for(p2.tuning, 0)), "guard vanish costs ki")
 
 
 func _test_jump_attack() -> void:

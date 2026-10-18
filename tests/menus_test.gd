@@ -231,7 +231,7 @@ func _test_controls_screen() -> void:
 	Input.parse_input_event(m)
 	await frames(2)
 	check(Bindings.get_binding(1, Bindings.Kind.PAD, "JUMP") == {"t": "axis", "i": JOY_AXIS_TRIGGER_LEFT, "s": 1}
-			and Bindings.get_binding(1, Bindings.Kind.PAD, "TELEPORT")["i"] == JOY_BUTTON_A, "pad trigger bind + swap")
+			and Bindings.get_binding(1, Bindings.Kind.PAD, "CHARGE")["i"] == JOY_BUTTON_A, "pad trigger bind + swap")
 
 	# Timeout cancels.
 	c.begin_listen("DASH")
