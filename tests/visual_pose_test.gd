@@ -9,6 +9,18 @@ const GROUND_TOLERANCE := 0.03
 const LYING_PART_TOLERANCE := 0.05
 ## Get-up poses whose lowest point must touch the floor.
 const GROUNDED: Array[StringName] = [&"knockdown", &"wakeup"]
+## Standing poses (feet planted) whose lowest point must stay within
+## FOOT_TOLERANCE of the floor (no sinking, no floating).
+const STANDING: Array[StringName] = [
+	&"guard", &"guard_high", &"guard_low", &"counter_guard", &"recoil", &"throw",
+	&"throw_windup", &"throw_hold", &"throw_toss", &"taunt", &"uppercut_windup",
+	&"hammer", &"hammer_windup", &"smash_left", &"smash_left_windup", &"smash_right",
+	&"smash_right_windup",
+]
+const FOOT_TOLERANCE := 0.12
+## Attack poses that must have a "<pose>_windup" for their startup.
+const NEEDS_WINDUP: Array[StringName] = [&"throw", &"uppercut", &"hammer", &"smash_left", &"smash_right"]
+const MOVES_DIR := "res://data/moves/"
 
 var _ok := true
 var _visual: FighterVisual
@@ -39,8 +51,51 @@ func _ready() -> void:
 	for j in [&"kn_l", &"kn_r"]:
 		var low := _lowest(_visual._joints[j])
 		_check(absf(low) <= GROUND_TOLERANCE, "wakeup %s on the floor (lowest y %.3f)" % [j, low])
+	_test_states_resolve()
+	_test_move_poses()
+	for id in STANDING:
+		_apply(id)
+		var low := _lowest(_visual._body)
+		print("%s lowest point y = %.3f" % [id, low])
+		_check(absf(low) <= FOOT_TOLERANCE, "%s feet on the floor (lowest y %.3f)" % [id, low])
 	print("VISUAL POSE TEST %s" % ("PASS" if _ok else "FAIL"))
 	get_tree().quit(0 if _ok else 1)
+
+
+## Every pose Fighter.current_pose() can report outside ATTACK maps to a
+## defined pose (no silent fallback to idle).
+func _test_states_resolve() -> void:
+	var ids: Array[StringName] = [&"knockdown", &"launched"]
+	ids.append_array(Fighter.GUARD_POSE_NAMES)
+	for d in Fighter.DODGE_NAMES:
+		if d != &"none":
+			ids.append(d)
+	for st in Fighter.STATE_NAMES:
+		if st not in [&"attack", &"dodge", &"ko", &"walk", &"throw"]:
+			ids.append(st)
+	for id in ids:
+		_check(FighterVisual.POSES.has(FighterVisual.pose_id_for(id, id, 0, Tuning.fighter)),
+			"state pose %s defined" % id)
+	_check(FighterVisual.pose_id_for(&"walk", &"walk", 0, Tuning.fighter) == &"idle", "walk -> idle")
+	# The thrower holds through the break window, then tosses.
+	var hold := FighterVisual.pose_id_for(&"throw", &"throw", 0, Tuning.fighter)
+	var toss := FighterVisual.pose_id_for(&"throw", &"throw", Tuning.fighter.throw_break_frames, Tuning.fighter)
+	_check(hold == &"throw_hold" and toss == &"throw_toss", "throw state hold -> toss (%s, %s)" % [hold, toss])
+	_check(FighterVisual.POSES.has(hold) and FighterVisual.POSES.has(toss), "throw hold/toss poses defined")
+
+
+## Every move's pose (and the new moves' windups) is defined.
+func _test_move_poses() -> void:
+	for file in DirAccess.get_files_at(MOVES_DIR):
+		if file.get_extension() != "tres":
+			continue
+		var m := load(MOVES_DIR + file) as MoveData
+		if m == null or m.pose == &"":
+			continue
+		_check(FighterVisual.POSES.has(m.pose), "move %s pose %s defined" % [m.id, m.pose])
+	for id in NEEDS_WINDUP:
+		_check(FighterVisual.POSES.has(id), "pose %s defined" % id)
+		_check(FighterVisual.POSES.has(StringName(String(id) + "_windup")), "pose %s_windup defined" % id)
 
 
 ## Snap the visual straight to a named pose (no blending).

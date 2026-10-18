@@ -11,7 +11,9 @@ var _events: Array = []  # [slot, kind, data]
 
 func _ready() -> void:
 	var tests: Array[Callable] = [
-		_test_light_hit, _test_light_string, _test_guard, _test_guard_break,
+		_test_light_hit, _test_light_string, _test_guard, _test_guard_crash, _test_guard_poses,
+		_test_guard_pose_switch, _test_chip_cant_ko, _test_counter_guard, _test_throw, _test_throw_break,
+		_test_back_throw, _test_taunt, _test_teleport_direction, _test_smash_directions,
 		_test_dodge_invuln, _test_perfect_dodge, _test_charge, _test_teleport,
 		_test_vanish_battle, _test_ki_blast, _test_beam, _test_rush, _test_ultimate,
 		_test_not_enough_ki, _test_jump_attack, _test_strike_heights, _test_height_vs_duck,
@@ -21,7 +23,7 @@ func _ready() -> void:
 		_test_guard_vanish_first_hit, _test_guard_vanish_window_hp, _test_attack_tracking,
 		_test_combo_scaling, _test_anti_loop_repeat, _test_anti_loop_relaunch, _test_air_tech,
 		_test_quick_rise, _test_wakeup_roll, _test_stay_down, _test_dodge_chain, _test_dodge_queued_attack,
-		_test_determinism,
+		_test_determinism, _test_determinism_bt3,
 	]
 	for t in tests:
 		t.call()
@@ -143,17 +145,236 @@ func _test_guard() -> void:
 	var dmg := p2.tuning.max_health - p2.health
 	_check(dmg > 0.0 and dmg < 30.0 * 0.5, "guard reduces damage to chip (%.2f)" % dmg)
 	_check(not _last_event(&"hit").is_empty() and _last_event(&"hit")["blocked"], "blocked hit flagged")
-	_check(p2.guard_health < p2.tuning.guard_health, "guard health drained")
+	_check(_last_event(&"hit").get("guard_result", -1) == MoveData.GuardResult.PLAIN and is_equal_approx(p2.ki, p2.tuning.ki_start),
+		"a light is a plain block: no ki cost (%.1f)" % p2.ki)
 
 
-func _test_guard_break() -> void:
+## Ki guard with too little ki crashes the guard; mashing shortens the crash.
+func _test_guard_crash() -> void:
+	var lengths: Array[int] = []
+	for mash: bool in [false, true]:
+		var d := _new_match()
+		var p2 := d.fighters[1]
+		p2.ki = 5.0
+		# High guard vs the mid kick = ki guard.
+		_src(d, 1).press(0, B.GUARD, 300).stick(0, 300, Vector2(0, 1))
+		_src(d, 0).press(2, B.HEAVY)
+		var crashed := _run_until(d, func() -> bool: return p2.current_state_name() == &"guard_break", 60)
+		_check(crashed and p2.is_guard_crashed() and _event_count(&"guard_break", 1) == 1 and p2.ki == 0.0,
+			"ki guard on an empty gauge crashes the guard (mash %s)" % mash)
+		if mash:
+			for i in range(d.tick - _src(d, 1).start_tick, 300, 3):
+				_src(d, 1).press(i, B.HEAVY)
+		var n := 0
+		while p2.current_state_name() == &"guard_break" and n < 300:
+			d.step()
+			n += 1
+		lengths.append(n)
+		_check(p2.ki >= p2.tuning.guard_crash_ki_refill, "guard crash ends with a ki refill (%.1f)" % p2.ki)
+	_check(lengths[0] >= lengths[1] + 10 and lengths[0] <= Tuning.fighter.guard_break_stun_frames + Tuning.fighter.hitstop_heavy,
+		"mashing shortens the guard crash (%d -> %d frames)" % [lengths[0], lengths[1]])
+
+
+## Guard result per pose: matched heavy = push-off (attacker recoils),
+## neighbouring pose = ki guard, opposite extreme = unblockable.
+func _test_guard_poses() -> void:
+	var cases := [
+		# [attacker stick y, guard stick y, expected GuardResult or -1 = clean hit, label]
+		[-1.0, -1.0, MoveData.GuardResult.PUSH_OFF, "low kick vs low guard pushes off"],
+		[1.0, -1.0, -1, "high kick goes through a low guard"],
+		[-1.0, 1.0, -1, "low kick goes through a high guard"],
+		[0.0, 1.0, MoveData.GuardResult.KI_GUARD, "mid kick vs high guard is a ki guard"],
+		[0.0, 0.0, MoveData.GuardResult.PUSH_OFF, "mid kick vs mid guard pushes off"],
+	]
+	for c: Array in cases:
+		var d := _new_match()
+		var p1 := d.fighters[0]
+		var p2 := d.fighters[1]
+		_src(d, 1).press(0, B.GUARD, 80).stick(0, 80, Vector2(0, c[1]))
+		_src(d, 0).stick(2, 3, Vector2(0, c[0])).press(2, B.HEAVY)
+		_run_until(d, func() -> bool: return _event_count(&"hit", 1) > 0, 60)
+		var hit := _last_event(&"hit")
+		var expect: int = c[2]
+		if expect < 0:
+			_check(not hit.is_empty() and not hit["blocked"], c[3])
+			continue
+		_check(not hit.is_empty() and hit["blocked"] and hit["guard_result"] == expect, c[3])
+		if expect == MoveData.GuardResult.PUSH_OFF:
+			_check(p1.current_state_name() == &"recoil" and _event_count(&"push_off", 1) == 1,
+				"push-off makes the attacker recoil")
+			_check(p2.ki > p2.tuning.ki_start, "push-off gives the defender ki")
+		if expect == MoveData.GuardResult.KI_GUARD:
+			var m := p1.def.move(p1.def.heavy)
+			_check(is_equal_approx(p2.ki, p2.tuning.ki_start - m.guard_ki_cost), "ki guard drains ki (%.1f)" % p2.ki)
+
+
+func _test_guard_pose_switch() -> void:
+	var d := _new_match(4.0)
+	var p2 := d.fighters[1]
+	var sw := p2.tuning.guard_pose_switch_frames
+	_src(d, 1).press(0, B.GUARD, 80).stick(20, 80, Vector2(0, -1))
+	_run(d, 20 + sw - 2)
+	_check(p2.guard_pose() == MoveData.Height.MID, "a held guard keeps its pose for a moment")
+	_run(d, 3)
+	_check(p2.guard_pose() == MoveData.Height.LOW and p2.current_pose() == &"guard_low",
+		"then switches to the stick's pose")
+	d = _new_match(4.0)
+	p2 = d.fighters[1]
+	_src(d, 1).stick(0, 20, Vector2(0, 1)).press(0, B.GUARD, 20)
+	_run(d, 2)
+	_check(p2.guard_pose() == MoveData.Height.HIGH, "entering the guard takes the held pose at once")
+
+
+func _test_chip_cant_ko() -> void:
 	var d := _new_match()
 	var p2 := d.fighters[1]
-	p2.guard_health = 10.0
-	_src(d, 1).press(0, B.GUARD, 80)
-	_src(d, 0).press(2, B.HEAVY)
-	var broke := _run_until(d, func() -> bool: return p2.current_state_name() == &"guard_break", 60)
-	_check(broke and _event_count(&"guard_break", 1) == 1, "heavy breaks a weakened guard")
+	p2.health = 1.0
+	_src(d, 1).press(0, B.GUARD, 60)
+	_src(d, 0).press(3, B.LIGHT)
+	_run(d, 30)
+	_check(is_equal_approx(p2.health, 1.0) and not p2.is_ko() and _event_count(&"ko") == 0, "chip damage can't KO")
+
+
+## Counter stance catches a string's first hit only inside its opening frames.
+func _test_counter_guard() -> void:
+	var caught := 0
+	var blocked_late := false
+	for k in range(14, 40):
+		var d := _new_match()
+		var p1 := d.fighters[0]
+		_src(d, 1).press(0, B.GUARD, 120).stick(k, k + 1, Vector2(0, 1)).press(k, B.LIGHT)
+		_src(d, 0).press(30, B.LIGHT)
+		_run(d, 70)
+		if _event_count(&"counter_guard", 1) == 1:
+			caught += 1
+			_check(p1.health < p1.tuning.max_health and _event_count(&"hit", 1) == 0,
+				"counter guard: no damage taken, the counter attack lands (k=%d)" % k)
+		elif k == 14:
+			blocked_late = _event_count(&"hit", 1) == 1 and _last_event(&"hit")["blocked"]
+	_check(caught == Tuning.fighter.counter_guard_window_frames,
+		"counter window is %d frames (caught %d)" % [Tuning.fighter.counter_guard_window_frames, caught])
+	_check(blocked_late, "an early counter stance still blocks")
+
+
+func _test_throw() -> void:
+	var d := _new_match()
+	var p1 := d.fighters[0]
+	var p2 := d.fighters[1]
+	_src(d, 1).press(0, B.GUARD, 120)
+	_src(d, 0).press(10, B.THROW)
+	var grabbed := _run_until(d, func() -> bool: return p2.current_state_name() == &"thrown", 30)
+	_check(grabbed and p1.current_state_name() == &"throw" and _event_count(&"throw", 0) == 1, "throw grabs through guard")
+	var down := _run_until(d, func() -> bool: return p2.current_state_name() == &"knockdown", 30)
+	var dmg := p1.def.move(p1.def.throw).damage
+	_check(down and is_equal_approx(p2.health, p2.tuning.max_health - dmg), "throw executes: damage + knockdown (hp %.1f)" % p2.health)
+	# Airborne fighters can't be grabbed.
+	d = _new_match()
+	_src(d, 1).press(0, B.JUMP)
+	_src(d, 0).press(6, B.THROW)
+	_run(d, 30)
+	_check(_event_count(&"throw") == 0, "throw whiffs on a jumping opponent")
+
+
+func _test_throw_break() -> void:
+	for mashed: bool in [false, true]:
+		var d := _new_match()
+		var p1 := d.fighters[0]
+		var p2 := d.fighters[1]
+		_src(d, 0).press(10, B.THROW)
+		if mashed:
+			_src(d, 1).press(2, B.GUARD)  # a recent press: the break press isn't clean
+		_run_until(d, func() -> bool: return p2.current_state_name() == &"thrown", 30)
+		_src(d, 1).press_at_tick(d.tick + 2, B.GUARD)
+		_run(d, 6)
+		if mashed:
+			_check(_event_count(&"throw_break") == 0, "mashed GUARD doesn't break a throw")
+		else:
+			_check(_event_count(&"throw_break", 1) == 1 and p1.current_state_name() == &"recoil"
+				and p2.current_state_name() == &"recoil", "clean GUARD press breaks the throw")
+			_run(d, 30)
+			_check(is_equal_approx(p2.health, p2.tuning.max_health), "broken throw deals no damage")
+
+
+func _test_back_throw() -> void:
+	for back: bool in [false, true]:
+		var d := _new_match()
+		var p1 := d.fighters[0]
+		var p2 := d.fighters[1]
+		_src(d, 0).stick(10, 11, Vector2(0, -1 if back else 0)).press(10, B.THROW)
+		_run_until(d, func() -> bool: return p2.current_state_name() == &"knockdown", 60)
+		_run(d, 20)
+		var behind := p2.global_position.z > p1.global_position.z  # P1 started on +z facing -z
+		_check(behind == back, "%s throw sends the victim %s" % ["back" if back else "forward", "behind" if back else "ahead"])
+
+
+func _test_taunt() -> void:
+	var d := _new_match(4.0)
+	var p1 := d.fighters[0]
+	_src(d, 0).press(0, B.TAUNT)
+	_run(d, p1.tuning.taunt_frames + 5)
+	_check(_event_count(&"taunt", 0) == 1 and _event_count(&"taunt_done", 0) == 1
+		and is_equal_approx(p1.ki, p1.tuning.ki_start + p1.tuning.taunt_ki_gain), "finished taunt pays ki (%.1f)" % p1.ki)
+	d = _new_match()
+	p1 = d.fighters[0]
+	_src(d, 0).press(0, B.TAUNT)
+	_src(d, 1).press(2, B.LIGHT)
+	_run(d, p1.tuning.taunt_frames + 5)
+	var jab := p1.def.move(p1.def.light_string[0]).damage
+	_check(_event_count(&"taunt_done") == 0 and is_equal_approx(p1.tuning.max_health - p1.health, jab * p1.tuning.taunt_counter_damage_mult),
+		"a hit interrupts the taunt and counts extra (%.1f)" % (p1.tuning.max_health - p1.health))
+
+
+## The stick picks the reappear point around the opponent (P1 starts on +z
+## facing -z, so its right is +x).
+func _test_teleport_direction() -> void:
+	var cases := [
+		[Vector2.ZERO, Vector3(0, 0, -1), "neutral reappears behind the victim"],
+		[Vector2(-1, 0), Vector3(-1, 0, 0), "stick left reappears on the left flank"],
+		[Vector2(1, 0), Vector3(1, 0, 0), "stick right reappears on the right flank"],
+		[Vector2(0, -1), Vector3(0, 0, 1), "stick back reappears in front of the victim"],
+	]
+	for c: Array in cases:
+		var d := _new_match()
+		var p1 := d.fighters[0]
+		var p2 := d.fighters[1]
+		p1.ki = p1.ki_max()
+		_src(d, 0).press(0, B.LIGHT).press(8, B.TELEPORT).stick(8, 30, c[0])
+		_run_until(d, func() -> bool: return p1.current_state_name() == &"teleport", 30)
+		_run_until(d, func() -> bool: return p1.current_state_name() != &"teleport", 30)
+		var rel := p1.global_position - p2.global_position
+		rel.y = 0.0
+		_check(rel.normalized().dot(c[1]) > 0.8, "%s (rel %s)" % [c[2], rel])
+
+
+## LIGHT charge released with the stick = directional smash.
+func _test_smash_directions() -> void:
+	var cases := [
+		[Vector2.ZERO, &"brawler_charge_punch", &"neutral"],
+		[Vector2(0, 1), &"brawler_smash_up", &"forward"],
+		[Vector2(0, -1), &"brawler_smash_down", &"back"],
+		[Vector2(-1, 0), &"brawler_smash_left", &"left"],
+	]
+	for c: Array in cases:
+		var d := _new_match()
+		var p1 := d.fighters[0]
+		var p2 := d.fighters[1]
+		_src(d, 0).press(0, B.LIGHT, 40).stick(0, 60, c[0])
+		_run_until(d, func() -> bool: return _event_count(&"charge_release", 0) == 1, 80)
+		_check(_move_id(p1) == c[1] and _last_event(&"charge_release")["dir"] == c[2],
+			"release %s -> %s" % [c[2], _move_id(p1)])
+		var top := 0.0
+		var x_min := 0.0
+		for i in 60:
+			d.step()
+			top = maxf(top, p2.global_position.y)
+			x_min = minf(x_min, p2.global_position.x)
+		match c[2]:
+			&"forward":
+				_check(top > 1.0 and _event_count(&"knockdown", 1) == 1, "forward smash launches (top %.2f)" % top)
+			&"back":
+				_check(_event_count(&"ground_bounce", 1) == 1 and top > 0.3, "back smash ground-bounces (top %.2f)" % top)
+			&"left":
+				_check(x_min < -1.0, "left smash knocks the victim to the left (x %.2f)" % x_min)
 
 
 func _test_dodge_invuln() -> void:
@@ -536,12 +757,12 @@ func _test_charge_strike_guard() -> void:
 		var ratio: float = _last_event(&"charge_release").get("ratio", 0.0)
 		if full:
 			_check(is_equal_approx(ratio, 1.0), "holding auto-releases at full charge")
-			_check(_event_count(&"guard_break", 1) == 1 and p2.current_state_name() == &"guard_break",
-				"full charge breaks a full guard")
+			_check(_event_count(&"guard_break", 1) == 1 and p2.is_guard_crashed(),
+				"full charge crashes a guard with ki to spare")
 		else:
 			_check(_event_count(&"guard_break", 1) == 0 and p2.current_state_name() == &"guard_stun",
-				"half charge is blocked (guard %.1f)" % p2.guard_health)
-			_check(p2.guard_health < p2.tuning.guard_health - m.guard_damage, "charge scales guard damage")
+				"half charge is blocked (ki %.1f)" % p2.ki)
+			_check(p2.ki < p2.tuning.ki_start - m.guard_ki_cost, "charge scales the ki guard cost")
 
 
 func _test_charge_punch() -> void:
@@ -820,3 +1041,33 @@ func _test_determinism() -> void:
 	var second := var_to_str(d.save_state())
 	_check(first == second, "save/load re-simulation is deterministic")
 	_check(d.fighters[1].health < d.fighters[1].tuning.max_health, "determinism scenario actually fought")
+
+
+## Same, through throws, guard poses, taunts, smashes and steered teleports.
+func _test_determinism_bt3() -> void:
+	var d := _new_match()
+	d.fighters[0].ki = d.fighters[0].ki_max()
+	d.fighters[1].ki = 30.0
+	_run(d, 5)
+	var snap := d.save_state()
+	var prev := [_src(d, 0).snapshot(), _src(d, 1).snapshot()]
+	var s0 := _src(d, 0)
+	var s1 := _src(d, 1)
+	var base := d.tick + 1 - s0.start_tick
+	s0.press(base, B.THROW).press(base + 60, B.LIGHT).press(base + 68, B.TELEPORT).stick(base + 68, base + 80, Vector2(1, 0)) \
+		.press(base + 90, B.LIGHT, 45).stick(base + 90, base + 140, Vector2(0, -1)).press(base + 200, B.HEAVY)
+	s1.press(base + 120, B.TAUNT).press(base + 180, B.GUARD, 60) \
+		.stick(base + 180, base + 240, Vector2(0, 1))
+	var states := {}
+	for i in 260:
+		d.step()
+		states[d.fighters[0].current_state_name()] = true
+		states[d.fighters[1].current_state_name()] = true
+	var first := var_to_str(d.save_state())
+	d.load_state(snap)
+	s0.restore(prev[0])
+	s1.restore(prev[1])
+	_run(d, 260)
+	var second := var_to_str(d.save_state())
+	_check(first == second, "save/load re-simulation is deterministic (throws, poses, taunts)")
+	_check(states.has(&"throw") and states.has(&"thrown"), "determinism scenario threw (%s)" % [states.keys()])

@@ -13,13 +13,23 @@ extends Resource
 ##
 ## Charge strikes (`charge_frame` >= 0): the move pauses at `charge_frame`
 ## while its button stays held, accumulating up to `charge_max_frames`; on
-## release (or full charge) it continues, with damage, guard damage, stun and
+## release (or full charge) it continues, with damage, guard ki cost, stun and
 ## guard break scaled by the charge ratio (see FighterTuning "Charge strikes").
 
 ## Strike height, picked with the stick when several HEAVY moves are
 ## candidates (forward = HIGH, neutral = MID, back = LOW). HIGH whiffs over
 ## a ducking opponent; LOW hits one.
+## The same enum doubles as the guard pose (stick forward = HIGH guard,
+## neutral = MID, back = LOW).
 enum Height { MID, HIGH, LOW }
+## What a guard does against this move (BT3 style, one result per guard pose):
+##   PLAIN        guard stun + pushback
+##   KI_GUARD     also drains `guard_ki_cost` ki (half push); at 0 ki the
+##                guard crashes
+##   PUSH_OFF     the attacker recoils; the defender gains a little ki
+##   PUSH_STOP    push-off plus a short freeze of both fighters
+##   UNBLOCKABLE  goes through that pose as a clean hit
+enum GuardResult { PLAIN, KI_GUARD, PUSH_OFF, PUSH_STOP, UNBLOCKABLE }
 
 @export var id: StringName = &""
 ## Which button selects this move when it appears in a `cancel_into` list.
@@ -42,9 +52,18 @@ enum Height { MID, HIGH, LOW }
 @export var knockback: Vector3 = Vector3(0, 0, 1.5)
 ## Victim is knocked down (launched with `knockback`, lands lying down).
 @export var knockdown: bool = false
-## Drained from the victim's guard health when blocked.
-@export var guard_damage: float = 5.0
+## Ki drained from the defender when the guard result is KI_GUARD.
+@export var guard_ki_cost: float = 5.0
+## GuardResult per guard pose, indexed by Height (MID, HIGH, LOW).
+@export var guard_results: Array[int] = [GuardResult.PLAIN, GuardResult.PLAIN, GuardResult.PLAIN]
+## Unblockable in every pose (overrides guard_results).
 @export var is_unblockable: bool = false
+## Grab: goes through any guard and can't be blocked, only broken with a
+## timed GUARD press (see FighterTuning "Throws"). Damage, knockback and
+## knockdown apply when the throw executes.
+@export var is_throw: bool = false
+## A clean hit slams the victim into the floor and bounces them back up.
+@export var ground_bounce: bool = false
 ## Heavy hits use the heavy hitstop and drive bigger presentation reactions.
 @export var is_heavy: bool = false
 ## Global hitstop on hit; -1 = Tuning.fighter.hitstop_light/heavy.
@@ -87,6 +106,10 @@ enum Height { MID, HIGH, LOW }
 ## Charge strike this move turns into when its button is held for
 ## FighterTuning.charge_hold_frames (outside the active frames).
 @export var charge_move: StringName = &""
+## Charge strikes only: directional smashes swapped in on release by the
+## stick, in order [forward, back, left, right] (&"" = keep this move). They
+## must share this move's charge_frame / charge_max_frames.
+@export var smash_variants: Array[StringName] = []
 
 @export_group("Charge")
 ## Frame the move holds at while charging; -1 = not a charge strike.
@@ -119,6 +142,14 @@ func is_active_frame(frame: int) -> bool:
 
 func is_charge_strike() -> bool:
 	return charge_frame >= 0 and charge_max_frames > 0
+
+
+func guard_result(pose: Height) -> GuardResult:
+	if is_unblockable:
+		return GuardResult.UNBLOCKABLE
+	if pose < guard_results.size():
+		return guard_results[pose] as GuardResult
+	return GuardResult.PLAIN
 
 
 func hitstop_frames(t: FighterTuning) -> int:

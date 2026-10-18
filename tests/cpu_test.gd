@@ -11,8 +11,8 @@ var _events: Array = []  # [slot, kind, data]
 func _ready() -> void:
 	var tests: Array[Callable] = [
 		_test_fights, _test_levels_ordered, _test_defense_scales, _test_perfect_dodge,
-		_test_vanish_battle_response, _test_knockdown_options, _test_determinism, _test_save_load,
-		_test_full_match,
+		_test_vanish_battle_response, _test_knockdown_options, _test_guard_pose, _test_throw_break,
+		_test_throws_turtle, _test_determinism, _test_save_load, _test_full_match,
 	]
 	for t in tests:
 		t.call()
@@ -230,6 +230,74 @@ func _test_vanish_battle_response() -> void:
 	var weak := _vanish_answers(0)
 	_check(strong >= 3, "top CPU answers vanishes (%d exchanges over 4 battles)" % strong)
 	_check(weak < strong, "weakest CPU answers fewer vanishes (%d < %d)" % [weak, strong])
+
+
+## Passive CPU that only guards (no dodges, vanishes or counters).
+func _make_guarder(d: MatchDirector, slot: int) -> void:
+	_make_passive(d, slot)
+	var c := (d.sources[slot] as CpuInput).brain.cfg
+	c.dodge_preference = Vector2.ZERO
+	c.guard_vanish_chance = Vector2.ZERO
+	c.counter_guard_chance = Vector2.ZERO
+
+
+## Scripted low kicks (stick back + HEAVY): a top CPU guards low, which
+## repels them (push-off); the weakest mostly stays in a mid ki guard. The
+## guarder's ki is kept empty: with ki a late fresh GUARD press would vanish,
+## so the CPU dodges instead.
+func _low_guards(lvl: int) -> Array[int]:
+	var d := _new_match([-1, lvl], 6, 1.8)
+	_make_guarder(d, 1)
+	var s := d.sources[0] as ScriptedInput
+	var n := 0
+	while n < 1800:
+		s.stick(n, n + 40, Vector2(0, 1)).stick(n + 40, n + 41, Vector2(0, -1)).press(n + 40, B.HEAVY)
+		n += 90
+	for i in 1800:
+		d.fighters[1].ki = 0.0
+		d.step()
+	_summary("low kicks vs guarding lvl%d" % lvl, d)
+	var blocked := _count(&"hit", 1, func(data: Dictionary) -> bool: return data["blocked"])
+	return [_count(&"push_off", 1), blocked]
+
+
+func _test_guard_pose() -> void:
+	var top := _low_guards(Tuning.cpu.level_count() - 1)
+	var weak := _low_guards(0)
+	_check(top[1] >= 5 and top[0] >= top[1] * 0.7,
+			"top CPU guards low vs low kicks (%d push-offs / %d blocks)" % [top[0], top[1]])
+	_check(top[0] > weak[0], "weakest CPU picks the low guard less (%d vs %d push-offs)" % [weak[0], top[0]])
+
+
+## Scripted grabs against a guarding CPU. Returns [grabs, breaks].
+func _throw_breaks(lvl: int) -> Array[int]:
+	var d := _new_match([-1, lvl], 8, 1.8)
+	_make_guarder(d, 1)
+	var s := d.sources[0] as ScriptedInput
+	var n := 0
+	while n < 2400:
+		s.stick(n, n + 40, Vector2(0, 1)).press(n + 40, B.THROW)
+		n += 120
+	_run(d, 2400)
+	_summary("grabs vs lvl%d" % lvl, d)
+	return [_count(&"throw", 0), _count(&"throw_break", 1)]
+
+
+func _test_throw_break() -> void:
+	var top := _throw_breaks(Tuning.cpu.level_count() - 1)
+	var weak := _throw_breaks(0)
+	_check(top[0] >= 5 and top[1] >= 3, "top CPU breaks throws (%d of %d grabs)" % [top[1], top[0]])
+	_check(weak[0] >= 5 and weak[1] == 0, "weakest CPU never breaks throws (%d of %d grabs)" % [weak[1], weak[0]])
+
+
+## A scripted turtle that only holds GUARD gets thrown by a strong CPU.
+func _test_throws_turtle() -> void:
+	var d := _new_match([-1, Tuning.cpu.level_count() - 2], 12, 1.6)
+	var s := d.sources[0] as ScriptedInput
+	s.press(0, B.GUARD, 1200)
+	_run(d, 1200)
+	_summary("vs turtle", d)
+	_check(_count(&"throw", 1) > 0, "CPU throws a turtling opponent (%d throws)" % _count(&"throw", 1))
 
 
 func _test_determinism() -> void:

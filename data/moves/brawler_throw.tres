@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_xey0d"]
+
+[resource]
+script = ExtResource("1_xey0d")
+id = &"brawler_throw"
+button = 1024
+pose = &"throw"
+recovery = 28
+damage = 90.0
+hitstun = 30
+knockback = Vector3(0, 5, 5.5)
+knockdown = true
+is_throw = true
+is_heavy = true
+hitbox_offset = Vector3(0, 1.1, 0.7)
+track_frames = 3

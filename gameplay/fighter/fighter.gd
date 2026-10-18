@@ -6,8 +6,7 @@ extends CombatEntity
 ## these names/signatures stable:
 ##
 ##   vars:    slot: int, opponent: Fighter, health: float, ki: float,
-##            combo_hits: int, guard_health: float, def: CharacterDef,
-##            tuning: FighterTuning
+##            combo_hits: int, def: CharacterDef, tuning: FighterTuning
 ##   signals: health_changed(value: float, max_value: float)
 ##            ki_changed(value: float, max_value: float)
 ##            combo_changed(hits: int)          # hits landed BY this fighter
@@ -23,23 +22,36 @@ extends CombatEntity
 ##            current_move() -> MoveData, current_pose() -> StringName,
 ##            state_frame() -> int, attack_phase() -> int,
 ##            dodge_direction() -> int, tint() -> Color,
-##            guard_ratio() -> float, in_vanish_battle() -> bool,
+##            guard_pose() -> MoveData.Height, in_vanish_battle() -> bool,
 ##            charge_ratio() -> float, is_charging_strike() -> bool,
 ##            move_opens_string() -> bool, guard_vanish_window() -> int,
 ##            frames_since_guard_press() -> int, dodge_kind() -> DodgeKind,
-##            lying_frames() -> int
+##            lying_frames() -> int, is_guard_crashed() -> bool
 ##
 ## `event` kinds (payload keys; every payload also has "slot" = emitter slot):
-##   &"hit"            {attacker_slot, damage, position, heavy, blocked, combo}
+##   &"hit"            {attacker_slot, damage, position, heavy, blocked, combo,
+##                     guard_result: MoveData.GuardResult or -1 unblocked}
 ##                     (emitted by the VICTIM)
 ##   &"perfect_dodge"  {attacker_slot, dodge: StringName, position}
 ##   &"dodge"          {dodge: StringName, kind: StringName} (dodge started;
 ##                     kind &"dodge" | &"air_tech" | &"roll")
-##   &"guard_break"    {position}                     (guard health hit 0)
+##   &"guard_break"    {position}                     (guard crash: ki emptied
+##                                                     by a ki guard, or a
+##                                                     full-charge smash)
+##   &"push_off"       {attacker_slot, position, stop: bool} (defender's
+##                                                     guard repelled the hit)
+##   &"counter_guard"  {attacker_slot, position}      (counter stance caught
+##                                                     a hit; counter fires)
+##   &"throw"          {target_slot, position}        (grab connected; thrower)
+##   &"throw_break"    {attacker_slot, position}      (victim broke the grab)
+##   &"taunt"          {}                             (taunt started)
+##   &"taunt_done"     {ki}                           (taunt finished, ki paid)
+##   &"ground_bounce"  {position}                     (bounced off the floor)
 ##   &"stagger"        {position}                     (perfect-ducked attacker,
 ##                                                     or stunned by a charge strike)
 ##   &"charge_start"   {button}                       (held LIGHT/HEAVY -> charge strike)
-##   &"charge_release" {ratio}                        (charge strike fires, 0..1)
+##   &"charge_release" {ratio, dir}                   (charge strike fires, 0..1;
+##                     dir &"neutral"|&"forward"|&"back"|&"left"|&"right")
 ##   &"teleport"       {target_slot, position}        (offensive vanish start)
 ##   &"vanish"         {exchange, escape: true, position} (vanish escape/battle)
 ##   &"vanish_battle_end" {exchanges, winner_slot}
@@ -55,7 +67,21 @@ extends CombatEntity
 ##
 ## Strikes: HEAVY reads the stick when it starts (forward = high, neutral =
 ## mid, back = low; MoveData.height). Holding LIGHT/HEAVY turns the attack
-## into its `charge_move`, which can be released early or held to full.
+## into its `charge_move`, which can be released early or held to full; a
+## LIGHT charge (smash) released with the stick held swaps in a directional
+## smash (MoveData.smash_variants: forward = launch, back = ground bounce,
+## left/right = knock sideways).
+##
+## Guard (BT3 style, no guard meter): hold GUARD; the stick picks the pose
+## (forward = high, neutral = mid, back = low; a change settles after
+## guard_pose_switch_frames). Each move's MoveData.guard_results says what
+## each pose does against it: plain block, ki guard (drains ki; empty =
+## guard crash, mashed out), push-off / push-stop (attacker recoils) or
+## unblockable. Chip can't KO; guard fails from behind. Stick forward +
+## LIGHT while guarding = counter stance (catches a string's first hit).
+## THROW grabs through any guard; the victim breaks it with a clean GUARD
+## press within throw_break_frames while facing the thrower. TAUNT gives ki
+## when finished; hits taken while taunting deal more damage.
 ##
 ## Budokai Tenkaichi button overloads (the BLAST / SPECIAL / TELEPORT buttons
 ## still work as optional dedicated shortcuts):
@@ -67,6 +93,8 @@ extends CombatEntity
 ##     vanish battle's window, or within guard_vanish_window() frames before
 ##     the first hit of a guardable melee string lands (vanish instead of
 ##     blocking; a press soon after the previous one never vanishes).
+##   Every teleport reappears around the opponent where the left stick points
+##   (see FighterTuning.teleport_dir_threshold); neutral = behind them.
 ##
 ## Dodges (right-stick flick) chain into each other from
 ## dodge_chain_from_frame, up to dodge_chain_max times; LIGHT/HEAVY pressed
@@ -87,6 +115,7 @@ signal event(kind: StringName, data: Dictionary)
 enum State {
 	IDLE, WALK, DASH, JUMP, ATTACK, DODGE, GUARD, GUARD_STUN, GUARD_BREAK,
 	CHARGE, HITSTUN, KNOCKDOWN, WAKEUP, TELEPORT, VANISH_WAIT, KO,
+	THROW, THROWN, TAUNT, COUNTER, RECOIL,
 }
 enum TeleportKind { OFFENSE, ESCAPE }
 ## DODGE state flavors: a normal dodge, an air recovery flip, a get-up roll.
@@ -96,11 +125,16 @@ const STATE_NAMES: Array[StringName] = [
 	&"idle", &"walk", &"dash", &"jump", &"attack", &"dodge", &"guard",
 	&"guard_stun", &"guard_break", &"charge", &"hitstun", &"knockdown",
 	&"wakeup", &"teleport", &"vanish_wait", &"ko",
+	&"throw", &"thrown", &"taunt", &"counter_guard", &"recoil",
 ]
+const GUARD_POSE_NAMES: Array[StringName] = [&"guard", &"guard_high", &"guard_low"]
+const SMASH_DIR_NAMES: Array[StringName] = [&"forward", &"back", &"left", &"right"]
+## Face buttons that mash out of a guard crash / stagger.
+const MASH_BUTTONS: Array[int] = [InputFrame.Btn.LIGHT, InputFrame.Btn.HEAVY, InputFrame.Btn.GUARD, InputFrame.Btn.JUMP]
 const DODGE_NAMES: Array[StringName] = [&"none", &"duck", &"backflip", &"sway_l", &"sway_r"]
 const DODGE_KIND_NAMES: Array[StringName] = [&"dodge", &"air_tech", &"roll"]
 ## Number of InputFrame.Btn bits tracked by the press buffer.
-const BUFFER_SIZE := 10
+const BUFFER_SIZE := 12
 const NEVER := 1 << 20
 
 var slot: int = 0
@@ -108,7 +142,6 @@ var opponent: Fighter
 var health: float
 var ki: float
 var combo_hits: int = 0
-var guard_health: float
 var def: CharacterDef
 var tuning: FighterTuning
 
@@ -164,6 +197,19 @@ var _heavy_height: MoveData.Height = MoveData.Height.MID
 var _charging: bool = false
 var _charge: int = 0
 var _charge_btn: int = 0
+## Guard pose (MoveData.Height) and a pending stick pose with its hold time.
+var _guard_pose: int = MoveData.Height.MID
+var _guard_pose_want: int = MoveData.Height.MID
+var _guard_pose_frames: int = 0
+## The current GUARD_BREAK is a guard crash (refills ki when it ends).
+var _guard_crashed: bool = false
+## THROWN: the grab came from the front (breakable). THROW: throw behind.
+var _throw_breakable: bool = false
+var _throw_back: bool = false
+## A ground_bounce hit is pending: bounce up on the next grounded tick.
+var _bounce_pending: bool = false
+## Quantized stick latched for the teleport reappear point.
+var _tp_dir: Vector2i = Vector2i.ZERO
 var _input: InputFrame = InputFrame.new()
 var _control_enabled := false
 
@@ -179,7 +225,6 @@ func _ready() -> void:
 	tuning = def.build_tuning(Tuning.fighter)
 	health = tuning.max_health
 	ki = tuning.ki_start
-	guard_health = tuning.guard_health
 
 
 # =============================================================================
@@ -226,6 +271,11 @@ func sim_tick(_tick: int) -> void:
 		State.WAKEUP: _tick_wakeup()
 		State.TELEPORT: _tick_teleport()
 		State.VANISH_WAIT: _tick_vanish_wait()
+		State.THROW: _tick_throw()
+		State.THROWN: _tick_thrown()
+		State.TAUNT: _tick_taunt()
+		State.COUNTER: _tick_counter()
+		State.RECOIL: _tick_recoil()
 	_apply_motion()
 	_age_buffer()
 
@@ -236,7 +286,6 @@ func reset_for_round(xform: Transform3D) -> void:
 	_set_yaw(atan2(-fwd.x, -fwd.z))
 	health = tuning.max_health
 	ki = tuning.ki_start
-	guard_health = tuning.guard_health
 	combo_hits = 0
 	_vel = Vector3.ZERO
 	_move = null
@@ -249,6 +298,14 @@ func reset_for_round(xform: Transform3D) -> void:
 	_charge = 0
 	_charge_btn = 0
 	_heavy_height = MoveData.Height.MID
+	_guard_pose = MoveData.Height.MID
+	_guard_pose_want = MoveData.Height.MID
+	_guard_pose_frames = 0
+	_guard_crashed = false
+	_throw_breakable = false
+	_throw_back = false
+	_bounce_pending = false
+	_tp_dir = Vector2i.ZERO
 	_air_attack_used = false
 	_dodge_dir = InputFrame.Dodge.NONE
 	_dodge_kind = DodgeKind.DODGE
@@ -295,8 +352,14 @@ func ki_bars_full() -> int:
 	return floori(ki / tuning.ki_bar_size)
 
 
-func guard_ratio() -> float:
-	return guard_health / tuning.guard_health
+## Guard pose (MoveData.Height) while guarding; MID in the counter stance.
+func guard_pose() -> MoveData.Height:
+	return (MoveData.Height.MID if state == State.COUNTER else _guard_pose) as MoveData.Height
+
+
+## In a guard crash (ki emptied by guarding): open to anything, mash out.
+func is_guard_crashed() -> bool:
+	return state == State.GUARD_BREAK and _guard_crashed
 
 
 func current_state_name() -> StringName:
@@ -344,6 +407,8 @@ func current_pose() -> StringName:
 			return _move.pose
 		State.DODGE:
 			return DODGE_NAMES[_dodge_dir]
+		State.GUARD:
+			return GUARD_POSE_NAMES[_guard_pose]
 		State.KNOCKDOWN, State.KO:
 			return &"knockdown" if _land_frame >= 0 else &"launched"
 	return STATE_NAMES[state]
@@ -445,13 +510,14 @@ func get_active_hitboxes() -> Array[Hitbox]:
 	hb.radius = m.hitbox_radius
 	hb.origin = global_position
 	hb.damage_mult = _damage_mult
-	hb.is_melee = true
+	hb.is_throw = m.is_throw
+	hb.is_melee = not m.is_throw
 	hb.opens_string = _move_opens_string and sub == 0
 	if m.is_charge_strike():
 		var t := tuning
 		var r := charge_ratio()
 		hb.damage_mult *= lerpf(1.0, m.charge_damage_mult, r)
-		hb.guard_damage_mult = lerpf(1.0, m.charge_guard_mult, r)
+		hb.guard_ki_mult = lerpf(1.0, m.charge_guard_mult, r)
 		if r >= t.charge_stun_ratio:
 			var k := clampf((r - t.charge_stun_ratio) / maxf(1.0 - t.charge_stun_ratio, 0.0001), 0.0, 1.0)
 			hb.stun_frames = roundi(lerpf(t.charge_stun_frames_min, t.charge_stun_frames_max, k))
@@ -490,16 +556,26 @@ func get_hurtbox() -> Array:
 
 ## Apply a hitbox that overlapped this fighter. Returns the Contact outcome.
 func receive_hit(hb: Hitbox) -> Contact:
+	if hb.source == hb.attacker and hb.attacker.state == State.THROWN:
+		return Contact.NONE  # grabbed this tick, before its own hit resolved
 	if state == State.DODGE and _dodge_kind == DodgeKind.DODGE and _state_frame < tuning.perfect_dodge_frames:
 		_on_perfect_dodge(hb)
 		return Contact.PERFECT_DODGE
 	if is_invulnerable() or get_hurtbox().is_empty():
 		return Contact.NONE
-	if _can_block(hb):
+	if hb.is_throw:
+		return Contact.THROW if _try_grabbed(hb) else Contact.NONE
+	if state == State.THROW:
+		_release_throw()
+	if _try_counter_guard(hb):
+		return Contact.BLOCKED
+	var res := _guard_result_for(hb)
+	if res >= 0:
 		if _try_guard_vanish(hb):
 			return Contact.NONE
-		_take_blocked(hb)
-		return Contact.BLOCKED
+		if res != MoveData.GuardResult.UNBLOCKABLE:
+			_take_blocked(hb, res)
+			return Contact.BLOCKED
 	_take_hit(hb)
 	return Contact.HIT
 
@@ -515,6 +591,10 @@ func _enter(s: State) -> void:
 	if s != State.ATTACK:
 		_damage_mult = 1.0
 		_charging = false
+	if s != State.KNOCKDOWN:
+		_bounce_pending = false
+	if s != State.GUARD_BREAK:
+		_guard_crashed = false
 	if prev != s or s == State.ATTACK or s == State.HITSTUN:
 		state_changed.emit(STATE_NAMES[s])
 
@@ -539,6 +619,13 @@ func _try_actions(allow_guard: bool) -> bool:
 		return true
 	if _try_teleport():
 		return true
+	if _consume(InputFrame.Btn.THROW):
+		if _start_throw():
+			return true
+	if allow_guard and _consume(InputFrame.Btn.TAUNT):
+		_enter(State.TAUNT)
+		event.emit(&"taunt", {"slot": slot})
+		return true
 	if _consume_special():
 		if _try_special():
 			return true
@@ -561,7 +648,7 @@ func _try_actions(allow_guard: bool) -> bool:
 		_enter(State.CHARGE)
 		return true
 	if allow_guard and _input.is_held(InputFrame.Btn.GUARD):
-		_enter(State.GUARD)
+		_enter_guard()
 		return true
 	return false
 
@@ -655,8 +742,28 @@ func _tick_charge_hold(m: MoveData) -> bool:
 		_state_frame = m.charge_frame
 		return true
 	_charging = false
-	event.emit(&"charge_release", {"slot": slot, "ratio": charge_ratio()})
+	var ratio := charge_ratio()
+	var dir := _apply_smash_direction(m)
+	event.emit(&"charge_release", {"slot": slot, "ratio": ratio, "dir": dir})
 	return false
+
+
+## On release, swap in the smash variant the stick points at (same timing,
+## so the frame and charge carry over). Returns the direction name.
+func _apply_smash_direction(m: MoveData) -> StringName:
+	var v := _input.move()
+	if m.smash_variants.is_empty() or v.length() <= tuning.strike_dir_threshold:
+		return &"neutral"
+	var i := 2 if v.x < 0.0 else 3
+	if absf(v.y) >= absf(v.x):
+		i = 0 if v.y > 0.0 else 1
+	if i >= m.smash_variants.size():
+		return &"neutral"
+	var variant := def.move(m.smash_variants[i])
+	if variant == null:
+		return &"neutral"
+	_move = variant
+	return SMASH_DIR_NAMES[i]
 
 
 ## Stick height for a HEAVY: forward = HIGH, back = LOW, else MID.
@@ -820,24 +927,184 @@ func _sway_step(step: float, to_right: bool) -> void:
 	global_position = cand
 
 
+## Start guarding in the pose the stick holds right now.
+func _enter_guard() -> void:
+	_enter(State.GUARD)
+	_guard_pose = _height_for_stick(_input.move().y)
+	_guard_pose_want = _guard_pose
+	_guard_pose_frames = 0
+
+
+## A held guard switches pose once the new stick pose was held long enough.
+func _update_guard_pose() -> void:
+	var want := _height_for_stick(_input.move().y)
+	if want != _guard_pose_want:
+		_guard_pose_want = want
+		_guard_pose_frames = 0
+	if want == _guard_pose:
+		_guard_pose_frames = 0
+		return
+	_guard_pose_frames += 1
+	if _guard_pose_frames >= tuning.guard_pose_switch_frames:
+		_guard_pose = want
+		_guard_pose_frames = 0
+
+
 func _tick_guard() -> void:
 	_face_opponent(_turn_step())
 	if not _input.is_held(InputFrame.Btn.GUARD):
 		_enter(State.IDLE)
 		return
+	_update_guard_pose()
+	if _input.move().y > tuning.strike_dir_threshold and _consume(InputFrame.Btn.LIGHT):
+		_enter(State.COUNTER)
+		return
 	_try_actions(false)
 
 
 func _tick_guard_stun() -> void:
+	_update_guard_pose()
 	if _state_frame >= _state_len:
-		_enter(State.GUARD if _input.is_held(InputFrame.Btn.GUARD) else State.IDLE)
+		if _input.is_held(InputFrame.Btn.GUARD):
+			_enter(State.GUARD)  # keeps the pose
+		else:
+			_enter(State.IDLE)
 
 
+## Guard crash / stagger: mashing face buttons shortens it.
 func _tick_guard_break() -> void:
+	for btn in MASH_BUTTONS:
+		if _consume(btn):
+			_state_len -= tuning.stun_mash_frames
 	if _state_frame >= _state_len:
-		guard_health = tuning.guard_health
+		if _guard_crashed:
+			_add_ki(maxf(tuning.guard_crash_ki_refill - ki, 0.0))
 		_end_opponent_combo()
 		_enter(State.IDLE)
+
+
+## Counter stance (stick forward + LIGHT from guard); see _try_counter_guard.
+func _tick_counter() -> void:
+	_face_opponent(_turn_step())
+	if _state_frame >= tuning.counter_guard_stance_frames:
+		if _input.is_held(InputFrame.Btn.GUARD):
+			_enter_guard()
+		else:
+			_enter(State.IDLE)
+
+
+## Pushed back after a push-off guard, a counter guard or a throw break.
+func _recoil(frames: int, push: Vector3) -> void:
+	if state == State.KO:
+		return
+	_enter(State.RECOIL)
+	_state_len = frames
+	_vel.x = push.x
+	_vel.z = push.z
+
+
+func _tick_recoil() -> void:
+	if _state_frame >= _state_len:
+		_enter(State.IDLE)
+
+
+func _tick_taunt() -> void:
+	_face_opponent(_turn_step())
+	if _state_frame >= tuning.taunt_frames:
+		_add_ki(tuning.taunt_ki_gain)
+		event.emit(&"taunt_done", {"slot": slot, "ki": tuning.taunt_ki_gain})
+		_enter(State.IDLE)
+
+
+# --- Throws -----------------------------------------------------------------
+
+func _start_throw() -> bool:
+	_throw_back = _input.move().y < -tuning.throw_back_threshold
+	return _start_move_id(def.throw)
+
+
+## Victim side of a grab connecting. Airborne / already reeling fighters
+## can't be grabbed (the grab whiffs).
+func _try_grabbed(hb: Hitbox) -> bool:
+	var thrower := hb.attacker
+	if thrower == null or thrower.state != State.ATTACK or is_airborne():
+		return false
+	match state:
+		State.HITSTUN, State.KNOCKDOWN, State.THROW, State.THROWN, State.KO, State.TELEPORT, State.VANISH_WAIT:
+			return false
+	_end_vanish_battle(thrower.slot)
+	_enter(State.THROWN)
+	_vel = Vector3.ZERO
+	_throw_breakable = _is_facing(hb.origin)
+	thrower._on_grab(self)
+	# A clean GUARD press just before the grab breaks it at once.
+	if _throw_breakable and _guard_press_armed and _since_guard_press < tuning.throw_break_frames:
+		_break_throw()
+	return true
+
+
+func _on_grab(victim: Fighter) -> void:
+	_enter(State.THROW)
+	event.emit(&"throw", {"slot": slot, "target_slot": victim.slot, "position": global_position})
+
+
+func _tick_thrown() -> void:
+	if opponent == null or opponent.state != State.THROW:
+		_enter(State.IDLE)
+		return
+	global_position = opponent.global_position + opponent._fwd() * tuning.throw_hold_distance
+	_set_ground_velocity(Vector3.ZERO)
+	_face_opponent(PI)
+	if _throw_breakable and _state_frame < tuning.throw_break_frames \
+			and _guard_press_armed and _since_guard_press < _state_frame:
+		_break_throw()
+
+
+func _break_throw() -> void:
+	var thrower := opponent
+	_since_guard_press = NEVER  # used up
+	event.emit(&"throw_break", {"slot": slot, "attacker_slot": thrower.slot, "position": global_position})
+	var away := _fwd() * -tuning.throw_break_push_speed
+	_recoil(tuning.throw_break_recoil_frames, away)
+	thrower._recoil(tuning.throw_break_recoil_frames, -away)
+
+
+## The thrower was hit: drop the victim.
+func _release_throw() -> void:
+	if opponent != null and opponent.state == State.THROWN:
+		opponent._enter(State.IDLE)
+
+
+func _tick_throw() -> void:
+	_set_ground_velocity(Vector3.ZERO)
+	var f := _state_frame
+	if f == tuning.throw_break_frames and opponent != null and opponent.state == State.THROWN:
+		_execute_throw()
+	if f >= tuning.throw_break_frames + tuning.throw_recovery_frames:
+		_enter(State.IDLE)
+
+
+## The grab held: the throw's damage and knockback land as a clean hit, sent
+## forward, or behind the thrower for a back throw.
+func _execute_throw() -> void:
+	var victim := opponent
+	var dir := -_fwd() if _throw_back else _fwd()
+	if _throw_back:
+		victim.global_position = global_position + dir * tuning.throw_hold_distance
+	var hb := Hitbox.new()
+	hb.source = self
+	hb.attacker = self
+	hb.move = _move
+	hb.hit_id = _move_serial * 256 + 1
+	hb.forward = dir
+	hb.right = Vector3(-dir.z, 0.0, dir.x)
+	hb.origin = global_position
+	hb.a = victim.global_position + Vector3.UP * tuning.body_height * 0.5
+	hb.b = hb.a
+	hb.is_melee = false
+	hb.opens_string = false
+	victim._take_hit(hb)
+	on_hitbox_contact(hb, victim, Contact.HIT)
 
 
 func _tick_charge() -> void:
@@ -859,6 +1126,12 @@ func _tick_hitstun() -> void:
 
 
 func _tick_knockdown() -> void:
+	if _bounce_pending and not is_airborne():
+		_bounce_pending = false
+		_vel.y = tuning.ground_bounce_velocity
+		global_position.y = maxf(global_position.y, 0.001)
+		event.emit(&"ground_bounce", {"slot": slot, "position": global_position})
+		return
 	if _land_frame < 0 and not is_airborne():
 		_land_frame = _state_frame
 	if state == State.KO:
@@ -902,6 +1175,9 @@ func _wake_up() -> void:
 
 func _tick_wakeup() -> void:
 	_face_opponent(_turn_step())
+	if _input.is_held(InputFrame.Btn.GUARD):
+		_enter_guard()  # get-ups can guard at once
+		return
 	if _state_frame >= tuning.wakeup_frames:
 		_enter(State.IDLE)
 
@@ -952,7 +1228,7 @@ func _try_vanish_escape() -> bool:
 ## Guard pressed just before the first hit of a melee string: vanish instead
 ## of blocking. Mashing GUARD doesn't count (see _guard_press_armed).
 func _try_guard_vanish(hb: Hitbox) -> bool:
-	if not hb.is_melee or not hb.opens_string or hb.attacker == null or opponent == null:
+	if state == State.COUNTER or not hb.is_melee or not hb.opens_string or hb.attacker == null or opponent == null:
 		return false
 	if not _guard_press_armed or _since_guard_press >= guard_vanish_window():
 		return false
@@ -1037,11 +1313,14 @@ func _end_vanish_battle(winner_slot: int) -> void:
 
 func _enter_teleport(kind: TeleportKind) -> void:
 	_tp_kind = kind
+	_tp_dir = Vector2i(_input.move_x, _input.move_y)
 	_enter(State.TELEPORT)
 	_vel = Vector3.ZERO
 
 
 func _tick_teleport() -> void:
+	if _input.move().length() > tuning.teleport_dir_threshold:
+		_tp_dir = Vector2i(_input.move_x, _input.move_y)  # steer while vanished
 	_set_ground_velocity(Vector3.ZERO)
 	_vel.y = 0.0
 	if _state_frame >= tuning.teleport_frames:
@@ -1049,15 +1328,26 @@ func _tick_teleport() -> void:
 		_enter(State.IDLE)
 
 
-## Reappear behind the opponent's back, facing them.
+## Reappear around the opponent where the latched stick points (from the
+## teleporter's view), or behind their back with a neutral stick; facing them.
 func _reappear() -> void:
 	if opponent != null:
-		var back := -opponent._fwd()
-		var p := opponent.global_position + back * tuning.teleport_behind_distance
+		var p := opponent.global_position + _reappear_dir() * tuning.teleport_behind_distance
 		p.y = 0.0
 		global_position = p
 		_face_opponent(PI)
 	event.emit(&"reappear", {"slot": slot, "position": global_position})
+
+
+func _reappear_dir() -> Vector3:
+	var v := Vector2(_tp_dir) / float(InputFrame.MOVE_SCALE)
+	if v.length() <= tuning.teleport_dir_threshold:
+		return -opponent._fwd()
+	var f := opponent.global_position - global_position
+	f.y = 0.0
+	f = f.normalized() if f.length_squared() > 0.0001 else _fwd()
+	var r := Vector3(-f.z, 0.0, f.x)
+	return (r * v.x + f * v.y).normalized()
 
 
 # --- Specials ---------------------------------------------------------------
@@ -1114,37 +1404,78 @@ func _spawn_from(m: MoveData) -> void:
 # Hit reactions
 # =============================================================================
 
-func _can_block(hb: Hitbox) -> bool:
-	if hb.move.is_unblockable or not (state == State.GUARD or state == State.GUARD_STUN):
-		return false
-	var to := hb.origin - global_position
+## Within guard_half_angle_deg of facing `from` (ground plane).
+func _is_facing(from: Vector3) -> bool:
+	var to := from - global_position
 	to.y = 0.0
 	if to.length_squared() < 0.0001:
 		return true
 	return rad_to_deg(_fwd().angle_to(to.normalized())) <= tuning.guard_half_angle_deg
 
 
-func _take_blocked(hb: Hitbox) -> void:
+## The guard's GuardResult against `hb`, or -1 when not guarding at all
+## (not in a guard state, or hit from behind).
+func _guard_result_for(hb: Hitbox) -> int:
+	if not (state == State.GUARD or state == State.GUARD_STUN or state == State.COUNTER):
+		return -1
+	if not _is_facing(hb.origin):
+		return -1
+	return hb.move.guard_result(guard_pose())
+
+
+## Counter stance catching the first hit of a string in its opening frames.
+func _try_counter_guard(hb: Hitbox) -> bool:
+	if state != State.COUNTER or _state_frame >= tuning.counter_guard_window_frames:
+		return false
+	if not hb.is_melee or not hb.opens_string or hb.attacker == null or not _is_facing(hb.origin):
+		return false
+	event.emit(&"counter_guard", {"slot": slot, "attacker_slot": hb.attacker.slot, "position": global_position})
+	hb.attacker._recoil(tuning.counter_guard_recoil_frames, Vector3.ZERO)
+	if director:
+		director.request_hitstop(tuning.counter_guard_freeze_frames)
+	_start_move_id(def.counter)
+	return true
+
+
+func _take_blocked(hb: Hitbox, res: int) -> void:
 	var m := hb.move
 	var chip := m.damage * hb.damage_mult * tuning.guard_chip_ratio
-	_set_health(health - chip)
-	guard_health = maxf(guard_health - m.guard_damage * hb.guard_damage_mult, 0.0)
-	if hb.breaks_guard:
-		guard_health = 0.0
+	_set_health(maxf(health - chip, minf(health, tuning.chip_min_health)))  # chip can't KO
 	var push := hb.world_knockback() * tuning.guard_pushback_ratio
 	push.y = 0.0
-	if health <= 0.0:
-		_enter_ko(push)
-	elif guard_health <= 0.0:
-		_enter(State.GUARD_BREAK)
-		_state_len = tuning.guard_break_stun_frames
-		event.emit(&"guard_break", {"slot": slot, "position": global_position})
+	var crash := hb.breaks_guard
+	match res:
+		MoveData.GuardResult.KI_GUARD:
+			push *= tuning.ki_guard_push_ratio
+			_add_ki(-m.guard_ki_cost * hb.guard_ki_mult)
+			crash = crash or ki <= 0.0
+		MoveData.GuardResult.PUSH_OFF, MoveData.GuardResult.PUSH_STOP:
+			push *= tuning.ki_guard_push_ratio
+			_add_ki(tuning.ki_gain_on_push_off)
+			var stop := res == MoveData.GuardResult.PUSH_STOP
+			if hb.is_melee and hb.attacker != null and not crash:
+				hb.attacker._recoil(tuning.push_off_recoil_frames, hb.forward * -tuning.push_off_recoil_speed)
+			if stop and director:
+				director.request_hitstop(tuning.push_stop_freeze_frames)
+			event.emit(&"push_off", {"slot": slot, "attacker_slot": hb.attacker.slot if hb.attacker else -1,
+				"position": global_position, "stop": stop})
+	if crash:
+		_guard_crash()
 	else:
 		_enter(State.GUARD_STUN)
 		_state_len = m.guard_stun
 	_vel.x = push.x
 	_vel.z = push.z
-	_emit_hit(hb, chip, true)
+	_emit_hit(hb, chip, true, res)
+
+
+## Guard crash (BT3 exhaustion): wide open until it times out or is mashed
+## out; ends with a small ki refill.
+func _guard_crash() -> void:
+	_enter(State.GUARD_BREAK)
+	_state_len = tuning.guard_break_stun_frames
+	_guard_crashed = true
+	event.emit(&"guard_break", {"slot": slot, "position": global_position})
 
 
 func _take_hit(hb: Hitbox) -> void:
@@ -1161,6 +1492,8 @@ func _take_hit(hb: Hitbox) -> void:
 		var scaled_hits := maxi(attacker.combo_hits - tuning.combo_scaling_start_hit + 1, 0)
 		scale = maxf(1.0 - tuning.combo_scaling_step * scaled_hits, tuning.combo_scaling_min)
 	var dmg := m.damage * hb.damage_mult * scale
+	if state == State.TAUNT:
+		dmg *= tuning.taunt_counter_damage_mult
 	_set_health(health - dmg)
 	_add_ki(tuning.ki_gain_on_hit_taken)
 	if _vanish_battle != null:
@@ -1178,6 +1511,7 @@ func _take_hit(hb: Hitbox) -> void:
 		_enter(State.KNOCKDOWN)
 		_land_frame = -1
 		_vel = kb
+		_bounce_pending = m.ground_bounce
 		if _vel.y > 0.0:
 			global_position.y = maxf(global_position.y, 0.001)
 		event.emit(&"knockdown", {"slot": slot, "position": global_position})
@@ -1260,7 +1594,7 @@ func _on_hit_dealt(m: MoveData) -> void:
 		_add_ki(tuning.ki_gain_on_hit_dealt + m.ki_gain)
 
 
-func _emit_hit(hb: Hitbox, dmg: float, blocked: bool) -> void:
+func _emit_hit(hb: Hitbox, dmg: float, blocked: bool, guard_result: int = -1) -> void:
 	var chest := global_position + Vector3.UP * (tuning.body_height * 0.6)
 	event.emit(&"hit", {
 		"slot": slot,
@@ -1270,6 +1604,7 @@ func _emit_hit(hb: Hitbox, dmg: float, blocked: bool) -> void:
 		"heavy": hb.move.is_heavy,
 		"blocked": blocked,
 		"combo": hb.attacker.combo_hits if hb.attacker else 0,
+		"guard_result": guard_result,
 	})
 
 
@@ -1292,8 +1627,6 @@ func _tick_timers() -> void:
 		_invuln_frames -= 1
 	if _since_hit_landed < NEVER:
 		_since_hit_landed += 1
-	if state != State.GUARD_STUN and state != State.GUARD_BREAK and guard_health < tuning.guard_health:
-		guard_health = minf(guard_health + tuning.guard_regen_per_frame, tuning.guard_health)
 
 
 func _apply_motion() -> void:
@@ -1475,7 +1808,7 @@ func save_state() -> Dictionary:
 	var s := super.save_state()
 	s.merge({
 		"health": health, "ki": ki, "combo_hits": combo_hits, "control": _control_enabled,
-		"guard_health": guard_health, "state": state, "state_frame": _state_frame,
+		"state": state, "state_frame": _state_frame,
 		"state_len": _state_len, "yaw": _yaw, "vel": _vel, "driven": _driven,
 		"move": _move.id if _move else &"", "move_serial": _move_serial,
 		"move_connected": _move_connected, "move_hit": _move_hit, "spawned": _spawned,
@@ -1493,6 +1826,10 @@ func save_state() -> Dictionary:
 		"move_opens_string": _move_opens_string, "combo_moves_taken": _combo_moves_taken.duplicate(),
 		"combo_relaunches": _combo_relaunches, "combo_last_melee": _combo_last_melee,
 		"dodge_kind": _dodge_kind, "dodge_chain": _dodge_chain, "dodge_queued_btn": _dodge_queued_btn,
+		"guard_pose": _guard_pose, "guard_pose_want": _guard_pose_want,
+		"guard_pose_frames": _guard_pose_frames, "guard_crashed": _guard_crashed,
+		"throw_breakable": _throw_breakable, "throw_back": _throw_back,
+		"bounce_pending": _bounce_pending, "tp_dir": _tp_dir,
 	})
 	return s
 
@@ -1503,7 +1840,6 @@ func load_state(s: Dictionary) -> void:
 	ki = s["ki"]
 	combo_hits = s["combo_hits"]
 	_control_enabled = s["control"]
-	guard_health = s["guard_health"]
 	state = s["state"]
 	_state_frame = s["state_frame"]
 	_state_len = s["state_len"]
@@ -1553,6 +1889,14 @@ func load_state(s: Dictionary) -> void:
 	_dodge_kind = s["dodge_kind"]
 	_dodge_chain = s["dodge_chain"]
 	_dodge_queued_btn = s["dodge_queued_btn"]
+	_guard_pose = s["guard_pose"]
+	_guard_pose_want = s["guard_pose_want"]
+	_guard_pose_frames = s["guard_pose_frames"]
+	_guard_crashed = s["guard_crashed"]
+	_throw_breakable = s["throw_breakable"]
+	_throw_back = s["throw_back"]
+	_bounce_pending = s["bounce_pending"]
+	_tp_dir = s["tp_dir"]
 	health_changed.emit(health, tuning.max_health)
 	ki_changed.emit(ki, ki_max())
 	combo_changed.emit(combo_hits)

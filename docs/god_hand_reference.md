@@ -189,7 +189,7 @@ frames per move come from data that isn't in the repo.
 | Global hitstop freeze | ✅ (length vs God Hand unmeasured) |
 | Tension gauge → God Hand mode | merged into ki by design; no mode |
 | Tension (ki) from taking damage, scaled by damage | ✗ flat +3 |
-| Taunts | ✗ |
+| Taunts | ✅ TAUNT (RT): 50f, +1 ki bar when finished, ×1.25 damage taken meanwhile |
 | Roulette moves with opponent slow-mo | partial (ultimate freeze; no slow-mo) |
 | Floaty asymmetric launch gravity | ✗ (one gravity, 24 m/s²) |
 | Stun / dizzy + beatdown mash | partial (staggers, no mash) |
@@ -206,7 +206,7 @@ None are scheduled; pick consciously, since some pull against Tenkaichi.
 1. **Measure and match the dodges** in PCSX2 (sway/duck/back-sway invuln,
    total length, chain timing). This is the single biggest feel item and
    the decomp can't give it yet.
-2. **Taunt** button: short, punishable animation that grants ki and maybe
+2. *(Implemented: ki reward, punishable.)* **Taunt** button: short, punishable animation that grants ki and maybe
    angers/buffs the CPU — God Hand's risk-for-reward loop.
 3. **Floaty launches:** lower falling gravity than rising gravity for
    knocked-down fighters (GH ≈ 0.6 ratio), so juggles have hang time.

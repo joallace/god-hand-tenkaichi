@@ -1,0 +1,34 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_tb50k"]
+
+[resource]
+script = ExtResource("1_tb50k")
+id = &"brawler_smash_down"
+pose = &"hammer"
+height = 2
+startup = 18
+active = 4
+recovery = 24
+damage = 55.0
+hitstun = 26
+guard_stun = 16
+knockback = Vector3(0, -4, 1)
+knockdown = true
+guard_ki_cost = 15.0
+guard_results = Array[int]([1, 4, 1])
+ground_bounce = true
+is_heavy = true
+hitbox_offset = Vector3(0.1, 0.95, 0.9)
+hitbox_radius = 0.6
+lunge_speed = 6.5
+lunge_start = 10
+lunge_frames = 8
+cancel_start = 22
+cancel_end = 40
+cancel_requires_hit = true
+special_cancelable = true
+charge_frame = 10
+charge_max_frames = 45
+charge_damage_mult = 2.2
+charge_guard_mult = 3.0

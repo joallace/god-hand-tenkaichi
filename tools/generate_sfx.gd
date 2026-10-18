@@ -48,6 +48,29 @@ const PRESETS := {
 			"vib_strength": 0.5, "vib_speed": 0.7, "env_sustain": 0.15, "env_decay": 0.35},
 	"knockdown": {"wave_type": NOISE, "base_freq": 0.08, "freq_ramp": -0.1,
 			"env_sustain": 0.08, "env_decay": 0.35, "env_punch": 0.6, "lpf_freq": 0.3},
+	# Ki guard: a buzzy energy block, lower and longer than a plain block.
+	"ki_guard": {"wave_type": SAW, "base_freq": 0.38, "freq_ramp": -0.3,
+			"env_sustain": 0.08, "env_decay": 0.28, "env_punch": 0.5,
+			"vib_strength": 0.25, "vib_speed": 0.75, "pha_offset": 0.15, "hpf_freq": 0.12},
+	# Push-off: a bright, ringing clang as the guard repels the attacker.
+	"push_off": {"wave_type": SQUARE, "base_freq": 0.72, "freq_ramp": -0.15, "duty": 0.15,
+			"env_sustain": 0.05, "env_decay": 0.42, "env_punch": 0.7,
+			"arp_speed": 0.7, "arp_mod": 0.35, "pha_offset": 0.08, "hpf_freq": 0.2},
+	# Counter stance catching a hit: sharp parry ping rising.
+	"counter_guard": {"wave_type": SINE, "base_freq": 0.55, "freq_ramp": 0.2,
+			"env_sustain": 0.06, "env_decay": 0.35, "env_punch": 0.8,
+			"arp_speed": 0.5, "arp_mod": 0.5, "hpf_freq": 0.15},
+	# Grab connecting: short low cloth/body snatch.
+	"throw": {"wave_type": NOISE, "base_freq": 0.2, "freq_ramp": 0.1,
+			"env_sustain": 0.06, "env_decay": 0.2, "env_punch": 0.5,
+			"lpf_freq": 0.45, "hpf_freq": 0.05},
+	# Breaking a grab: a slap followed by a quick descending swish.
+	"throw_break": {"wave_type": NOISE, "base_freq": 0.55, "freq_ramp": -0.35,
+			"env_sustain": 0.05, "env_decay": 0.3, "env_punch": 0.65,
+			"pha_offset": 0.2, "pha_ramp": -0.15, "hpf_freq": 0.18},
+	# Bouncing off the floor: deep thud.
+	"ground_bounce": {"wave_type": NOISE, "base_freq": 0.06, "freq_ramp": -0.08,
+			"env_sustain": 0.1, "env_decay": 0.4, "env_punch": 0.8, "lpf_freq": 0.22},
 	"ko": {"wave_type": NOISE, "base_freq": 0.12, "freq_ramp": -0.05,
 			"env_sustain": 0.3, "env_decay": 0.75, "env_punch": 0.85,
 			"pha_offset": -0.3, "pha_ramp": -0.15, "lpf_freq": 0.8, "lpf_ramp": -0.1},
@@ -84,6 +107,14 @@ const PRESETS := {
 	"ki_charge_loop": {"wave_type": NOISE, "base_freq": 0.18, "env_sustain": 0.75,
 			"env_decay": 0.0, "lpf_freq": 0.4, "lpf_resonance": 0.5,
 			"vib_strength": 0.3, "vib_speed": 0.4, "pha_offset": 0.25},
+	# Taunt: cocky two-note "wah-wah" warble.
+	"taunt": {"wave_type": SQUARE, "base_freq": 0.35, "duty": 0.3,
+			"env_sustain": 0.25, "env_decay": 0.3, "arp_speed": 0.5, "arp_mod": -0.25,
+			"vib_strength": 0.2, "vib_speed": 0.45, "lpf_freq": 0.7},
+	# Taunt finished: ki surges up.
+	"taunt_done": {"wave_type": SAW, "base_freq": 0.25, "freq_ramp": 0.35,
+			"env_sustain": 0.1, "env_decay": 0.3, "env_punch": 0.3,
+			"pha_offset": 0.2, "pha_ramp": 0.1, "lpf_freq": 0.7},
 	"not_enough_ki": {"wave_type": SQUARE, "base_freq": 0.16, "freq_ramp": -0.05,
 			"env_sustain": 0.2, "env_decay": 0.2, "lpf_freq": 0.6},
 	"super_rush": {"wave_type": SQUARE, "base_freq": 0.25, "freq_ramp": 0.3, "duty": 0.4,

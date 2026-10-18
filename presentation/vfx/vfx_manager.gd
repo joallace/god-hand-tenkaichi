@@ -6,7 +6,9 @@ extends Node3D
 ##
 ## Handled events: &"hit" {position, heavy, blocked, attacker_slot},
 ## &"perfect_dodge", &"teleport" / &"vanish" {from?, to?, position?},
-## &"guard_break", &"ko", &"ultimate_start".
+## &"guard_break", &"ko", &"ultimate_start", &"push_off", &"counter_guard",
+## &"throw", &"throw_break", &"ground_bounce", &"taunt_done". Blocked hits
+## are tinted by guard_result (ki guard).
 
 var hub: MatchEventHub
 var _sphere: SphereMesh
@@ -40,7 +42,9 @@ func _on_fighter_event(f: Fighter, kind: StringName, data: Dictionary) -> void:
 		&"hit":
 			var pos := hub.event_position(hub.hit_victim(f, data), data, v.fallback_hit_height)
 			if data.get("blocked", false):
-				hit_spark(pos, v.blocked_color, v.hit_flash_size, v.hit_duration, v.spark_count_light)
+				var ki_guard: bool = data.get("guard_result", -1) == MoveData.GuardResult.KI_GUARD
+				hit_spark(pos, v.ki_guard_color if ki_guard else v.blocked_color, v.hit_flash_size,
+						v.hit_duration, v.spark_count_light)
 			elif data.get("heavy", false):
 				hit_spark(pos, v.heavy_hit_color, v.heavy_flash_size, v.heavy_duration, v.spark_count_heavy)
 				shockwave(pos, v.heavy_hit_color, v.heavy_flash_size * 2.0, v.heavy_duration)
@@ -62,6 +66,31 @@ func _on_fighter_event(f: Fighter, kind: StringName, data: Dictionary) -> void:
 			var p := f.global_position + Vector3.UP * v.fallback_hit_height
 			hit_spark(p, v.guard_break_color, v.guard_break_size * 0.5, v.guard_break_duration, v.spark_count_heavy)
 			shockwave(p, v.guard_break_color, v.guard_break_size, v.guard_break_duration)
+		&"push_off":
+			var p := hub.event_position(f, data, 0.0) + Vector3.UP * v.fallback_hit_height
+			hit_spark(p, v.push_off_color, v.push_off_size * 0.5, v.push_off_duration, v.spark_count_heavy)
+			shockwave(p, v.push_off_color, v.push_off_size, v.push_off_duration)
+		&"counter_guard":
+			var p := hub.event_position(f, data, 0.0) + Vector3.UP * v.fallback_hit_height
+			flash(p, v.counter_color, v.counter_size, v.counter_duration, true)
+			shockwave(p, v.counter_color, v.counter_size * 1.5, v.counter_duration)
+		&"throw":
+			var p := hub.event_position(f, data, 0.0) + Vector3.UP * v.fallback_hit_height
+			flash(p, v.throw_color, v.throw_size, v.throw_duration, true)
+		&"throw_break":
+			var p := hub.event_position(f, data, 0.0) + Vector3.UP * v.fallback_hit_height
+			if f.opponent != null:
+				p = p.lerp(f.opponent.global_position + Vector3.UP * v.fallback_hit_height, 0.5)
+			hit_spark(p, v.throw_break_color, v.throw_break_size * 0.5, v.throw_break_duration, v.spark_count_heavy)
+			shockwave(p, v.throw_break_color, v.throw_break_size, v.throw_break_duration)
+		&"ground_bounce":
+			var p := hub.event_position(f, data, 0.0) + Vector3.UP * v.ground_bounce_height
+			shockwave(p, v.ground_bounce_color, v.ground_bounce_size, v.ground_bounce_duration)
+		&"taunt_done":
+			var p := f.global_position + Vector3.UP * v.fallback_hit_height
+			flash(p, v.taunt_ki_color, v.taunt_ki_size, v.taunt_ki_duration)
+			shockwave(f.global_position + Vector3.UP * v.ground_bounce_height, v.taunt_ki_color,
+					v.taunt_ki_size, v.taunt_ki_duration)
 		&"ko":
 			var p := f.global_position + Vector3.UP * v.fallback_hit_height
 			flash(p, v.ko_color, v.ko_size, v.ko_duration)

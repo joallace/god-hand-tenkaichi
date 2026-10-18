@@ -41,10 +41,10 @@ already converted to **60 Hz frames** unless marked `@30`.
 | Combo scaling | from **5th hit**, −3%/hit, floor 50% | — | ~~0.92^n from 2nd hit, floor 35%~~ → **done:** BT3 curve |
 | Anti-loop | same light stagger twice in one combo → push-out reaction | consecutive-hit counter caps at 4 | ~~none~~ → **done:** repeated melee move or 3rd relaunch per segment = push-out knockdown (a teleport starts a new segment) |
 | Charged smash | full in 45f; tiers <0.3 / <0.99 / full; release on first full frame = invuln lunge | hold at charge marker, ~80f pool | 45f punch / 60f kick; ≥0.5 stun, full breaks guard |
-| Guard | chip **cannot KO**; per-move guard results (push, ki-guard, attacker recoil); throws beat guard | no guard | chip can KO; guard meter 100 → 50f break |
-| Throws | through guard; break = guard press within 10f | grab: ±45° facing, 3 m, blocked by invuln | none |
+| Guard | chip **cannot KO**; per-move guard results (push, ki-guard, attacker recoil); throws beat guard | no guard | ~~chip can KO; guard meter 100 → 50f break~~ → **done:** BT3 guard: 3 stick poses, per-move result per pose, ki guard → guard crash (75f, mashable), chip can't KO, counter guard |
+| Throws | through guard; break = guard press within 10f | grab: ±45° facing, 3 m, blocked by invuln | ~~none~~ → **done:** THROW (RB), clean GUARD press within 10f (before or after the grab) breaks it from the front; back throw with stick back |
 | Knockdown → get-up | auto at 180f; **any button = get-up any time**; direction = roll L/R/F/B; can guard on wake | tech in a motion window → quick recovery with 10f invuln; wake-up attack if button pressed late | ~~fixed 24f lie~~ → **done:** air tech (flick in the air from 18f = backflip onto the feet), quick rise on any button / up flick from 8f lying, sway/backflip roll on a flick, auto get-up at 40f |
-| Stun | 30/60/90f, each press −6f | dizzy 300f, each press −10f | guard break 50f / charge stagger 36–60f, no mash |
+| Stun | 30/60/90f, each press −6f | dizzy 300f, each press −10f | guard crash 75f / charge stagger 36–60f, each press −6f |
 | Attack tracking | turn max(1.8°, 30% of diff) per frame @30 | enemies 5.6°/f during windup, **locked at commit**, then a 10f fast slide | ~~12°/f through startup~~ → **done:** 6°/f, locks 2f before active |
 | Ki on being hit | none (attacker gains per-move kiGain) | tension + dmg/maxHP×10 (max 10) | +3 per hit taken |
 | Ki charge | constant rate; slowest possible = full gauge in 16.7 s | — | 1 bar per 72f, full in 6 s |
@@ -90,16 +90,16 @@ headless. Ordered by how much they should change *feel*.
    pressed during a dodge to fire on the first vulnerable frame. Measure God
    Hand's real chain timing first (see PCSX2 list).
 
-6. **Throws.** Close-range grab that beats guard; break by pressing guard
-   within ~10f. Without it, holding guard + meter is the safest play.
-   Needs an input decision (BT3 uses dash double-tap when close).
+6. *(Implemented on RB.)* **Throws.** Close-range grab that beats guard;
+   break by pressing guard within ~10f. Without it, holding guard + meter is
+   the safest play.
 
 7. **Hitstop review.** BT3 uses none on normal melee, God Hand uses some.
    Measure God Hand before changing ours; possibly drop lights to 2–3f and
    lean more on per-hit camera shake for rush strings.
 
-8. **Small ones.** Chip damage can't KO (BT3). Mash to shorten guard-break /
-   stagger stun (BT3: each press −6f). Rush-vs-rush trades resolve by
+8. **Small ones.** *(Done: chip damage can't KO; mashing shortens guard
+   crash / stagger stun by 6f per press.)* Rush-vs-rush trades resolve by
    priority instead of both hitting. No ki for the *defender* on hit (BT3) —
    or keep it as the God-Hand-style "tension" comeback, but scale it by damage
    (dmg/maxHP×10) instead of a flat +3.

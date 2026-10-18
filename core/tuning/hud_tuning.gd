@@ -9,6 +9,8 @@ extends Resource
 @export var name_font_size: int = 22
 @export var timer_font_size: int = 40
 @export var combo_font_size: int = 40
+## Per-player callouts (GUARD CRASH / THROW BREAK / COUNTER) under the combo.
+@export var callout_font_size: int = 30
 @export var announce_font_size: int = 96
 @export var outline_size: int = 8
 
@@ -47,6 +49,9 @@ extends Resource
 @export var ko_color: Color = Color(1.0, 0.25, 0.15)
 @export var divider_color: Color = Color(0, 0, 0)
 @export var pause_dim_color: Color = Color(0, 0, 0, 0.6)
+@export var guard_crash_color: Color = Color(1.0, 0.45, 0.1)
+@export var throw_break_color: Color = Color(0.85, 0.95, 1.0)
+@export var counter_color: Color = Color(1.0, 0.95, 0.4)
 
 @export_group("Timings (seconds)")
 @export var health_trail_delay: float = 0.5
@@ -55,6 +60,8 @@ extends Resource
 @export var ki_denied_flash: float = 0.4
 @export var combo_min_hits: int = 2
 @export var combo_linger: float = 1.2
+@export var callout_hold: float = 0.9
+@export var callout_fade: float = 0.25
 @export var announce_in: float = 0.18
 @export var announce_hold: float = 1.0
 @export var announce_out: float = 0.25
@@ -74,3 +81,6 @@ extends Resource
 @export var text_match_winner: String = "P%d VICTORY!"
 @export var text_combo: String = "%d HITS"
 @export var text_infinite: String = "∞"
+@export var text_guard_crash: String = "GUARD CRASH"
+@export var text_throw_break: String = "THROW BREAK"
+@export var text_counter: String = "COUNTER!"

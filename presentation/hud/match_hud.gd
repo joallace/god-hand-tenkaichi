@@ -2,7 +2,8 @@ class_name MatchHud
 extends CanvasLayer
 ## Global match HUD drawn once over all views: P1 on the left, P2 on the
 ## right, timer in the center. Per player: name, round-win pips, health bar
-## with damage trail, segmented ki gauge (+ full bar count), combo popup.
+## with damage trail, segmented ki gauge (+ full bar count), combo popup and
+## a callout line (GUARD CRASH / THROW BREAK / COUNTER).
 ## Center: timer ("∞" when infinite) and announcer text (ROUND / FIGHT! /
 ## K.O. / TIME / DRAW / winner). Purely signal driven.
 
@@ -147,6 +148,14 @@ func _build_panel(f: Fighter, right_side: bool) -> void:
 	p["combo"] = combo
 	p["combo_tween"] = null
 
+	var callout := _label(t.callout_font_size, t.text_color)
+	callout.name = "Callout%d" % (f.slot + 1)
+	callout.horizontal_alignment = combo.horizontal_alignment
+	callout.modulate.a = 0.0
+	root.add_child(callout)
+	p["callout"] = callout
+	p["callout_tween"] = null
+
 	panels[f.slot] = p
 	f.health_changed.connect(_on_health_changed.bind(f.slot))
 	f.ki_changed.connect(_on_ki_changed.bind(f.slot))
@@ -215,6 +224,10 @@ func _layout() -> void:
 		combo.size = Vector2(bar_w, t.combo_font_size + 20.0)
 		combo.position = Vector2(x0, ki_y + t.ki_bar_height + 24.0)
 		combo.pivot_offset = Vector2(combo.size.x if right else 0.0, combo.size.y * 0.5)
+		var callout: Label = p["callout"]
+		callout.size = Vector2(bar_w, t.callout_font_size + 16.0)
+		callout.position = Vector2(x0, combo.position.y + combo.size.y)
+		callout.pivot_offset = Vector2(callout.size.x if right else 0.0, callout.size.y * 0.5)
 
 
 # --- fighter signals -----------------------------------------------------------
@@ -253,8 +266,37 @@ func _on_combo_changed(hits: int, slot: int) -> void:
 
 
 func _on_fighter_event(f: Fighter, kind: StringName, _data: Dictionary) -> void:
-	if kind == &"not_enough_ki" and panels.has(f.slot):
-		(panels[f.slot]["ki"] as HudKiGauge).flash_denied()
+	if not panels.has(f.slot):
+		return
+	var t := Tuning.hud
+	match kind:
+		&"not_enough_ki":
+			(panels[f.slot]["ki"] as HudKiGauge).flash_denied()
+		&"guard_break":
+			callout(f.slot, t.text_guard_crash, t.guard_crash_color)
+		&"throw_break":
+			callout(f.slot, t.text_throw_break, t.throw_break_color)
+		&"counter_guard":
+			callout(f.slot, t.text_counter, t.counter_color)
+
+
+## Brief text under a player's combo counter (shown on the emitter's side).
+func callout(slot: int, text: String, color: Color) -> void:
+	var t := Tuning.hud
+	var p: Dictionary = panels[slot]
+	var l: Label = p["callout"]
+	var old: Variant = p["callout_tween"]
+	if old is Tween and (old as Tween).is_valid():
+		(old as Tween).kill()
+	l.text = text
+	l.label_settings.font_color = color
+	l.modulate.a = 1.0
+	l.scale = Vector2.ONE * 1.4
+	var tw := create_tween()
+	tw.tween_property(l, "scale", Vector2.ONE, t.announce_in).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_interval(t.callout_hold)
+	tw.tween_property(l, "modulate:a", 0.0, t.callout_fade)
+	p["callout_tween"] = tw
 
 
 # --- director signals ----------------------------------------------------------

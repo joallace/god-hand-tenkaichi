@@ -23,6 +23,11 @@ extends Resource
 @export var jump_attack: StringName = &""
 @export var dash_attack: StringName = &""
 @export var ki_blast: StringName = &""
+## THROW: grab that beats guard (stick back = throw behind you).
+@export var throw: StringName = &""
+## Counter guard: forced counter attack after a stick-forward + LIGHT guard
+## catches the first hit of a string.
+@export var counter: StringName = &""
 ## Neutral SPECIAL (CHARGE + HEAVY).
 @export var super1: StringName = &""
 ## Forward + SPECIAL.

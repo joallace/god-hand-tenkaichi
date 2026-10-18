@@ -30,7 +30,7 @@ const ACTION_NAMES := {
 	"LIGHT": "Light Attack", "HEAVY": "Heavy Attack", "BLAST": "Ki Blast (shortcut)",
 	"JUMP": "Jump", "GUARD": "Guard / Teleport", "CHARGE": "Charge Ki / Special",
 	"SPECIAL": "Special (shortcut)", "TELEPORT": "Teleport (shortcut)", "DASH": "Dash",
-	"PAUSE": "Pause",
+	"PAUSE": "Pause", "THROW": "Throw", "TAUNT": "Taunt",
 	"MOVE_FORWARD": "Move Forward", "MOVE_BACK": "Move Back",
 	"MOVE_LEFT": "Move Left", "MOVE_RIGHT": "Move Right",
 	"DODGE_FORWARD": "Dodge Forward", "DODGE_BACK": "Dodge Back",
@@ -45,6 +45,10 @@ const COMBO_ROWS := [
 	["Ki Blast", "Heavy at range"],
 	["Special", "Charge + Heavy  (+Fwd: Super 2, +Back: Ultimate)"],
 	["Teleport", "Guard right after a hit / just before one"],
+	["Guard height", "Guard + Fwd: high, Back: low"],
+	["Counter stance", "Guard + Fwd + Light"],
+	["Throw break", "Guard as you're grabbed (facing the thrower)"],
+	["Smash", "Hold Light, release + Fwd / Back / Left / Right"],
 ]
 
 ## When true, Back emits `closed` and frees this node instead of going to

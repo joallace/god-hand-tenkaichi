@@ -283,19 +283,21 @@ smashes). These need PCSX2 measurements (see
 | Anti-loop push-back | ✅ (repeated move / relaunch cap → push-out) |
 | Early get-up + directional rolls | ✅ (+ God Hand air tech) |
 | Dodge re-arm / buffered counterattack | ✅ (dodge chaining, queued attacks) |
-| Charged smashes | ✅ partial (charge punch/kick; no directional smash set, no just-release) |
-| Teleport chase after a hit | ✅ offensive teleport (2/combo) |
+| Charged smashes | ✅ LIGHT charge = directional smash (forward launch, back ground bounce, sides knock away); no just-release, no momentum |
+| Teleport chase after a hit | ✅ offensive teleport (2/combo); left stick places every teleport around the opponent |
 | Vanish escape out of a combo | ours only (BT3 can't break mid-string) |
 | No hitstop, camera shake instead | ✗ we use 4/8f hitstop |
-| Throws through guard + throw break | ✗ |
-| Guard poses / per-move guard results | ✗ (one guard, angle-based) |
-| Ki-guard → guard crash / exhaustion | ✗ (we have a separate guard meter) |
-| Chip can't KO | ✗ |
+| Throws through guard + throw break | ✅ THROW (RB); clean GUARD press within 10f breaks it from the front; stick back = back throw |
+| Guard poses / per-move guard results | ✅ stick high/mid/low, 6f switch; plain / ki guard / push-off / push-stop / unblockable per pose |
+| Ki-guard → guard crash / exhaustion | ✅ (guard meter removed; crash mashed out, ends with a 0.5-bar refill) |
+| Chip can't KO | ✅ |
+| Counter guard (Up + Rush, 2f) | ✅ guard + stick forward + LIGHT; forced counter launcher |
+| Guard straight out of a get-up | ✅ |
 | Rush vs rush auto-guard, priority trades | ✗ (both hit) |
 | Max Power mode, blast stocks | ✗ |
 | Homing / circle dash, step dodges | ✗ (forward dash only) |
 | Defender gets no ki on hit | ✗ (+3 per hit taken) |
-| Mash to shorten stun | ✗ |
+| Mash to shorten stun | ✅ (guard crash and staggers, −6f per press) |
 | Dash clashes, beam struggles | ✗ (beam struggles excluded by design) |
 
 ## Steering toward BT3
@@ -303,21 +305,24 @@ smashes). These need PCSX2 measurements (see
 Ideas that would make the game read more "Tenkaichi", roughly by payoff.
 None are scheduled; pick consciously, since some pull against God Hand.
 
-1. **Throws** that beat guard, broken by a timed guard press (10f). Gives
-   the guard/vanish game its missing third option.
+1. *(Implemented.)* **Throws** that beat guard, broken by a timed guard
+   press (10f). Gives the guard/vanish game its missing third option.
 2. **Rush branching:** mid-string finishers on a second button and a
-   directional charged-smash set (up = launch, down = ground bounce, sides =
+   *(implemented)* directional charged-smash set (up = launch, down = ground bounce, sides =
    sideways knock-away), with BT3's chase follow-ups.
 3. **Camera shake over hitstop** for rush strings: cut light hitstop to 0–2f
    and lean on shake; keep freezes for supers and big finishers.
 4. **Ki economy:** slower charge, defender gets no ki from hits, attacker
-   gains per-move ki; optionally a ki-guard that can empty into a guard crash
-   (would replace the guard meter).
+   gains per-move ki. *(The ki-guard → guard crash part is implemented and
+   replaced the guard meter.)*
 5. **Homing dash / circle dash** costing small ki: BT3's mobility without
    flight.
 6. **Max Power mode** (full ki + charge → temporary boost with a draining
    gauge) as the Tenkaichi-flavoured comeback/finisher state.
 7. **Rush-vs-rush auto-guard** and priority trades, so mashing into each
    other's strings stops being a coin flip.
-8. **Guard poses** (high/mid/low guard via the stick) with per-move results
-   — big change; only if the strike-height system needs more depth.
+8. *(Implemented.)* **Guard poses** (high/mid/low guard via the stick) with
+   per-move results (`MoveData.guard_results`, generated in
+   `tools/generate_moves.gd`: matched heavy = push-off, neighbouring pose =
+   ki guard, opposite extreme = unblockable; lights plain; smashes, supers
+   and beams always ki guard).

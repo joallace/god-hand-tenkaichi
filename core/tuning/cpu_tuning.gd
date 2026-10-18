@@ -56,6 +56,19 @@ extends Resource
 @export var wakeup_option_chance: Vector2 = Vector2(0.1, 0.9)
 ## Of those early get-ups, the share that roll away.
 @export var wakeup_roll_chance: Vector2 = Vector2(0.2, 0.6)
+## Chance to read a guarded attack and hold the guard pose its guard results
+## favour (low vs low kicks repels them, etc.); a miss keeps a mid guard.
+@export var guard_pose_chance: Vector2 = Vector2(0.1, 0.95)
+## Chance to try breaking a grab with a clean GUARD press (it still needs the
+## reaction time to fit in throw_break_frames).
+@export var throw_break_chance: Vector2 = Vector2(0.0, 0.8)
+## Chance to counter guard (stick forward + LIGHT from a held guard) a
+## noticed string opener. Negative = never: only the top levels try.
+@export var counter_guard_chance: Vector2 = Vector2(-0.15, 0.12)
+## Chance to mash out of a guard crash / stagger...
+@export var stun_mash_chance: Vector2 = Vector2(0.1, 0.95)
+## ...and frames between mash presses (2 = every other frame, the fastest).
+@export var stun_mash_interval_frames: Vector2 = Vector2(12, 3)
 
 @export_group("Offense")
 ## Neutral game: chance to press forward / attack rather than wait or guard.
@@ -74,6 +87,16 @@ extends Resource
 @export var teleport_chase_chance: Vector2 = Vector2(0.0, 0.8)
 ## Chance to spend ki on a super when one is affordable and makes sense.
 @export var special_chance: Vector2 = Vector2(0.1, 0.75)
+## Close range vs an opponent seen guarding: chance to throw (beats guard).
+@export var throw_chance: Vector2 = Vector2(0.05, 0.45)
+## Close range vs a seen counter stance: chance to hold back (guard) rather
+## than swing into it.
+@export var counter_respect_chance: Vector2 = Vector2(0.0, 0.8)
+## Chance a charged smash is released with the stick held (directional smash).
+@export var smash_direction_chance: Vector2 = Vector2(0.0, 0.6)
+## Chance per neutral decision to taunt when it looks safe (opponent knocked
+## down or far). Stronger levels decide more often, so theirs is lower.
+@export var taunt_chance: Vector2 = Vector2(0.03, 0.005)
 
 @export_group("Ki")
 ## Chance to charge ki when the opponent is far enough away.
@@ -99,8 +122,10 @@ extends Resource
 ## Hold LIGHT/HEAVY this many extra frames past the charge frame (scaled by
 ## a random 0.5..1) when going for a charge strike.
 @export var charge_strike_hold_frames: int = 40
-## Opponent guard health ratio under which blocked strings go for guard damage.
+## Opponent ki ratio under which blocked strings go for a ki-guard crush.
 @export_range(0.0, 1.0) var guard_crush_ratio: float = 0.5
+## Taunting is considered with the opponent (not attacking) this far away.
+@export var taunt_safe_distance: float = 10.0
 
 @export_group("Option weights (all levels)")
 ## Neutral-game pick weights, each multiplied by the level's chance for it.
@@ -120,6 +145,10 @@ extends Resource
 @export_range(0.0, 1.0) var super_cancel_share: float = 0.5
 ## ...and of those, the share that are rushes (the rest beams).
 @export_range(0.0, 1.0) var super_cancel_rush_share: float = 0.6
+## Throws: share thrown behind (stick back) instead of forward.
+@export_range(0.0, 1.0) var back_throw_share: float = 0.3
+## Teleport chases: share reappearing at a flank instead of behind.
+@export_range(0.0, 1.0) var teleport_flank_share: float = 0.3
 ## Max sideways stick while walking in.
 @export_range(0.0, 1.0) var approach_strafe: float = 0.4
 ## Random +- frames on every think interval (keeps it from feeling metronomic).

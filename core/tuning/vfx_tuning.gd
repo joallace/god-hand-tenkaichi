@@ -7,6 +7,8 @@ extends Resource
 @export var hit_color: Color = Color(1.0, 0.85, 0.35)
 @export var heavy_hit_color: Color = Color(1.0, 0.45, 0.1)
 @export var blocked_color: Color = Color(0.35, 0.7, 1.0)
+## Blocked hit taken with a ki guard (drains ki).
+@export var ki_guard_color: Color = Color(0.4, 1.0, 0.95)
 @export var hit_flash_size: float = 0.7
 @export var heavy_flash_size: float = 1.4
 @export var hit_duration: float = 0.18
@@ -41,3 +43,32 @@ extends Resource
 @export var ultimate_color: Color = Color(1.0, 0.9, 0.3)
 @export var ultimate_tint_color: Color = Color(1.0, 0.85, 0.3, 0.3)
 @export var ultimate_tint_duration: float = 0.5
+
+@export_group("Guard reactions / throws / taunt")
+## Push-off: the guard repels the attacker (spark + ring at the defender).
+@export var push_off_color: Color = Color(0.75, 0.95, 1.0)
+@export var push_off_size: float = 1.6
+@export var push_off_duration: float = 0.3
+## Counter stance catching a hit.
+@export var counter_color: Color = Color(1.0, 0.95, 0.5)
+@export var counter_size: float = 1.8
+@export var counter_duration: float = 0.3
+@export var counter_tint_color: Color = Color(1.0, 0.95, 0.5, 0.25)
+@export var counter_tint_duration: float = 0.3
+## Throw break: both fighters knocked apart.
+@export var throw_break_color: Color = Color(1.0, 1.0, 1.0)
+@export var throw_break_size: float = 1.5
+@export var throw_break_duration: float = 0.25
+## Grab connecting.
+@export var throw_color: Color = Color(1.0, 0.75, 0.4)
+@export var throw_size: float = 0.9
+@export var throw_duration: float = 0.2
+## Dust ring where a fighter bounces off the floor (height above the feet).
+@export var ground_bounce_color: Color = Color(0.85, 0.75, 0.6, 0.8)
+@export var ground_bounce_size: float = 2.6
+@export var ground_bounce_duration: float = 0.35
+@export var ground_bounce_height: float = 0.1
+## Small ki burst when a taunt finishes and pays out ki.
+@export var taunt_ki_color: Color = Color(0.45, 0.95, 1.0, 0.7)
+@export var taunt_ki_size: float = 1.6
+@export var taunt_ki_duration: float = 0.4

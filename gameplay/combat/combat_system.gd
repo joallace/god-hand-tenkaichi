@@ -63,6 +63,8 @@ func _hitstop_for(hb: Hitbox, victim: Fighter, outcome: CombatEntity.Contact) ->
 			return t.perfect_dodge_hitstop
 		CombatEntity.Contact.BLOCKED:
 			return mini(hb.move.hitstop_frames(t), t.hitstop_light)
+		CombatEntity.Contact.THROW:
+			return 0
 	return hb.move.hitstop_frames(t)
 
 

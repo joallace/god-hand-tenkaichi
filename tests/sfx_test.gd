@@ -9,6 +9,11 @@ const SfxrSynth := preload("res://tools/sfxr/sfxr_synth.gd")
 const Generator := preload("res://tools/generate_sfx.gd")
 
 const TMP_SFS := "user://sfx_test_roundtrip.sfs"
+## Sounds MatchSfx plays for the guard / throw / taunt events.
+const EVENT_SOUNDS: Array[StringName] = [
+	&"ki_guard", &"push_off", &"counter_guard", &"throw", &"throw_break",
+	&"taunt", &"taunt_done", &"ground_bounce",
+]
 
 var _ok := true
 
@@ -68,6 +73,9 @@ func _test_assets() -> void:
 	for name: String in Generator.PRESETS:
 		_check(FileAccess.file_exists(Generator.SFS_DIR + name + ".sfs"), "%s.sfs exists" % name)
 		_check(Sfx.has(StringName(name)), "Sfx loaded %s.wav (run tools/generate_sfx.gd)" % name)
+	for name in EVENT_SOUNDS:
+		_check(Generator.PRESETS.has(String(name)), "%s has an sfxr preset" % name)
+		_check(Sfx.has(name), "event sound %s loaded" % name)
 	for file in DirAccess.get_files_at(Generator.SFS_DIR):
 		if file.get_extension() == "sfs":
 			_check(Sfx.has(StringName(file.get_basename())), "%s rendered" % file)

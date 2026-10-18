@@ -66,16 +66,67 @@ extends Resource
 @export var dodge_attack_from_frame: int = 13
 
 @export_group("Guard")
+## BT3 guard: no guard meter. Each move has a GuardResult per guard pose
+## (MoveData.guard_results); KI_GUARD results drain ki and an empty gauge
+## crashes the guard (GUARD_BREAK state).
 @export var guard_chip_ratio: float = 0.15
-@export var guard_stun_frames: int = 10
-@export var guard_break_stun_frames: int = 50
-## Max guard health; heavies/supers drain it, breaking at 0.
-@export var guard_health: float = 100.0
-@export var guard_regen_per_frame: float = 0.4
+## Chip damage never takes health below this (chip can't KO).
+@export var chip_min_health: float = 1.0
+## Guard crash (ki emptied by a ki guard, or a full-charge smash) length...
+@export var guard_break_stun_frames: int = 75
+## ...and the ki refilled when it ends, so the next guard can hold a moment.
+@export var guard_crash_ki_refill: float = 50.0
+## Each LIGHT/HEAVY/GUARD/JUMP press shortens a guard crash or stagger by
+## this many frames (mash out).
+@export var stun_mash_frames: int = 6
 ## Hits within this angle (degrees, either side of facing) can be blocked.
 @export var guard_half_angle_deg: float = 80.0
-## Fraction of a move's knockback applied as pushback when blocked.
+## Fraction of a move's knockback applied as pushback when blocked...
 @export var guard_pushback_ratio: float = 0.6
+## ...scaled again on KI_GUARD / PUSH_OFF results (BT3: half push).
+@export var ki_guard_push_ratio: float = 0.5
+## A new stick pose (forward = high, neutral = mid, back = low) must be held
+## this many frames before a held guard switches to it. Entering the guard
+## takes the held pose at once.
+@export var guard_pose_switch_frames: int = 6
+## PUSH_OFF / PUSH_STOP: the attacker recoils for this long at this speed...
+@export var push_off_recoil_frames: int = 20
+@export var push_off_recoil_speed: float = 4.0
+## ...the defender gains this much ki...
+@export var ki_gain_on_push_off: float = 10.0
+## ...and PUSH_STOP also freezes both fighters (global hitstop).
+@export var push_stop_freeze_frames: int = 5
+## Counter guard: stick forward + LIGHT while guarding enters a counter
+## stance; the first hit of a string landing in its first N frames is
+## caught: no chip, a short freeze, the attacker recoils and the defender's
+## counter attack fires. Later hits in the stance are blocked (mid pose).
+@export var counter_guard_window_frames: int = 2
+@export var counter_guard_stance_frames: int = 20
+@export var counter_guard_freeze_frames: int = 6
+@export var counter_guard_recoil_frames: int = 24
+
+@export_group("Throws")
+## Frames after a grab connects before the throw executes. The victim breaks
+## it with a clean GUARD press (see guard_vanish_rearm_frames) inside this
+## window or up to the same many frames before the grab, while facing the
+## thrower; throws from behind can't be broken.
+@export var throw_break_frames: int = 10
+## The victim is held this far in front of the thrower.
+@export var throw_hold_distance: float = 0.9
+## Stick Y below -this at the press = throw behind you.
+@export var throw_back_threshold: float = 0.5
+## Break: both fighters slide apart at this speed and recoil this long.
+@export var throw_break_push_speed: float = 6.0
+@export var throw_break_recoil_frames: int = 16
+## Thrower recovery after the throw executes.
+@export var throw_recovery_frames: int = 24
+
+@export_group("Taunt")
+## Taunt length; the ki reward is paid on its last frame (if not hit first).
+@export var taunt_frames: int = 50
+@export var taunt_ki_gain: float = 100.0
+## Damage multiplier on a fighter hit while taunting.
+@export var taunt_counter_damage_mult: float = 1.25
 
 @export_group("Hit reactions")
 @export var hitstop_light: int = 4
@@ -106,8 +157,11 @@ extends Resource
 @export var loop_pushout_speed: float = 8.0
 
 @export_group("Strikes")
-## Stick Y beyond this picks the high (forward) / low (back) HEAVY variant.
+## Stick Y beyond this picks the high (forward) / low (back) HEAVY variant;
+## stick beyond this on any axis picks a directional charged smash on release.
 @export var strike_dir_threshold: float = 0.5
+## Upward speed of the bounce after a MoveData.ground_bounce hit.
+@export var ground_bounce_velocity: float = 7.0
 
 @export_group("Charge strikes")
 ## Holding LIGHT/HEAVY this many frames turns the attack into its charge strike.
@@ -124,6 +178,11 @@ extends Resource
 @export var teleport_cost_bars: float = 1.0
 @export var teleport_max_per_combo: int = 2
 @export var teleport_behind_distance: float = 1.4
+## Left stick past this (any direction) when vanishing or while vanished
+## places the reappear point around the opponent from the teleporter's view:
+## forward = behind them, sides = their flanks, back = in front of them.
+## Neutral = behind their back.
+@export var teleport_dir_threshold: float = 0.5
 @export var teleport_frames: int = 8
 ## After reappearing, frames in which a follow-up attack still links.
 @export var teleport_followup_window: int = 20

@@ -143,6 +143,17 @@ func _on_fighter_event(f: Fighter, kind: StringName, data: Dictionary, hub: Matc
 			flash(f.slot, Tuning.vfx.dodge_tint_color, Tuning.vfx.dodge_tint_duration)
 		&"guard_break":
 			_shake(f.slot, t.trauma_guard_break)
+		&"push_off":
+			_shake(f.slot, t.trauma_push_off)
+		&"counter_guard":
+			_shake(f.slot, t.trauma_counter_guard)
+			if cameras.has(f.slot):
+				(cameras[f.slot] as FighterCamera).fov_punch(t.counter_guard_fov_punch)
+			flash(f.slot, Tuning.vfx.counter_tint_color, Tuning.vfx.counter_tint_duration)
+		&"throw_break":
+			_shake(f.slot, t.trauma_throw_break)
+		&"ground_bounce":
+			_shake(f.slot, t.trauma_ground_bounce)
 		&"ko":
 			_shake(f.slot, t.trauma_ko)
 		&"ultimate_start":

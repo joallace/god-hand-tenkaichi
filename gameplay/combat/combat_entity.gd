@@ -4,7 +4,7 @@ extends SimEntity
 ## only talks to this interface.
 
 ## Outcome of a hitbox touching a hurtbox (see Fighter.receive_hit).
-enum Contact { NONE, HIT, BLOCKED, PERFECT_DODGE }
+enum Contact { NONE, HIT, BLOCKED, PERFECT_DODGE, THROW }
 
 ## Last hit id that made contact; an activation connects at most once.
 var _last_contact_id: int = -1

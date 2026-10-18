@@ -11,13 +11,14 @@ extends RefCounted
 ##
 ## think() runs one layer per tick, first match wins:
 ##   1. reflexes in special states (hitstun vanish escape, vanish battles,
-##      perfect-dodge counters)
-##   2. defense against a noticed attack, ki blast or beam (guard, timed
-##      dodge, guard vanish)
+##      perfect-dodge counters, throw breaks, mashing out of a guard crash)
+##   2. defense against a noticed attack, throw, ki blast or beam (guard in
+##      the pose that suits the move, timed dodge, guard vanish, counter
+##      guard, throw pre-break)
 ##   3. follow-ups for the move it is performing (string links, finishers,
 ##      super cancels, teleport chases)
 ##   4. punishes, then the neutral game every think_interval frames (spacing,
-##      attacks, ki charging, blasts, supers)
+##      attacks, throws, ki charging, blasts, supers, taunts)
 ## Decisions become timed button holds in `_plan` that `_emit()` turns into
 ## this tick's frame.
 ##
@@ -31,19 +32,28 @@ extends RefCounted
 const S := Fighter.State
 const B := InputFrame.Btn
 const D := InputFrame.Dodge
-## `_plan` entry: [start_clock, end_clock (exclusive), button, stick_y].
+## `_plan` entry: [start_clock, end_clock (exclusive), button (0 = stick
+## only), stick_y, stick_x] (stick in InputFrame.MOVE_SCALE units).
 const NO_STICK := 1 << 16
 const CAN_ACT: Array[int] = [S.IDLE, S.WALK, S.GUARD, S.DASH, S.CHARGE]
 const CAN_DODGE: Array[int] = [S.IDLE, S.WALK, S.GUARD, S.DASH]
 ## Entering these drops every plan: whatever was queued no longer applies.
-const INTERRUPTED: Array[int] = [S.HITSTUN, S.KNOCKDOWN, S.GUARD_BREAK, S.KO, S.WAKEUP, S.VANISH_WAIT]
+const INTERRUPTED: Array[int] = [
+	S.HITSTUN, S.KNOCKDOWN, S.GUARD_BREAK, S.KO, S.WAKEUP, S.VANISH_WAIT, S.THROWN, S.RECOIL,
+]
+## Opponent states that leave it open to a punish.
+const OPEN_STATES: Array[int] = [S.GUARD_BREAK, S.HITSTUN, S.RECOIL, S.TAUNT]
+## Opponent states a throw goes through (a guard can't stop it).
+const GUARDING: Array[int] = [S.GUARD, S.GUARD_STUN, S.COUNTER]
+## How good each MoveData.GuardResult is for the defender (higher = better).
+const GUARD_RESULT_RANK: Array[int] = [2, 1, 3, 4, 0]  # PLAIN, KI_GUARD, PUSH_OFF, PUSH_STOP, UNBLOCKABLE
 ## Variables saved for rollback (see save_state).
 const SAVED: Array[StringName] = [
 	&"_clock", &"_plan", &"_dodge_at", &"_dodge_dir", &"_walk", &"_walk_until",
 	&"_next_think", &"_opp_state", &"_opp_serial", &"_opp_known_at", &"_opp_seen_state",
 	&"_threat_serial", &"_my_serial", &"_my_state", &"_my_frame", &"_reflex_done", &"_rise_done",
 	&"_string_left", &"_chase", &"_followup", &"_counter_until", &"_contact_serial",
-	&"_contact_blocked", &"_punish_key", &"_last_held", &"_last_move",
+	&"_contact_blocked", &"_punish_key", &"_last_held", &"_last_move", &"_mash_next",
 ]
 
 var level: int
@@ -92,6 +102,8 @@ var _contact_blocked: bool = false
 var _punish_key: int = -1
 var _last_held: int = 0
 var _last_move: Vector2 = Vector2.ZERO
+## Next mash press while guard crashed / staggered (-1 = not mashing).
+var _mash_next: int = -1
 
 
 func _init(p_level: int = -1, seed_value: int = 0) -> void:
@@ -203,6 +215,10 @@ func _decide() -> void:
 			_knockdown_reflex()
 		S.VANISH_WAIT:
 			_vanish_reflex()
+		S.THROWN:
+			_throw_reflex()
+		S.GUARD_BREAK:
+			_mash_reflex()
 		S.DODGE:
 			_dodge_counter()
 		S.ATTACK:
@@ -271,6 +287,36 @@ func _vanish_reflex() -> void:
 		_tap(B.GUARD, _clock + maxi(me.tuning.teleport_frames - me.state_frame(), 0) + _reaction())
 
 
+## Grabbed: break with one clean GUARD press inside the break window (a
+## press soon after an earlier one isn't clean, so it either fits or skips).
+func _throw_reflex() -> void:
+	if _reflex_done:
+		return
+	_reflex_done = true
+	if not _roll(cfg.throw_break_chance):
+		return
+	var t := me.tuning
+	var wait := maxi(_reaction(), 1)
+	# A press emitted `wait` ticks from now is read on state frame state_frame() + 1 + wait.
+	if me.state_frame() + 1 + wait >= t.throw_break_frames:
+		return  # too slow: the throw lands first
+	if me.frames_since_guard_press() + wait < t.guard_vanish_rearm_frames:
+		return
+	_tap(B.GUARD, _clock + wait)
+
+
+## Guard crash / stagger: mash LIGHT to shorten it.
+func _mash_reflex() -> void:
+	if not _reflex_done:
+		_reflex_done = true
+		_mash_next = _clock + _reaction() if _roll(cfg.stun_mash_chance) else -1
+	if _mash_next < 0 or _clock < _mash_next:
+		return
+	_tap(B.LIGHT, _clock)
+	# A button needs a release between presses: every other frame at most.
+	_mash_next = _clock + maxi(roundi(_p(cfg.stun_mash_interval_frames)), 2)
+
+
 ## After a perfect dodge: counter attack (heavy; a full string if they reel).
 func _dodge_counter() -> void:
 	if _reflex_done or _clock >= _counter_until:
@@ -300,7 +346,10 @@ func _defend() -> bool:
 					_defend_beam(m)
 				_:
 					if opp.attack_phase() <= 1 and _dist() <= _reach(m) + cfg.reach_margin:
-						_defend_melee(m)
+						if m.is_throw:
+							_defend_throw(m)
+						else:
+							_defend_melee(m)
 	return _dodge_at >= _clock or _holding(B.GUARD)
 
 
@@ -310,20 +359,33 @@ func _defend_melee(m: MoveData) -> void:
 	var t := me.tuning
 	var hit_in := m.startup - opp.state_frame() - 1  # ticks until its first active frame
 	var can_dodge := me.state in CAN_DODGE or me.state == S.CHARGE
-	var can_guard := not m.is_unblockable
+	var pose := _guard_pose_for(m)
+	var res := m.guard_result(pose)
+	var can_guard := res != MoveData.GuardResult.UNBLOCKABLE
+	# A ki guard with too little ki left crashes the guard: rather dodge.
+	var crashes := res == MoveData.GuardResult.KI_GUARD and me.ki <= m.guard_ki_cost
+	var stick := _pose_stick(pose)
 	var window := me.guard_vanish_window()
+	var opener := opp.move_opens_string()
 	# Only a string opener can be vanished, and only with a clean (unmashed) press.
-	var can_vanish := opp.move_opens_string() \
-			and me.ki >= VanishBattle.cost_from(t, t.guard_vanish_cost_bars, 0)
-	var dodge := can_dodge and (not can_guard or _roll(cfg.dodge_preference))
+	var can_vanish := opener and me.ki >= VanishBattle.cost_from(t, t.guard_vanish_cost_bars, 0)
+	var dodge := can_dodge and (not can_guard or crashes or _roll(cfg.dodge_preference))
 	_clear_plan()
 	if not dodge and can_guard and me.state != S.GUARD_STUN and can_vanish \
 			and hit_in > 1 and _roll(cfg.guard_vanish_chance):
 		# (Re)press GUARD just before the hit: vanish instead of blocking.
 		var at := maxi(_clock + hit_in - rng.randi_range(1, mini(window - 1, hit_in - 1)), _clock + 1)
 		if me.frames_since_guard_press() + (at - _clock) >= t.guard_vanish_rearm_frames:
-			_hold(B.GUARD, at, hit_in + m.active + t.teleport_frames)
+			_hold(B.GUARD, at, hit_in + m.active + t.teleport_frames, stick)
 			return
+	if not dodge and can_guard and opener and me.state == S.GUARD and hit_in >= 1 \
+			and _roll(cfg.counter_guard_chance):
+		# Stick forward + LIGHT from the held guard, timed so the hit lands
+		# in the counter stance's opening frames.
+		var lead := rng.randi_range(0, maxi(t.counter_guard_window_frames - 1, 0))
+		_hold(B.GUARD, _clock, hit_in + m.active + m.guard_stun, stick)
+		_tap(B.LIGHT, maxi(_clock + hit_in - lead, _clock + 1), 1.0)
+		return
 	# Pressing GUARD inside the vanish window would vanish instead of block.
 	var fresh_guard := me.state != S.GUARD and me.state != S.GUARD_STUN
 	var clean_press := me.frames_since_guard_press() >= t.guard_vanish_rearm_frames
@@ -332,7 +394,25 @@ func _defend_melee(m: MoveData) -> void:
 	if dodge:
 		_dodge(_dodge_for(m), _clock + hit_in)
 	elif can_guard:
-		_hold(B.GUARD, _clock, maxi(hit_in, 0) + m.active + m.guard_stun)
+		_hold(B.GUARD, _clock, maxi(hit_in, 0) + m.active + m.guard_stun, stick)
+
+
+## Guards don't stop a grab: pre-break it with a clean GUARD press just
+## before it connects, or dodge it; otherwise it's up to _throw_reflex.
+func _defend_throw(m: MoveData) -> void:
+	if not _roll(cfg.defend_chance):
+		return
+	var t := me.tuning
+	var hit_in := m.startup - opp.state_frame() - 1
+	_clear_plan()
+	if hit_in >= 1 and _roll(cfg.throw_break_chance):
+		var lead := rng.randi_range(0, mini(t.throw_break_frames - 1, hit_in - 1))
+		var at := _clock + hit_in - lead
+		if me.frames_since_guard_press() + (at - _clock) >= t.guard_vanish_rearm_frames:
+			_tap(B.GUARD, at)
+			return
+	if (me.state in CAN_DODGE or me.state == S.CHARGE) and _roll(cfg.dodge_preference):
+		_dodge(D.BACK, _clock + hit_in)
 
 
 func _defend_blast(m: MoveData) -> void:
@@ -346,7 +426,8 @@ func _defend_blast(m: MoveData) -> void:
 	if me.state in CAN_DODGE and _roll(cfg.dodge_preference):
 		_dodge(D.LEFT if rng.randf() < 0.5 else D.RIGHT, _clock + hit_in)
 	else:
-		_hold(B.GUARD, _clock, maxi(hit_in, 0) + m.spawn_move.guard_stun + cfg.guard_tail_frames)
+		_hold(B.GUARD, _clock, maxi(hit_in, 0) + m.spawn_move.guard_stun + cfg.guard_tail_frames,
+				_pose_stick(_guard_pose_for(m.spawn_move)))
 
 
 ## Beams out-damage a guard; sway off the line as it fires and keep strafing.
@@ -356,7 +437,7 @@ func _defend_beam(m: MoveData) -> void:
 	var fire_in := m.spawn_frame - opp.state_frame() - 1
 	_clear_plan()
 	if not (me.state in CAN_DODGE or me.state == S.CHARGE) or not _roll(cfg.smart_dodge_chance):
-		_hold(B.GUARD, _clock, maxi(fire_in, 0) + m.spawn_move.active)
+		_hold(B.GUARD, _clock, maxi(fire_in, 0) + m.spawn_move.active, _pose_stick(_guard_pose_for(m.spawn_move)))
 		return
 	var dir := D.LEFT if rng.randf() < 0.5 else D.RIGHT
 	_dodge(dir, _clock + fire_in)
@@ -373,6 +454,29 @@ func _dodge(dir: int, hit_at: int) -> void:
 		at = maxi(at, _clock + 1)  # leave the charge first (CHARGE is released by _clear_plan)
 	_dodge_at = maxi(at, _clock)
 	_dodge_dir = dir
+
+
+## The guard pose (MoveData.Height) to hold against `m`: the one its guard
+## results favour most (ties: the move's own height) when the read succeeds,
+## else a plain mid guard.
+func _guard_pose_for(m: MoveData) -> int:
+	if m == null or not _roll(cfg.guard_pose_chance):
+		return MoveData.Height.MID
+	var best: int = m.height
+	for pose: int in [MoveData.Height.MID, MoveData.Height.HIGH, MoveData.Height.LOW]:
+		if GUARD_RESULT_RANK[m.guard_result(pose)] > GUARD_RESULT_RANK[m.guard_result(best)]:
+			best = pose
+	return best
+
+
+## Stick Y that picks a guard pose / strike height.
+func _pose_stick(pose: int) -> float:
+	match pose:
+		MoveData.Height.HIGH:
+			return 1.0
+		MoveData.Height.LOW:
+			return -1.0
+	return 0.0
 
 
 ## Duck what passes over a crouch (perfect ducks stagger), sway the rest.
@@ -404,7 +508,9 @@ func _follow_up() -> void:
 	if landed and _chase and m.knockdown:
 		_chase = false
 		if me.ki >= t.teleport_cost_bars * t.ki_bar_size:
-			_tap(B.GUARD, _clock + 1 + _link_error() / 2)
+			# Reappear behind them (neutral stick) or at a flank.
+			var side := _strafe_sign() if rng.randf() < cfg.teleport_flank_share else 0.0
+			_tap(B.GUARD, _clock + 1 + _link_error() / 2, 0.0, side)
 			_followup = true
 		return
 	if m.cancel_into.is_empty() and not m.special_cancelable:
@@ -415,8 +521,8 @@ func _follow_up() -> void:
 			if blocked:
 				_hold(B.GUARD, _clock + m.total() - f, roundi(_p(cfg.think_interval)) + cfg.guard_tail_frames)
 			return
-		if blocked and opp.guard_ratio() < cfg.guard_crush_ratio:
-			_link(m, B.HEAVY, -1.0)  # low finisher: most guard damage
+		if blocked and opp.ki / opp.ki_max() < cfg.guard_crush_ratio:
+			_link(m, B.HEAVY, -1.0)  # low finisher: ki guard drains the most
 			return
 	elif _roll(cfg.combo_drop_chance):
 		_string_left = 0
@@ -484,10 +590,12 @@ func _press_followup() -> bool:
 func _punish() -> bool:
 	if not _seen() or _punish_key == _opp_known_at:
 		return false
-	var open := _opp_seen_state == S.GUARD_BREAK or _opp_seen_state == S.HITSTUN
+	var open := _opp_seen_state in OPEN_STATES
 	var m := opp.current_move()
-	var recovering := _opp_seen_state == S.ATTACK and m != null and opp.attack_phase() == 2 \
-			and m.total() - opp.state_frame() > _jab().startup
+	# Taunts and recoils last long enough to dash in on, like attack recovery.
+	var recovering := _opp_seen_state == S.TAUNT or _opp_seen_state == S.RECOIL \
+			or (_opp_seen_state == S.ATTACK and m != null and opp.attack_phase() == 2
+				and m.total() - opp.state_frame() > _jab().startup)
 	if not open and not recovering:
 		return false
 	var d := _dist()
@@ -514,6 +622,9 @@ func _neutral() -> void:
 	var t := me.tuning
 	var bar := t.ki_bar_size
 	_release(B.GUARD)
+	if _taunt_safe(d) and me.ki < me.ki_max() and _roll(cfg.taunt_chance):
+		_tap(B.TAUNT, _clock)
+		return
 	if d <= _reach(_jab()):
 		if _roll(cfg.aggression):
 			_close_attack()
@@ -562,6 +673,13 @@ func _neutral() -> void:
 
 func _close_attack() -> void:
 	var t := me.tuning
+	if _opp_seen_state in GUARDING and _roll(cfg.throw_chance):
+		_throw()
+		return
+	if _opp_seen_state == S.COUNTER and _roll(cfg.counter_respect_chance):
+		# Don't swing into a counter stance: guard until it runs out.
+		_hold(B.GUARD, _clock, t.counter_guard_stance_frames + cfg.guard_tail_frames)
+		return
 	if _opp_seen_state == S.GUARD and _roll(cfg.mixup_chance):
 		if rng.randf() < cfg.guard_crush_charge_share:
 			_charge_strike(B.HEAVY if _dist() <= t.close_combat_range else B.LIGHT)
@@ -576,6 +694,29 @@ func _close_attack() -> void:
 		_special(_clock, 0.0)
 	else:
 		_start_string(_clock)
+
+
+## Grab (stick back = throw behind), stepping in first if out of grab reach.
+func _throw() -> void:
+	var t := me.tuning
+	var gap := _dist() - _reach(me.def.move(me.def.throw))
+	var at := _clock
+	if gap > 0.0:
+		at += ceili(gap / (t.walk_speed / Tuning.match_rules.tick_rate))
+		_walk = Vector2(0.0, 1.0)
+		_walk_until = at
+	_string_left = 0
+	_tap(B.THROW, at, -1.0 if rng.randf() < cfg.back_throw_share else 0.0)
+
+
+## Taunting is safe-ish with the opponent floored, or far away and seen not
+## attacking.
+func _taunt_safe(d: float) -> bool:
+	if not _seen():
+		return false
+	if _opp_seen_state == S.KNOCKDOWN:
+		return true
+	return d >= cfg.taunt_safe_distance and _opp_seen_state != S.ATTACK
 
 
 ## Stop charging once the target is met or the opponent closes in.
@@ -607,6 +748,11 @@ func _charge_strike(btn: int) -> void:
 	var hold := t.charge_hold_frames + cm.charge_frame + roundi(cfg.charge_strike_hold_frames * rng.randf_range(cfg.charge_strike_min_share, 1.0))
 	_string_left = 0
 	_hold(btn, _clock, hold, 0.0)
+	if not cm.smash_variants.is_empty() and _roll(cfg.smash_direction_chance):
+		# Point the stick through the release frame: directional smash
+		# (forward launch, back ground bounce, left / right).
+		var dir: Vector2 = [Vector2.UP, Vector2.DOWN, Vector2.LEFT, Vector2.RIGHT][rng.randi_range(0, 3)]
+		_hold(0, _clock + hold - 1, 2, dir.y, dir.x)
 
 
 func _dash_attack(d: float) -> void:
@@ -637,13 +783,16 @@ func _walk_for(v: Vector2) -> void:
 # Plan / output
 # =============================================================================
 
-func _hold(btn: int, at: int, frames: int, stick_y: float = NAN) -> void:
+## Hold `btn` (0 = only the stick) from `at`. stick_y NAN leaves the stick
+## alone; otherwise the stick is held at (stick_x, stick_y).
+func _hold(btn: int, at: int, frames: int, stick_y: float = NAN, stick_x: float = 0.0) -> void:
 	var sy := NO_STICK if is_nan(stick_y) else roundi(stick_y * InputFrame.MOVE_SCALE)
-	_plan.append(PackedInt32Array([at, at + maxi(frames, 1), btn, sy]))
+	var sx := roundi(stick_x * InputFrame.MOVE_SCALE)
+	_plan.append(PackedInt32Array([at, at + maxi(frames, 1), btn, sy, sx]))
 
 
-func _tap(btn: int, at: int, stick_y: float = NAN) -> void:
-	_hold(btn, at, 1, stick_y)
+func _tap(btn: int, at: int, stick_y: float = NAN, stick_x: float = 0.0) -> void:
+	_hold(btn, at, 1, stick_y, stick_x)
 
 
 ## Stop holding / cancel future presses of `btn` from this tick on.
@@ -688,7 +837,7 @@ func _emit() -> InputFrame:
 		if p[0] <= _clock and _clock < p[1]:
 			f.held |= p[2]
 			if p[3] != NO_STICK:
-				mv = Vector2(0.0, p[3] / float(InputFrame.MOVE_SCALE))
+				mv = Vector2(p[4], p[3]) / float(InputFrame.MOVE_SCALE)
 		if p[1] > _clock + 1:
 			keep.append(p)
 	_plan = keep

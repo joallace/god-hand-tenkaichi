@@ -21,6 +21,8 @@ enum Btn {
 	TELEPORT = 1 << 7,
 	DASH     = 1 << 8,
 	PAUSE    = 1 << 9,
+	THROW    = 1 << 10,
+	TAUNT    = 1 << 11,
 }
 
 ## Dodge flick directions (right stick), already in fighter space.

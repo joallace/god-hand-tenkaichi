@@ -1,0 +1,32 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_fpeq2"]
+
+[resource]
+script = ExtResource("1_fpeq2")
+id = &"brawler_smash_left"
+pose = &"smash_left"
+startup = 18
+active = 4
+recovery = 24
+damage = 55.0
+hitstun = 26
+guard_stun = 16
+knockback = Vector3(-8, 1.5, 2)
+knockdown = true
+guard_ki_cost = 15.0
+guard_results = Array[int]([1, 1, 1])
+is_heavy = true
+hitbox_offset = Vector3(-0.25, 1.35, 0.85)
+hitbox_radius = 0.55
+lunge_speed = 6.5
+lunge_start = 10
+lunge_frames = 8
+cancel_start = 22
+cancel_end = 40
+cancel_requires_hit = true
+special_cancelable = true
+charge_frame = 10
+charge_max_frames = 45
+charge_damage_mult = 2.2
+charge_guard_mult = 3.0

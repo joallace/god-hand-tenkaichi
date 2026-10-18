@@ -105,7 +105,93 @@ const POSES := {
 	&"jump": {&"hip_l": Vector3(70, 0, 0), &"kn_l": Vector3(-100, 0, 0), &"hip_r": Vector3(40, 0, 0),
 		&"kn_r": Vector3(-80, 0, 0)},
 	&"vanish_wait": {&"head": Vector3(0, 40, 0), &"torso": Vector3(-5, 20, 0)},
+	# --- guard poses (GUARD state; Fighter.GUARD_POSE_NAMES) -------------------
+	&"guard_high": {&"torso": Vector3(-5, 0, 0), &"head": Vector3(10, 0, 0),
+		&"sh_l": Vector3(150, 0, 18), &"el_l": Vector3(70, 0, 0),
+		&"sh_r": Vector3(150, 0, -18), &"el_r": Vector3(70, 0, 0)},
+	&"guard_low": {&"torso": Vector3(30, 0, 0), &"head": Vector3(-15, 0, 0),
+		&"sh_l": Vector3(35, 0, 12), &"el_l": Vector3(45, 0, 0),
+		&"sh_r": Vector3(35, 0, -12), &"el_r": Vector3(45, 0, 0),
+		&"hip_l": Vector3(75, 0, -8), &"kn_l": Vector3(-105, 0, 0),
+		&"hip_r": Vector3(40, 0, 8), &"kn_r": Vector3(-95, 0, 0), &"root": Vector3(0, -0.23, 0)},
+	# Counter stance: leaning in, lead palm out to catch the hit.
+	&"counter_guard": {&"torso": Vector3(15, -20, 0), &"head": Vector3(5, 15, 0),
+		&"sh_l": Vector3(95, 0, -10), &"el_l": Vector3(30, 0, 0),
+		&"sh_r": Vector3(60, 0, 30), &"el_r": Vector3(120, 0, 0),
+		&"hip_l": Vector3(35, 0, 0), &"kn_l": Vector3(-40, 0, 0), &"hip_r": Vector3(-20, 0, 0),
+		&"root": Vector3(0, -0.08, 0)},
+	# Pushed back off a guard / broken throw: rocked back, arms flung.
+	&"recoil": {&"torso": Vector3(-25, 0, 0), &"head": Vector3(-15, 0, 0),
+		&"sh_l": Vector3(-10, 0, -50), &"el_l": Vector3(40, 0, 0),
+		&"sh_r": Vector3(-10, 0, 50), &"el_r": Vector3(40, 0, 0),
+		&"hip_l": Vector3(25, 0, 0), &"kn_l": Vector3(-30, 0, 0), &"hip_r": Vector3(-25, 0, 0),
+		&"root": Vector3(0, -0.05, 0)},
+	# --- throws ----------------------------------------------------------------
+	&"throw": {&"torso": Vector3(25, 0, 0), &"sh_l": Vector3(95, 0, -15), &"el_l": Vector3(15, 0, 0),
+		&"sh_r": Vector3(95, 0, 15), &"el_r": Vector3(15, 0, 0),
+		&"hip_l": Vector3(35, 0, 0), &"kn_l": Vector3(-35, 0, 0), &"hip_r": Vector3(-25, 0, 0)},
+	&"throw_windup": {&"torso": Vector3(5, 0, 0), &"sh_l": Vector3(50, 0, -40), &"el_l": Vector3(70, 0, 0),
+		&"sh_r": Vector3(50, 0, 40), &"el_r": Vector3(70, 0, 0),
+		&"kn_l": Vector3(-30, 0, 0), &"kn_r": Vector3(-30, 0, 0), &"root": Vector3(0, -0.05, 0)},
+	# THROW state: holding the victim (break window), then the toss.
+	&"throw_hold": {&"torso": Vector3(10, 0, 0), &"sh_l": Vector3(80, 0, 12), &"el_l": Vector3(50, 0, 0),
+		&"sh_r": Vector3(80, 0, -12), &"el_r": Vector3(50, 0, 0),
+		&"hip_l": Vector3(25, 0, 0), &"kn_l": Vector3(-30, 0, 0), &"hip_r": Vector3(-15, 0, 0)},
+	&"throw_toss": {&"torso": Vector3(-25, -40, 0), &"head": Vector3(-10, -10, 0),
+		&"sh_l": Vector3(160, 0, -20), &"el_l": Vector3(10, 0, 0),
+		&"sh_r": Vector3(160, 0, 20), &"el_r": Vector3(10, 0, 0),
+		&"hip_l": Vector3(-20, 0, 0), &"hip_r": Vector3(25, 0, 0), &"root": Vector3(0, 0.05, 0)},
+	# Held by a thrower: lifted, limp.
+	&"thrown": {&"torso": Vector3(-20, 0, 10), &"head": Vector3(-35, 0, 0),
+		&"sh_l": Vector3(10, 0, -25), &"el_l": Vector3(10, 0, 0),
+		&"sh_r": Vector3(10, 0, 25), &"el_r": Vector3(15, 0, 0),
+		&"hip_l": Vector3(10, 0, 0), &"kn_l": Vector3(-30, 0, 0),
+		&"hip_r": Vector3(-5, 0, 0), &"kn_r": Vector3(-10, 0, 0), &"root": Vector3(0, 0.15, 0)},
+	# Taunt: leaning back, hand on hip, beckoning (the wave is procedural).
+	&"taunt": {&"torso": Vector3(-10, -20, 0), &"head": Vector3(-10, 15, 0),
+		&"sh_l": Vector3(15, 0, -40), &"el_l": Vector3(100, 0, 0),
+		&"sh_r": Vector3(85, 0, 10), &"el_r": Vector3(70, 0, 0),
+		&"hip_l": Vector3(5, 0, -10), &"hip_r": Vector3(-5, 0, 10)},
+	# --- charged smash variants --------------------------------------------------
+	&"uppercut": {&"torso": Vector3(-20, -25, 0), &"head": Vector3(-15, 0, 0),
+		&"sh_r": Vector3(175, 0, 0), &"el_r": Vector3(20, 0, 0),
+		&"sh_l": Vector3(20, 0, -30), &"el_l": Vector3(90, 0, 0),
+		&"hip_l": Vector3(-10, 0, 0), &"hip_r": Vector3(15, 0, 0), &"kn_r": Vector3(-10, 0, 0),
+		&"root": Vector3(0, 0.15, 0)},
+	&"uppercut_windup": {&"torso": Vector3(35, 30, 0), &"sh_r": Vector3(-10, 0, 15), &"el_r": Vector3(110, 0, 0),
+		&"hip_l": Vector3(60, 0, 0), &"kn_l": Vector3(-80, 0, 0),
+		&"hip_r": Vector3(30, 0, 0), &"kn_r": Vector3(-60, 0, 0), &"root": Vector3(0, -0.1, 0)},
+	# Double-fisted overhead hammer.
+	&"hammer": {&"torso": Vector3(40, -10, 0), &"head": Vector3(10, 0, 0),
+		&"sh_l": Vector3(45, 0, 12), &"el_l": Vector3(10, 0, 0),
+		&"sh_r": Vector3(45, 0, -12), &"el_r": Vector3(10, 0, 0),
+		&"hip_l": Vector3(45, 0, 0), &"kn_l": Vector3(-45, 0, 0), &"hip_r": Vector3(-25, 0, 0),
+		&"root": Vector3(0, -0.11, 0)},
+	&"hammer_windup": {&"torso": Vector3(-25, 0, 0), &"head": Vector3(-15, 0, 0),
+		&"sh_l": Vector3(185, 0, 10), &"el_l": Vector3(30, 0, 0),
+		&"sh_r": Vector3(185, 0, -10), &"el_r": Vector3(30, 0, 0), &"root": Vector3(0, 0.05, 0)},
+	# Sideways back-fists (+torso Y turns the chest to the fighter's left).
+	&"smash_left": {&"torso": Vector3(0, 45, 0), &"head": Vector3(0, -20, 0),
+		&"sh_l": Vector3(90, 0, -60), &"el_l": Vector3(5, 0, 0),
+		&"sh_r": Vector3(40, 0, 20), &"el_r": Vector3(110, 0, 0),
+		&"hip_l": Vector3(20, 0, -15), &"kn_l": Vector3(-25, 0, 0)},
+	&"smash_left_windup": {&"torso": Vector3(5, -40, 0), &"sh_l": Vector3(80, 0, 40), &"el_l": Vector3(120, 0, 0),
+		&"kn_l": Vector3(-30, 0, 0), &"kn_r": Vector3(-30, 0, 0), &"root": Vector3(0, -0.05, 0)},
+	&"smash_right": {&"torso": Vector3(0, -45, 0), &"head": Vector3(0, 20, 0),
+		&"sh_r": Vector3(90, 0, 60), &"el_r": Vector3(5, 0, 0),
+		&"sh_l": Vector3(40, 0, -20), &"el_l": Vector3(110, 0, 0),
+		&"hip_r": Vector3(20, 0, 15), &"kn_r": Vector3(-25, 0, 0)},
+	&"smash_right_windup": {&"torso": Vector3(5, 40, 0), &"sh_r": Vector3(80, 0, -40), &"el_r": Vector3(120, 0, 0),
+		&"kn_l": Vector3(-30, 0, 0), &"kn_r": Vector3(-30, 0, 0), &"root": Vector3(0, -0.05, 0)},
 }
+## Taunt overlay: beckoning forearm wave and a cocky bob.
+const TAUNT_WAVE_HZ := 2.5
+const TAUNT_WAVE_DEG := 35.0
+const TAUNT_BOB_HZ := 1.5
+const TAUNT_BOB_HEIGHT := 0.03
+## Held (thrown) fighters dangle a little.
+const THROWN_SWAY_HZ := 3.0
+const THROWN_SWAY_DEG := 8.0
 
 var _fighter: Fighter
 var _joints: Dictionary = {}  # StringName -> Node3D
@@ -161,9 +247,20 @@ func _target_pose() -> Dictionary:
 		var m := f.current_move()
 		if f.state_frame() > m.startup + m.active + m.recovery / 2:
 			return POSES[&"idle"]
-	if id == &"walk":
-		id = &"idle"
-	return POSES.get(id, POSES[&"idle"])
+	return POSES.get(pose_id_for(id, f.current_state_name(), f.state_frame(), f.tuning), POSES[&"idle"])
+
+
+## Maps a non-attack current_pose() to a POSES key (states sharing a name
+## with a move pose, or with phases of their own).
+static func pose_id_for(id: StringName, state_name: StringName, frame: int, tuning: FighterTuning) -> StringName:
+	match state_name:
+		&"walk", &"teleport":
+			return &"idle"  # teleporting fighters are hidden anyway
+		&"throw":
+			# Holding the victim through the break window, then the toss.
+			var hold := tuning.throw_break_frames if tuning != null else 0
+			return &"throw_hold" if frame < hold else &"throw_toss"
+	return id
 
 
 ## Overlays that aren't static poses: walk cycle, backflip spin/arc.
@@ -184,6 +281,14 @@ func _apply_procedural() -> void:
 				_body.position.y += sin(PI * p) * 0.8
 		&"charge":
 			_body.position.x += sin(_time * 60.0) * 0.01
+		&"taunt":
+			_add_rot(&"el_r", sin(_time * TAU * TAUNT_WAVE_HZ) * TAUNT_WAVE_DEG)
+			_body.position.y += absf(sin(_time * TAU * TAUNT_BOB_HZ)) * TAUNT_BOB_HEIGHT
+		&"thrown":
+			var s := sin(_time * TAU * THROWN_SWAY_HZ) * THROWN_SWAY_DEG
+			_add_rot(&"hip_l", s)
+			_add_rot(&"hip_r", -s)
+			_add_rot(&"head", s * 0.5)
 
 
 func _add_rot(j: StringName, deg_x: float) -> void:

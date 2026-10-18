@@ -14,7 +14,7 @@ extends Node
 ## Defaults follow Budokai Tenkaichi: GUARD also teleports/vanishes when timed,
 ## CHARGE + HEAVY is the special, HEAVY at range is a ki blast (see Fighter).
 ## BLAST / SPECIAL / TELEPORT are optional dedicated shortcuts, unbound ({})
-## by default.
+## by default. THROW (RB) grabs through guard; TAUNT (RT) taunts for ki.
 
 signal changed(slot: int)
 
@@ -28,6 +28,7 @@ enum Kind { PAD, KEYBOARD }
 ## Button actions (names match InputFrame.Btn keys).
 const BUTTON_ACTIONS: Array[String] = [
 	"LIGHT", "HEAVY", "BLAST", "JUMP", "GUARD", "CHARGE", "SPECIAL", "TELEPORT", "DASH", "PAUSE",
+	"THROW", "TAUNT",
 ]
 ## Keyboard-only directional actions.
 const KEYBOARD_DIR_ACTIONS: Array[String] = [
@@ -46,6 +47,8 @@ const DEFAULT_PAD := {
 	"TELEPORT": {},
 	"DASH": {"t": "btn", "i": JOY_BUTTON_LEFT_STICK},
 	"PAUSE": {"t": "btn", "i": JOY_BUTTON_START},
+	"THROW": {"t": "btn", "i": JOY_BUTTON_RIGHT_SHOULDER},
+	"TAUNT": {"t": "axis", "i": JOY_AXIS_TRIGGER_RIGHT, "s": 1},
 }
 
 const DEFAULT_KEYBOARD: Array[Dictionary] = [
@@ -59,6 +62,7 @@ const DEFAULT_KEYBOARD: Array[Dictionary] = [
 		"GUARD": {"t": "key", "i": KEY_L}, "CHARGE": {"t": "key", "i": KEY_U},
 		"SPECIAL": {}, "TELEPORT": {},
 		"DASH": {"t": "key", "i": KEY_SHIFT}, "PAUSE": {"t": "key", "i": KEY_ESCAPE},
+		"THROW": {"t": "key", "i": KEY_O}, "TAUNT": {"t": "key", "i": KEY_Y},
 	},
 	{ # Slot 1 / layout B: arrows + numpad
 		"MOVE_FORWARD": {"t": "key", "i": KEY_UP}, "MOVE_BACK": {"t": "key", "i": KEY_DOWN},
@@ -70,6 +74,7 @@ const DEFAULT_KEYBOARD: Array[Dictionary] = [
 		"GUARD": {"t": "key", "i": KEY_KP_3}, "CHARGE": {"t": "key", "i": KEY_KP_7},
 		"SPECIAL": {}, "TELEPORT": {},
 		"DASH": {"t": "key", "i": KEY_KP_ENTER}, "PAUSE": {"t": "key", "i": KEY_BACKSPACE},
+		"THROW": {"t": "key", "i": KEY_KP_9}, "TAUNT": {"t": "key", "i": KEY_KP_ADD},
 	},
 ]
 

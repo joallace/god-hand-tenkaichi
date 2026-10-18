@@ -50,6 +50,10 @@ extends Resource
 @export var trauma_hit_heavy: float = 0.5
 @export var trauma_hit_blocked: float = 0.1
 @export var trauma_guard_break: float = 0.55
+@export var trauma_push_off: float = 0.25
+@export var trauma_counter_guard: float = 0.3
+@export var trauma_throw_break: float = 0.25
+@export var trauma_ground_bounce: float = 0.4
 @export var trauma_ko: float = 0.85
 @export var trauma_ultimate: float = 0.3
 ## The view of the fighter NOT directly involved gets this fraction.
@@ -59,6 +63,8 @@ extends Resource
 ## FOV delta (degrees, negative = zoom in) on the dodger's perfect dodge.
 @export var perfect_dodge_fov_punch: float = -9.0
 @export var heavy_hit_fov_punch: float = 2.5
+## FOV delta on the countering fighter's view when a counter stance catches a hit.
+@export var counter_guard_fov_punch: float = -6.0
 @export var fov_recover_damping: float = 5.0
 
 @export_group("Ultimate cinematic")

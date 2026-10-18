@@ -5,10 +5,11 @@ extends Node
 ## touches gameplay state. Sounds are non-positional: with split screen there
 ## is no single listener, so both players hear everything equally.
 ##
-## Fighter events: see Fighter's header. State changes: attack (swing whoosh
-## unless the move spawns a projectile or is a charge strike), dash, jump, charge (ki loop while in
-## the state). Director: round start, FIGHT, KO/time-up, last-seconds ticks,
-## match won.
+## Fighter events: see Fighter's header. Blocked hits sound by guard result
+## (ki guard buzz; push-offs are voiced by their own push_off event).
+## State changes: attack (swing whoosh unless the move spawns a projectile or
+## is a charge strike), dash, jump, charge (ki loop while in the state).
+## Director: round start, FIGHT, KO/time-up, last-seconds ticks, match won.
 
 var director: MatchDirector
 var hub: MatchEventHub
@@ -46,7 +47,13 @@ func _on_fighter_event(_f: Fighter, kind: StringName, data: Dictionary) -> void:
 			var combo: int = data.get("combo", 0)
 			var pitch := 1.0 + minf(maxi(combo - 1, 0) * t.combo_pitch_step, t.combo_pitch_max)
 			if data.get("blocked", false):
-				Sfx.play_varied(&"hit_block")
+				match data.get("guard_result", -1):
+					MoveData.GuardResult.KI_GUARD:
+						Sfx.play_varied(&"ki_guard")
+					MoveData.GuardResult.PUSH_OFF, MoveData.GuardResult.PUSH_STOP:
+						pass  # the push_off event plays its own clang
+					_:
+						Sfx.play_varied(&"hit_block")
 			elif data.get("heavy", false):
 				Sfx.play_varied(&"hit_heavy", pitch)
 			else:
@@ -65,7 +72,9 @@ func _on_fighter_event(_f: Fighter, kind: StringName, data: Dictionary) -> void:
 			Sfx.play(&"beam_fire")
 		&"perfect_dodge", &"dodge", &"guard_break", &"stagger", &"teleport", \
 				&"vanish", &"reappear", &"ki_blast", &"not_enough_ki", \
-				&"knockdown", &"ko", &"vanish_battle_end":
+				&"knockdown", &"ko", &"vanish_battle_end", &"push_off", \
+				&"counter_guard", &"throw", &"throw_break", &"taunt", \
+				&"taunt_done", &"ground_bounce":
 			Sfx.play_varied(kind)
 
 
