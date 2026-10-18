@@ -66,14 +66,32 @@ const DEFAULT_KEYBOARD: Array[Dictionary] = [
 	},
 ]
 
+## Gamepad buttons added to the built-in ui_* actions (Godot's defaults leave
+## ui_accept / ui_cancel keyboard-only), so every menu works with any pad.
+const UI_PAD_BUTTONS := {
+	&"ui_accept": [JOY_BUTTON_A],
+	&"ui_cancel": [JOY_BUTTON_B],
+}
+
 ## _maps[slot][Kind] -> Dictionary(action -> binding)
 var _maps: Array = []
 
 
 func _ready() -> void:
+	_add_ui_pad_buttons()
 	for slot in SLOT_COUNT:
 		_maps.append([DEFAULT_PAD.duplicate(true), DEFAULT_KEYBOARD[slot].duplicate(true)])
 	load_from_disk()
+
+
+static func _add_ui_pad_buttons() -> void:
+	for action: StringName in UI_PAD_BUTTONS:
+		for button: int in UI_PAD_BUTTONS[action]:
+			var e := InputEventJoypadButton.new()
+			e.device = -1  # any device
+			e.button_index = button as JoyButton
+			if not InputMap.action_has_event(action, e):
+				InputMap.action_add_event(action, e)
 
 
 func actions_for(kind: Kind) -> Array[String]:

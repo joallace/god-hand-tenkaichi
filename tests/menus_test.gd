@@ -10,6 +10,7 @@ var _cfg_bytes := PackedByteArray()
 
 func _ready() -> void:
 	_backup_cfg()
+	await _test_pad_ui_actions()
 	await _test_main_menu()
 	await _test_join_screen()
 	await _test_controls_screen()
@@ -71,6 +72,24 @@ func key_tap(code: int) -> void:
 
 
 # --- Tests -----------------------------------------------------------------------
+
+func _test_pad_ui_actions() -> void:
+	var b := MenuHelpers.button("Probe")
+	var pressed := [false]
+	b.pressed.connect(func() -> void: pressed[0] = true)
+	add_child(b)
+	b.grab_focus()
+	await frames(2)
+	await pad_tap(1, JOY_BUTTON_A)
+	check(pressed[0], "gamepad A presses the focused button (ui_accept)")
+	var cancel := InputEventJoypadButton.new()
+	cancel.device = 1
+	cancel.button_index = JOY_BUTTON_B
+	cancel.pressed = true
+	check(cancel.is_action_pressed("ui_cancel"), "gamepad B maps to ui_cancel")
+	b.queue_free()
+	await frames(2)
+
 
 func _test_main_menu() -> void:
 	var m := spawn(Game.SCENE_MAIN_MENU) as Control
