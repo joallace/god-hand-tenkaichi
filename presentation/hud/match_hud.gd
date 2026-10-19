@@ -5,13 +5,20 @@ extends CanvasLayer
 ## with damage trail, segmented ki gauge (+ full bar count), combo popup and
 ## a callout line (GUARD CRASH / THROW BREAK / COUNTER).
 ## Center: timer ("∞" when infinite) and announcer text (ROUND / FIGHT! /
-## K.O. / TIME / DRAW / winner). Purely signal driven.
+## K.O. / TIME / DRAW / winner).
+##
+## Inputs (MatchEventHub streams, SPEC_ONLINE.md §9): callouts / ki denied
+## flashes and FIGHT! from the immediate stream; round / match / run / wave
+## announcements (and pips, wave counter) only from the confirmed stream, so
+## a rolled-back KO is never announced; timer and enemies-left are read from
+## sim state every frame; health / ki / combo from the fighters' own signals
+## (re-sent by Fighter.load_state, so they follow a rollback).
 ##
 ## Co-op (config.mode == COOP): panels only for the first two team-0 fighters
 ## (humans / ally; enemies get per-view pips and a target bar from
 ## CoopViewHud), no round pips or round announcements, the run timer is
-## hidden when infinite, an "ENEMIES n" counter sits under it (director's
-## enemies_left_changed; live enemy count until that exists) and run_ended
+## hidden when infinite, an "ENEMIES n" counter sits under it
+## (CoopRun.enemies_left()) and run_ended
 ## announces CLEARED / WIPED OUT. Waves runs add a "WAVE n / N" counter under
 ## it, announce each wave (WAVE n / FINAL WAVE; the first during the intro,
 ## before FIGHT!) and WAVE CLEAR! at the start of each breather.
@@ -30,6 +37,8 @@ var panels: Dictionary = {}  # slot -> Dictionary of widgets
 
 var _announce_tween: Tween
 var _font: SystemFont
+var _shown_seconds := -2
+var _shown_enemies := -1
 
 
 func _init() -> void:
@@ -62,14 +71,14 @@ func setup(p_director: MatchDirector, hub: MatchEventHub) -> void:
 	announcer.modulate.a = 0.0
 	root.add_child(announcer)
 
+	if hub == null:  # standalone (tests): a private hub, confirming at once
+		hub = MatchEventHub.new()
+		add_child(hub)
+	hub.bind_director(director)
 	director.fighters_spawned.connect(_on_fighters_spawned)
-	director.round_started.connect(_on_round_started)
-	director.phase_changed.connect(_on_phase_changed)
-	director.round_ended.connect(_on_round_ended)
-	director.match_ended.connect(_on_match_ended)
-	director.timer_changed.connect(_on_timer_changed)
-	if hub != null:
-		hub.fighter_event.connect(_on_fighter_event)
+	hub.fighter_event.connect(_on_fighter_event)
+	hub.director_event.connect(_on_director_event)
+	hub.confirmed_event.connect(_on_confirmed_event)
 
 
 ## Co-op widgets. Built when the fighters spawn: the director only gets its
@@ -80,21 +89,12 @@ func _build_coop() -> void:
 		enemies_label.name = "EnemiesLeft"
 		enemies_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		root.add_child(enemies_label)
-		# Connected by name: the co-op run signals belong to the run director.
-		if director.has_signal(&"enemies_left_changed"):
-			director.connect(&"enemies_left_changed", _on_enemies_left_changed)
-		else:
-			director.entity_spawned.connect(_count_live_enemies.unbind(1))
-			director.entity_removed.connect(_count_live_enemies.unbind(1), CONNECT_DEFERRED)
-		if director.has_signal(&"run_ended"):
-			director.connect(&"run_ended", _on_run_ended)
+		_sync_state()
 	if wave_label == null and director.coop != null and director.coop.is_waves():
 		wave_label = _label(Tuning.hud.enemies_left_font_size, Tuning.hud.text_color)
 		wave_label.name = "Wave"
 		wave_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		root.add_child(wave_label)
-		director.wave_started.connect(_on_wave_started)
-		director.wave_cleared.connect(_on_wave_cleared)
 
 
 func _label(font_size: int, color: Color) -> Label:
@@ -130,7 +130,6 @@ func _on_fighters_spawned(fighters: Array[Fighter]) -> void:
 		team0.sort_custom(func(a: Fighter, b: Fighter) -> bool: return a.slot < b.slot)
 		for i in mini(team0.size(), 2):
 			_build_panel(team0[i], i == 1)
-		_count_live_enemies()
 	else:
 		for i in fighters.size():
 			_build_panel(fighters[i], i % 2 == 1)
@@ -308,6 +307,10 @@ func _on_ki_changed(value: float, max_value: float, slot: int) -> void:
 func _on_combo_changed(hits: int, slot: int) -> void:
 	var t := Tuning.hud
 	var p: Dictionary = panels[slot]
+	# A rollback's load_state re-sends the current count: don't pop it again.
+	if hits >= t.combo_min_hits and int(p.get("combo_hits", 0)) == hits:
+		return
+	p["combo_hits"] = hits
 	var combo: Label = p["combo"]
 	var old: Variant = p["combo_tween"]
 	if old is Tween and (old as Tween).is_valid():
@@ -327,8 +330,6 @@ func _on_combo_changed(hits: int, slot: int) -> void:
 
 
 func _on_fighter_event(f: Fighter, kind: StringName, _data: Dictionary) -> void:
-	if kind == &"ko" and enemies_label != null and not director.has_signal(&"enemies_left_changed"):
-		_count_live_enemies()
 	if not panels.has(f.slot):
 		return
 	var t := Tuning.hud
@@ -362,7 +363,52 @@ func callout(slot: int, text: String, color: Color) -> void:
 	p["callout_tween"] = tw
 
 
-# --- director signals ----------------------------------------------------------
+# --- director signals / state -------------------------------------------------
+
+func _process(_delta: float) -> void:
+	_sync_state()
+
+
+## Timer and enemies-left follow sim state (right after any rollback).
+func _sync_state() -> void:
+	if director == null or director.config == null:
+		return
+	var cfg := director.config
+	var s := -1 if cfg.is_infinite_time() else ceili(maxi(director.round_frames_left, 0) / float(Tuning.match_rules.tick_rate))
+	if s != _shown_seconds and director.phase != MatchDirector.Phase.NONE:
+		_shown_seconds = s
+		_on_timer_changed(s)
+	if enemies_label != null and director.coop != null:
+		var left := director.coop.enemies_left()
+		if left != _shown_enemies:
+			_shown_enemies = left
+			_on_enemies_left_changed(left)
+
+
+func _on_director_event(kind: StringName, data: Dictionary) -> void:
+	_sync_state()
+	if kind == &"phase_changed":
+		_on_phase_changed(data["phase"])
+
+
+func _on_confirmed_event(_tick: int, kind: StringName, data: Dictionary) -> void:
+	match kind:
+		&"round_started":
+			_on_round_started(int(data["round_number"]))
+		&"round_ended":
+			_on_round_ended(int(data["winner_slot"]), data["reason"])
+		&"match_ended":
+			_on_match_ended(int(data["winner_slot"]))
+		&"run_ended":
+			if enemies_label != null:
+				_on_run_ended(bool(data["cleared"]))
+		&"wave_started":
+			if wave_label != null:
+				_on_wave_started(int(data["wave"]), int(data["total"]))
+		&"wave_cleared":
+			if wave_label != null and not data["last"]:  # the last one: run_ended announces
+				announce(Tuning.hud.text_wave_clear, Tuning.hud.announce_color, Tuning.hud.announce_hold)
+
 
 func _on_timer_changed(seconds_left: int) -> void:
 	var t := Tuning.hud
@@ -426,26 +472,11 @@ func _on_enemies_left_changed(left: int) -> void:
 		enemies_label.text = Tuning.hud.text_enemies_left % left
 
 
-## Fallback until the run director reports enemies left: enemies standing now.
-func _count_live_enemies() -> void:
-	var n := 0
-	for f in director.fighters:
-		if is_instance_valid(f) and not f.is_queued_for_deletion() and f.team != 0 and not f.is_ko():
-			n += 1
-	_on_enemies_left_changed(n)
-
-
-func _on_wave_started(wave: int) -> void:
+func _on_wave_started(wave: int, total: int) -> void:
 	var t := Tuning.hud
-	var total := director.coop.wave_total()
 	wave_label.text = t.text_wave_counter_endless % (wave + 1) if total < 0 else t.text_wave_counter % [wave + 1, total]
 	var final := total > 1 and wave + 1 == total
 	announce(t.text_final_wave if final else t.text_wave % (wave + 1), t.announce_color, t.announce_hold)
-
-
-func _on_wave_cleared(_wave: int) -> void:
-	if not director.coop.is_last_wave():  # the last one: run_ended announces
-		announce(Tuning.hud.text_wave_clear, Tuning.hud.announce_color, Tuning.hud.announce_hold)
 
 
 func _on_run_ended(cleared: bool) -> void:

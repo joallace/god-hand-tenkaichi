@@ -8,7 +8,8 @@ extends Node
 ##   │  ├─ Arena                  floor, ring, wall, scenery, sky, sun
 ##   │  ├─ MatchDirector          simulation; spawns Fighter1/Fighter2
 ##   │  └─ Vfx (VfxManager)       visual-only effects
-##   ├─ MatchEventHub             deduplicated fighter events for presentation
+##   ├─ MatchEventHub             sim events for presentation: immediate
+##   │                            (cosmetic) and confirmed (match flow) streams
 ##   ├─ MatchSfx                  sound effects (via the Sfx autoload)
 ##   ├─ RunStats                  co-op only: results-screen stats from events
 ##   ├─ ViewLayout (Control)      split screen / single view SubViewports,
@@ -53,6 +54,7 @@ func _ready() -> void:
 	director = MatchDirector.new()
 	director.name = "MatchDirector"
 	world.add_child(director)
+	hub.bind_director(director)
 
 	vfx = VfxManager.new()
 	world.add_child(vfx)
@@ -77,11 +79,13 @@ func _ready() -> void:
 		run_stats = RunStats.new()
 		add_child(run_stats)
 
+	# Structural: views are built for the spawned fighters (the hub watches
+	# fighters joining / leaving by itself).
 	director.fighters_spawned.connect(_on_fighters_spawned)
-	director.entity_spawned.connect(_on_entity_spawned)
-	director.entity_removed.connect(_on_entity_removed)
-	director.round_started.connect(_on_round_started)
-	director.match_ended.connect(_on_match_ended)
+	# Cosmetic: camera snap at round start. Match flow (results) waits for the
+	# confirmed match_ended, so a rolled-back KO never ends the match.
+	hub.director_event.connect(_on_director_event)
+	hub.confirmed_event.connect(_on_confirmed_event)
 	if run_stats != null:
 		run_stats.setup(director, hub, config)
 	director.setup(config)
@@ -118,20 +122,19 @@ func _on_fighters_spawned(fighters: Array[Fighter]) -> void:
 			coop_huds[slot] = ch
 
 
-## Fighters joining mid-match (or rebuilt by a load) feed the event hub too;
-## CoopViewHud reads director.fighters, so pips/arrows pick them up by itself.
-func _on_entity_spawned(e: SimEntity) -> void:
-	if e is Fighter:
-		hub.watch_fighter(e)
+func _on_director_event(kind: StringName, _data: Dictionary) -> void:
+	if kind == &"round_started":
+		views.snap_cameras()
 
 
-func _on_entity_removed(e: SimEntity) -> void:
-	if e is Fighter:
-		hub.unwatch_fighter(e)
+func _on_confirmed_event(_tick: int, kind: StringName, data: Dictionary) -> void:
+	if kind == &"match_ended":
+		_on_match_ended(int(data["winner_slot"]))
 
 
-func _on_round_started(_round_number: int) -> void:
-	views.snap_cameras()
+## True once a confirmed match_ended scheduled the results screen.
+func is_ending() -> bool:
+	return _ending
 
 
 func _on_match_ended(winner_slot: int) -> void:
