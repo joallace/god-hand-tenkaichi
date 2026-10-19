@@ -20,6 +20,7 @@ const ROWS := [
 	["Throw (break: guard)", "RB", "O"],
 	["Taunt (gains ki)", "RT", "Y"],
 	["Target / cycle lock", "LB", "Q"],
+	["Revive a downed ally (co-op)", "Hold RT near them", "Hold Y near them"],
 	["Dash", "L3", "Shift"],
 	["Pause", "Start", "Esc"],
 ]

@@ -18,6 +18,13 @@ func start_match(config: MatchConfig) -> void:
 	goto(SCENE_MATCH)
 
 
+## Start the current match/run over with the same config (pause menu
+## "Restart run", results "Retry"). Does nothing without a config.
+func restart_match() -> void:
+	if current_config != null:
+		start_match(current_config)
+
+
 func finish_match(winner_slot: int, wins: PackedInt32Array) -> void:
 	last_result = {"winner_slot": winner_slot, "wins": wins, "config": current_config}
 	goto(SCENE_RESULTS)
