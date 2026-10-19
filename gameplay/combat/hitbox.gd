@@ -8,8 +8,11 @@ var source: SimEntity
 ## Fighter credited with the hit (combo, ki); the victim can't be this one.
 var attacker: Fighter
 var move: MoveData
-## Unique per activation of `source`; one contact per id.
+## Unique per activation of `source`; one contact per id and victim.
 var hit_id: int = 0
+## The activation connects with its first victim only (ki blasts, rush
+## supers, throws); otherwise it hits every fighter it overlaps once.
+var single_target: bool = false
 ## Capsule segment a-b with radius (a == b for spheres).
 var a: Vector3
 var b: Vector3

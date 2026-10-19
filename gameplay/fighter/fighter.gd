@@ -393,7 +393,7 @@ func reset_for_round(xform: Transform3D) -> void:
 	_target_press_pending = false
 	_target_press_dir = 1
 	_vanish_battle = null
-	_last_contact_id = -1
+	clear_contacts()
 	_clear_buffer()
 	_enter(State.IDLE)
 	health_changed.emit(health, tuning.max_health)
@@ -614,6 +614,7 @@ func get_active_hitboxes() -> Array[Hitbox]:
 	hb.damage_mult = _damage_mult
 	hb.is_throw = m.is_throw
 	hb.is_melee = not m.is_throw
+	hb.single_target = m.is_throw or m.single_target
 	hb.opens_string = _move_opens_string and sub == 0
 	if m.is_charge_strike():
 		var t := tuning
@@ -1692,11 +1693,11 @@ func _guard_crash() -> void:
 func _take_hit(hb: Hitbox) -> void:
 	var m := hb.move
 	var attacker := hb.attacker
-	var in_combo := state == State.HITSTUN or state == State.KNOCKDOWN or state == State.GUARD_BREAK
+	var in_combo := _in_combo_state()
 	if not in_combo:
 		_clear_combo_segment()
 		_combo_hits_taken = 0
-		if attacker != null:
+		if attacker != null and not attacker._has_victim_in_combo(self):
 			attacker._set_combo(0)
 			attacker._teleports_in_combo = 0
 	var scaled_hits := maxi(_combo_hits_taken - tuning.combo_scaling_start_hit + 1, 0)
@@ -1734,6 +1735,22 @@ func _take_hit(hb: Hitbox) -> void:
 		_state_len = m.hitstun
 		_vel = Vector3(kb.x, kb.y if is_airborne() else 0.0, kb.z)
 	_emit_hit(hb, dmg, false)
+
+
+func _in_combo_state() -> bool:
+	return state == State.HITSTUN or state == State.KNOCKDOWN or state == State.GUARD_BREAK
+
+
+## Another fighter (not `except`) is still reeling from a combo this fighter
+## started: hitting a fresh victim then extends the combo instead of
+## restarting it (one strike cleaving a crowd counts every victim).
+func _has_victim_in_combo(except: Fighter) -> bool:
+	if director == null:
+		return false
+	for f in director.fighters:
+		if f != except and f != self and f._last_attacker_slot == slot and f._in_combo_state():
+			return true
+	return false
 
 
 ## Anti-loop bookkeeping for a clean hit: true if it repeats a melee move of
@@ -2089,7 +2106,7 @@ func save_state() -> Dictionary:
 		"dodge_dir": _dodge_dir, "counter_frames": _counter_frames,
 		"invuln_frames": _invuln_frames, "land_frame": _land_frame,
 		"since_hit_landed": _since_hit_landed, "teleports": _teleports_in_combo,
-		"tp_kind": _tp_kind, "last_contact": _last_contact_id,
+		"tp_kind": _tp_kind,
 		"vanish": _vanish_battle.to_dict() if _vanish_battle else {},
 		"buffer": _buffer.duplicate(), "dodge_buf_dir": _dodge_buf_dir,
 		"dodge_buf_frames": _dodge_buf_frames, "input": _input.to_array(),
@@ -2110,6 +2127,7 @@ func save_state() -> Dictionary:
 		"target_locked": _target_locked, "retarget_timer": _retarget_timer,
 		"target_press_pending": _target_press_pending, "target_press_dir": _target_press_dir,
 	})
+	save_contacts(s)
 	return s
 
 
@@ -2140,7 +2158,7 @@ func load_state(s: Dictionary) -> void:
 	_since_hit_landed = s["since_hit_landed"]
 	_teleports_in_combo = s["teleports"]
 	_tp_kind = s["tp_kind"]
-	_last_contact_id = s["last_contact"]
+	load_contacts(s)
 	var vb: Dictionary = s["vanish"]
 	_vanish_battle = null
 	if not vb.is_empty():

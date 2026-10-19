@@ -243,7 +243,7 @@ func _brawler() -> Resource:
 		"air_hang_frames": 14,  # fired while jumping: brief air stall
 	}))
 	# --- Super 1: rush (auto combo when the first hit lands) -------------------
-	var rush := {"grants_hit_ki": false, "guard_stun": 12, "guard_ki_cost": 15.0, "hitbox_radius": 0.55,
+	var rush := {"single_target": true, "grants_hit_ki": false, "guard_stun": 12, "guard_ki_cost": 15.0, "hitbox_radius": 0.55,
 		"hitstop": 3, "special_cancelable": false, "guard_results": G_KI}
 	moves.append(_mk(rush, {
 		"id": &"brawler_rush", "pose": &"dash_punch", "startup": 8, "active": 6, "recovery": 30,

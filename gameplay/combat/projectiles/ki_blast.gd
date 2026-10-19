@@ -18,7 +18,7 @@ func launch(p_caster: Fighter, p_move: MoveData, from: Vector3, toward: Vector3)
 	if dir.length_squared() < 0.0001:
 		dir = -p_caster.global_basis.z
 	_vel = dir.normalized() * move.travel_speed
-	_last_contact_id = -1
+	clear_contacts()
 	spawn_init = {"caster": p_caster.sim_id, "move": EntityFactory.move_ref(p_move)}
 	_build_visual()
 
@@ -60,6 +60,7 @@ func get_active_hitboxes() -> Array[Hitbox]:
 	hb.forward = _vel.normalized()
 	hb.right = Vector3.UP.cross(hb.forward).normalized() * -1.0
 	hb.is_melee = false
+	hb.single_target = true
 	out.append(hb)
 	return out
 
@@ -72,7 +73,8 @@ func on_hitbox_contact(hb: Hitbox, victim: Fighter, outcome: Contact) -> void:
 
 func save_state() -> Dictionary:
 	var s := super.save_state()
-	s.merge({"vel": _vel, "frame": _frame, "last_contact": _last_contact_id, "dead": sim_dead})
+	s.merge({"vel": _vel, "frame": _frame, "dead": sim_dead})
+	save_contacts(s)
 	return s
 
 
@@ -80,7 +82,7 @@ func load_state(s: Dictionary) -> void:
 	super.load_state(s)
 	_vel = s["vel"]
 	_frame = s["frame"]
-	_last_contact_id = s["last_contact"]
+	load_contacts(s)
 	sim_dead = s["dead"]
 
 
