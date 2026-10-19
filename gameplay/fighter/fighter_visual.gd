@@ -272,6 +272,8 @@ static func pose_id_for(id: StringName, state_name: StringName, frame: int, tuni
 			return &"idle"  # appears via the reappear effect
 		&"downed", &"out":
 			return &"knockdown"  # lying on the floor
+		&"revive":
+			return &"charge"  # crouched over the downed teammate, powering up
 		&"throw":
 			# Holding the victim through the break window, then the toss.
 			var hold := tuning.throw_break_frames if tuning != null else 0

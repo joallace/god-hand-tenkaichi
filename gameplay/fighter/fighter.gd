@@ -30,7 +30,10 @@ extends CombatEntity
 ##            lying_frames() -> int, is_guard_crashed() -> bool,
 ##            hitstop_left() -> int (SimEntity; frames frozen by hit impact),
 ##            is_targetable() -> bool, best_target() -> Fighter,
-##            retarget_auto(), is_target_locked() -> bool
+##            retarget_auto(), is_target_locked() -> bool,
+##            is_downed() -> bool, is_out() -> bool, revive_progress() -> float,
+##            bleed_out_ratio() -> float, revive_now(health_ratio: float),
+##            reviving_slot() -> int
 ##
 ## `event` kinds (payload keys; every payload also has "slot" = emitter slot):
 ##   &"hit"            {attacker_slot, damage, position, heavy, blocked, combo,
@@ -68,6 +71,11 @@ extends CombatEntity
 ##   &"knockdown"      {position}
 ##   &"wakeup"         {}                             (also on a quick rise)
 ##   &"ko"             {position}
+##   &"downed"         {position}                     (co-op: 0 HP while downable)
+##   &"out"            {}                             (bled out while downed)
+##   &"revive_start"   {reviver_slot}                 (slot = the downed fighter)
+##   &"revive_cancel"  {reviver_slot}
+##   &"revived"        {reviver_slot}                 (-1 = revive_now)
 ##
 ## Strikes: HEAVY reads the stick when it starts (forward = high, neutral =
 ## mid, back = low; MoveData.height). Holding LIGHT/HEAVY turns the attack
@@ -133,6 +141,19 @@ extends CombatEntity
 ## start/spawn and replaces KO'd ones, through the same policy
 ## (best_target / retarget_auto), so the two never disagree.
 ##
+## Downed (co-op, `downable` only): 0 HP enters DOWNED instead of KO. It
+## flies/falls like a KO, then lies intangible and untargetable; health stays
+## 0, so is_ko() is true too (team wipe = everyone is_ko). Once landed, the
+## bleed-out clock runs (Tuning.coop.bleed_out_frames -> OUT, which only
+## revive_now() undoes); it pauses while a revive is in progress. A standing
+## teammate within coop.revive_range pressing TAUNT revives instead of
+## taunting (REVIVE state, rooted): keep TAUNT held for coop.revive_frames.
+## Letting go, being knocked out of the state (any hit/stun) or out of range
+## cancels and resets the progress. One reviver per downed fighter: whoever
+## started first owns it; others in range just taunt. The closest downed
+## teammate in range is picked (lowest slot on ties). Revived = WAKEUP (its
+## normal invuln) with coop.revive_health_ratio of max health and 0 ki.
+##
 ## Facing convention: the fighter's -Z (Godot forward) points at the target
 ## while locked on. InputFrame.move +Y = toward target, +X = strafe right.
 ## With no target the fighter keeps its facing (stick relative to it).
@@ -148,7 +169,7 @@ enum State {
 	IDLE, WALK, DASH, JUMP, ATTACK, DODGE, GUARD, GUARD_STUN, GUARD_BREAK,
 	CHARGE, HITSTUN, KNOCKDOWN, WAKEUP, TELEPORT, VANISH_WAIT, KO,
 	THROW, THROWN, TAUNT, COUNTER, RECOIL,
-	DOWNED, OUT, ENTERING,
+	DOWNED, OUT, ENTERING, REVIVE,
 }
 enum TeleportKind { OFFENSE, ESCAPE }
 ## DODGE state flavors: a normal dodge, an air recovery flip, a get-up roll.
@@ -159,7 +180,7 @@ const STATE_NAMES: Array[StringName] = [
 	&"guard_stun", &"guard_break", &"charge", &"hitstun", &"knockdown",
 	&"wakeup", &"teleport", &"vanish_wait", &"ko",
 	&"throw", &"thrown", &"taunt", &"counter_guard", &"recoil",
-	&"downed", &"out", &"entering",
+	&"downed", &"out", &"entering", &"revive",
 ]
 const GUARD_POSE_NAMES: Array[StringName] = [&"guard", &"guard_high", &"guard_low"]
 const SMASH_DIR_NAMES: Array[StringName] = [&"forward", &"back", &"left", &"right"]
@@ -248,6 +269,12 @@ var _target_locked: bool = false
 var _retarget_timer: int = 0
 var _target_press_pending: bool = false
 var _target_press_dir: int = 1
+## Downed side: frames spent lying (bleed-out clock), who is reviving us and
+## how far along. Reviver side: the downed teammate being revived.
+var _down_frames: int = 0
+var _reviver_slot: int = -1
+var _revive_done: int = 0
+var _revive_target_slot: int = -1
 var _buffer: PackedInt32Array = PackedInt32Array()
 var _dodge_buf_dir: int = InputFrame.Dodge.NONE
 var _dodge_buf_frames: int = 0
@@ -334,7 +361,9 @@ func sim_tick(_tick: int) -> void:
 		State.GUARD_BREAK: _tick_guard_break()
 		State.CHARGE: _tick_charge()
 		State.HITSTUN: _tick_hitstun()
-		State.KNOCKDOWN, State.KO: _tick_knockdown()
+		State.KNOCKDOWN, State.KO, State.OUT: _tick_knockdown()
+		State.DOWNED: _tick_downed()
+		State.REVIVE: _tick_revive()
 		State.WAKEUP: _tick_wakeup()
 		State.TELEPORT: _tick_teleport()
 		State.VANISH_WAIT: _tick_vanish_wait()
@@ -397,6 +426,10 @@ func reset_for_round(xform: Transform3D) -> void:
 	_retarget_timer = 0
 	_target_press_pending = false
 	_target_press_dir = 1
+	_down_frames = 0
+	_reviver_slot = -1
+	_revive_done = 0
+	_revive_target_slot = -1
 	_vanish_battle = null
 	clear_contacts()
 	_clear_buffer()
@@ -447,7 +480,7 @@ func is_invulnerable() -> bool:
 	if _invuln_frames > 0:
 		return true
 	match state:
-		State.TELEPORT, State.KO:
+		State.TELEPORT, State.KO, State.DOWNED, State.OUT:
 			return true
 		State.DODGE:
 			if _dodge_kind == DodgeKind.AIR_TECH:
@@ -486,12 +519,32 @@ func is_entering() -> bool:
 
 ## Revive progress 0..1 while a teammate revives this downed fighter.
 func revive_progress() -> float:
-	return 0.0
+	if state != State.DOWNED or _reviver_slot < 0:
+		return 0.0
+	return clampf(_revive_done / float(maxi(Tuning.coop.revive_frames, 1)), 0.0, 1.0)
 
 
 ## Bleed-out progress 0..1 while downed (1 = goes OUT).
 func bleed_out_ratio() -> float:
-	return 0.0
+	if state == State.OUT:
+		return 1.0
+	if state != State.DOWNED:
+		return 0.0
+	return clampf(_down_frames / float(maxi(Tuning.coop.bleed_out_frames, 1)), 0.0, 1.0)
+
+
+## Slot of the teammate reviving this downed fighter (-1 = none).
+func reviving_slot() -> int:
+	return _reviver_slot if state == State.DOWNED else -1
+
+
+## Bring a DOWNED or OUT fighter back at once (run director: wave breaks).
+## Gets up through WAKEUP with `health_ratio` of max health and 0 ki. No-op
+## for a fighter that isn't down.
+func revive_now(health_ratio: float) -> void:
+	if state != State.DOWNED and state != State.OUT:
+		return
+	_finish_revive(-1, health_ratio)
 
 
 ## Start the ENTERING state (spawned enemy appearing at the ring edge).
@@ -547,7 +600,7 @@ func current_pose() -> StringName:
 			return DODGE_NAMES[_dodge_dir]
 		State.GUARD:
 			return GUARD_POSE_NAMES[_guard_pose]
-		State.KNOCKDOWN, State.KO:
+		State.KNOCKDOWN, State.KO, State.DOWNED, State.OUT:
 			return &"knockdown" if _land_frame >= 0 else &"launched"
 	return STATE_NAMES[state]
 
@@ -677,7 +730,7 @@ func on_hitbox_contact(hb: Hitbox, _victim: Fighter, outcome: Contact) -> void:
 ## fighter can't be touched at all. Invulnerability is checked later in
 ## receive_hit() so that perfect dodges can still be detected.
 func get_hurtbox() -> Array:
-	if state == State.TELEPORT or state == State.KO:
+	if state == State.TELEPORT or _is_down():
 		return []
 	if state == State.KNOCKDOWN and _land_frame >= 0:
 		return []
@@ -738,6 +791,8 @@ func _enter(s: State) -> void:
 		_bounce_pending = false
 	if s != State.GUARD_BREAK:
 		_guard_crashed = false
+	if prev == State.REVIVE and s != State.REVIVE and _revive_target_slot >= 0:
+		_stop_reviving()
 	if prev != s or s == State.ATTACK or s == State.HITSTUN:
 		state_changed.emit(STATE_NAMES[s])
 
@@ -766,6 +821,8 @@ func _try_actions(allow_guard: bool) -> bool:
 		if _start_throw():
 			return true
 	if allow_guard and _consume(InputFrame.Btn.TAUNT):
+		if _try_start_revive():
+			return true
 		_enter(State.TAUNT)
 		event.emit(&"taunt", {"slot": slot})
 		return true
@@ -1194,7 +1251,7 @@ func _tick_counter() -> void:
 
 ## Pushed back after a push-off guard, a counter guard or a throw break.
 func _recoil(frames: int, push: Vector3) -> void:
-	if state == State.KO:
+	if _is_down():
 		return
 	_enter(State.RECOIL)
 	_state_len = frames
@@ -1229,7 +1286,8 @@ func _try_grabbed(hb: Hitbox) -> bool:
 	if thrower == null or thrower.state != State.ATTACK or is_airborne():
 		return false
 	match state:
-		State.HITSTUN, State.KNOCKDOWN, State.THROW, State.THROWN, State.KO, State.TELEPORT, State.VANISH_WAIT:
+		State.HITSTUN, State.KNOCKDOWN, State.THROW, State.THROWN, State.KO, State.TELEPORT, State.VANISH_WAIT, \
+				State.DOWNED, State.OUT:
 			return false
 	_end_vanish_battle(thrower.slot)
 	_enter(State.THROWN)
@@ -1345,7 +1403,7 @@ func _tick_knockdown() -> void:
 		return
 	if _land_frame < 0 and not is_airborne():
 		_land_frame = _state_frame
-	if state == State.KO:
+	if _is_down():
 		return
 	if _land_frame < 0:
 		if _state_frame >= tuning.air_tech_min_frames and _try_dodge(DodgeKind.AIR_TECH):
@@ -1822,13 +1880,112 @@ func _clear_combo_segment() -> void:
 
 func _enter_ko(kb: Vector3) -> void:
 	_end_vanish_battle(_vanish_partner_slot())
-	_enter(State.KO)
+	_enter(State.DOWNED if downable else State.KO)
 	_land_frame = -1
 	_vel = kb
 	_vel.y = maxf(_vel.y, 0.0)
 	if _vel.y > 0.0:
 		global_position.y = maxf(global_position.y, 0.001)
-	event.emit(&"ko", {"slot": slot, "position": global_position})
+	if downable:
+		_down_frames = 0
+		_reviver_slot = -1
+		_revive_done = 0
+		event.emit(&"downed", {"slot": slot, "position": global_position})
+	else:
+		event.emit(&"ko", {"slot": slot, "position": global_position})
+
+
+## KO, downed or out: lying (or falling) with 0 HP, no actions, no hurtbox.
+func _is_down() -> bool:
+	return state == State.KO or state == State.DOWNED or state == State.OUT
+
+
+# --- Downed / revive (co-op) ------------------------------------------------
+
+## Falls like a KO; once on the floor the bleed-out clock runs unless a
+## revive is in progress.
+func _tick_downed() -> void:
+	_tick_knockdown()
+	if _land_frame < 0 or _reviver_slot >= 0:
+		return
+	_down_frames += 1
+	if _down_frames >= Tuning.coop.bleed_out_frames:
+		_enter(State.OUT)
+		event.emit(&"out", {"slot": slot})
+
+
+## Closest downed, landed teammate in revive range nobody else is reviving
+## (lowest slot on ties), or null.
+func _revive_candidate() -> Fighter:
+	if director == null:
+		return null
+	var best: Fighter = null
+	var best_d := INF
+	var r := Tuning.coop.revive_range
+	for f in director.fighters:
+		if f == self or f.team != team or f.state != State.DOWNED or f._land_frame < 0 or f._reviver_slot >= 0:
+			continue
+		var d := Vector2(f.global_position.x - global_position.x, f.global_position.z - global_position.z).length()
+		if d > r:
+			continue
+		if d < best_d or (is_equal_approx(d, best_d) and best != null and f.slot < best.slot):
+			best = f
+			best_d = d
+	return best
+
+
+func _try_start_revive() -> bool:
+	var downed := _revive_candidate()
+	if downed == null:
+		return false
+	_enter(State.REVIVE)
+	_vel = Vector3.ZERO
+	_revive_target_slot = downed.slot
+	downed._reviver_slot = slot
+	downed._revive_done = 0
+	event.emit(&"revive_start", {"slot": downed.slot, "reviver_slot": slot})
+	return true
+
+
+## Rooted while TAUNT stays held; the progress lives on the downed fighter.
+func _tick_revive() -> void:
+	var downed := _fighter(_revive_target_slot)
+	if downed == null or downed.state != State.DOWNED or downed._reviver_slot != slot:
+		_enter(State.IDLE)  # revived (or gone) by other means
+		return
+	_face_toward(downed, _turn_step())
+	var d := Vector2(downed.global_position.x - global_position.x, downed.global_position.z - global_position.z).length()
+	if not _input.is_held(InputFrame.Btn.TAUNT) or d > Tuning.coop.revive_range:
+		_enter(State.IDLE)  # _enter cancels the revive
+		return
+	downed._revive_done += 1
+	if downed._revive_done >= Tuning.coop.revive_frames:
+		downed._finish_revive(slot, Tuning.coop.revive_health_ratio)
+		_revive_target_slot = -1
+		_enter(State.IDLE)
+
+
+## Leaving REVIVE before it completed: the downed fighter's progress resets.
+func _stop_reviving() -> void:
+	var downed := _fighter(_revive_target_slot)
+	_revive_target_slot = -1
+	if downed == null or downed.state != State.DOWNED or downed._reviver_slot != slot:
+		return
+	downed._reviver_slot = -1
+	downed._revive_done = 0
+	event.emit(&"revive_cancel", {"slot": downed.slot, "reviver_slot": slot})
+
+
+func _finish_revive(reviver_slot: int, health_ratio: float) -> void:
+	_reviver_slot = -1
+	_revive_done = 0
+	_down_frames = 0
+	_vel = Vector3.ZERO
+	_set_health(tuning.max_health * health_ratio)
+	ki = 0.0
+	ki_changed.emit(ki, ki_max())
+	_wake_up()
+	event.emit(&"revived", {"slot": slot, "reviver_slot": reviver_slot})
 
 
 func _on_perfect_dodge(hb: Hitbox) -> void:
@@ -1844,7 +2001,7 @@ func _on_perfect_dodge(hb: Hitbox) -> void:
 
 ## Forced open stance (perfect duck punish). Uses the GuardBreak state.
 func _stagger(frames: int) -> void:
-	if state == State.KO:
+	if _is_down():
 		return
 	_enter(State.GUARD_BREAK)
 	_state_len = frames
@@ -1921,7 +2078,7 @@ func _on_land() -> void:
 		State.ATTACK:
 			if _move.land_cancel:
 				_enter(State.IDLE)
-		State.KNOCKDOWN, State.KO:
+		State.KNOCKDOWN, State.KO, State.DOWNED, State.OUT:
 			_vel.x *= 0.5
 			_vel.z *= 0.5
 		State.DODGE:
@@ -2162,6 +2319,8 @@ func save_state() -> Dictionary:
 		"grab_partner": _grab_partner_slot, "tp_anchor": _tp_anchor_slot,
 		"target_locked": _target_locked, "retarget_timer": _retarget_timer,
 		"target_press_pending": _target_press_pending, "target_press_dir": _target_press_dir,
+		"down_frames": _down_frames, "reviver": _reviver_slot, "revive_done": _revive_done,
+		"revive_target": _revive_target_slot,
 	})
 	save_contacts(s)
 	return s
@@ -2243,6 +2402,10 @@ func load_state(s: Dictionary) -> void:
 	_retarget_timer = s["retarget_timer"]
 	_target_press_pending = s["target_press_pending"]
 	_target_press_dir = s["target_press_dir"]
+	_down_frames = s["down_frames"]
+	_reviver_slot = s["reviver"]
+	_revive_done = s["revive_done"]
+	_revive_target_slot = s["revive_target"]
 	health_changed.emit(health, tuning.max_health)
 	ki_changed.emit(ki, ki_max())
 	combo_changed.emit(combo_hits)
