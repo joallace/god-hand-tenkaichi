@@ -23,9 +23,23 @@ before autoloads exist. See `tests/README.md`. Always wrap Godot calls in
     per device id, `CpuInput` wrapping a `CpuBrain`, `NetworkInput` stub),
     `Bindings` autoload (rebindable controls, `user://controls.cfg`). Sources
     round-trip through `save_state`/`load_state` with the director.
-  - `match/`: `MatchConfig` + `PlayerSlotConfig` (built by menus),
+  - `match/`: `MatchConfig` + `PlayerSlotConfig` (built by menus;
+    `to_dict`/`from_dict` plain data for wire/replays, `from_dict` validates;
+    `owner_peer`/`display_name`, `localize_for_peer`),
     `MatchDirector` (fixed 60 Hz tick loop, rounds, timer incl. infinite,
-    world freeze, save/load state).
+    world freeze, save/load state). Sim commands (`add_command`: CPU_TAKEOVER,
+    RECLAIM, FORFEIT, JOIN stub, RESYNC_INPUTS on unpause) live in a log
+    outside save_state and apply at the start of their tick's `step()`, so a
+    rollback re-applies them; `slot_controller` (PLAYER/CPU per config slot)
+    is state. `source_factory` overrides player sources; `inputs_polled` /
+    `tick_completed` feed the replay recorder.
+  - `sim/StateHash`: hash of `var_to_bytes(save_state())` (bitwise floats;
+    save_state must build Dictionaries in a fixed order).
+  - `net/`: `ContentHash` (tuning + moves + characters), `Replay` (.ghr file:
+    config, human frames, commands, hashes; `save_auto` keeps
+    `user://replays/last_<n>.ghr`, `save_copy`), `ReplayRecorder` (added by
+    the match scene; no auto-keep headless), `ReplayPlayer` (playback with
+    `ReplayInput`, verifies hashes). Online plan: SPEC_ONLINE.md.
   - `sim/SimEntity`: base for everything ticked by the director (stable
     `sim_id`, `spawn_desc()`). `sim/EntityFactory` rebuilds entities from
     those descriptors: `MatchDirector.load_state` frees/recreates projectiles
@@ -89,6 +103,11 @@ before autoloads exist. See `tests/README.md`. Always wrap Godot calls in
 on; clear rate, hits from outside the view cone, token leaks). Run with
 `godot --headless res://tools/coop_sim.tscn -- runs=12 enemies=4
 coop.melee_tokens_per_player=1` (any `coop.<prop>=<n>` overrides tuning).
+
+`tools/replay_hash.tscn`: `-- replay=<file>` plays a replay headless, prints
+`<tick> <hash>` per checkpoint, exits 1 on a mismatch (cross-OS determinism
+check); `-- record=<file> seed=<n> mode=versus|coop ticks=<n>` records a
+CPU-only match.
 
 ## Design references
 
