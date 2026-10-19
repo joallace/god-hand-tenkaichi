@@ -49,6 +49,8 @@ extends Resource
 @export_range(1, 600) var checksum_interval: int = 30
 ## Resyncs allowed before the match ends with a desync error.
 @export_range(0, 100) var max_resyncs_per_match: int = 3
+## Confirmed checkpoints (state + hash) kept for comparison / resync.
+@export_range(1, 60) var checkpoints_kept: int = 4
 ## Ticks of input kept in a desync dump.
 @export_range(0, 6000) var desync_dump_input_ticks: int = 600
 

@@ -318,11 +318,13 @@ func send_hash(tick: int, hash_value: int) -> bool:
 
 
 ## Leave (guest) or close the room (host): BYE to every link, then close the
-## transport. No signals.
-func close() -> void:
+## transport. No signals. `reason` (Protocol.Reason) defaults to
+## HOST_CLOSING / LEFT; guests get it in session_ended.
+func close(reason: int = -1) -> void:
 	if state == State.CLOSED:
 		return
-	var reason := Protocol.Reason.HOST_CLOSING if is_host() else Protocol.Reason.LEFT
+	if reason < 0:
+		reason = Protocol.Reason.HOST_CLOSING if is_host() else Protocol.Reason.LEFT
 	for peer: int in _links:
 		_send(peer, Protocol.encode_bye(reason))
 	transport.flush()

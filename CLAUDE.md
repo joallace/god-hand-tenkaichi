@@ -67,7 +67,12 @@ before autoloads exist. See `tests/README.md`. Always wrap Godot calls in
     per-(origin, dest) acks and redundancy, PING/RTT, timeouts, host-only
     enforcement; it feeds the `InputHistory` (confirmed + used frames,
     prediction, misprediction ticks) that `NetworkInput` reads. `TimeSync`:
-    frame advantage, wait frames, auto input delay.
+    frame advantage, wait frames, auto input delay. `RollbackDriver` (Node)
+    joins them to a director: history-backed sources for every human slot,
+    snapshot ring, rollback + resim (`director.resimulating`, hub
+    `rollback_to`/`confirm_through`), stall/TimeSync, confirmed checkpoint
+    hashes, host RESYNC + desync dumps, `issue_command`, disconnect ->
+    FORFEIT / CPU_TAKEOVER. Tested end to end in `tests/net_loopback_test`.
   - `tuning/`: one Resource class per category, loaded by the `Tuning` autoload
     from `data/tuning/<key>.tres`.
   - `game.gd`: `Game` autoload, scene flow.
@@ -158,6 +163,6 @@ ours. Describe mechanics in our own words; never copy decomp code.
 
 ## Known gaps
 
-Online has its net core (`core/net/`) but no RollbackDriver, `Net` autoload
-or online menus yet (plan: SPEC_ONLINE.md). The CPU only knows the moveset roles in `CharacterDef`
+Online runs headless over loopback (`RollbackDriver`, milestone 1) but has
+no `Net` autoload or online menus yet (plan: SPEC_ONLINE.md §15). The CPU only knows the moveset roles in `CharacterDef`
 (string, heavies, supers), not character-specific tricks.

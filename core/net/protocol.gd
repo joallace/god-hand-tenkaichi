@@ -58,6 +58,8 @@ enum Reason {
 	BAD_NAME = 5, HOST_CLOSING = 6, PROTOCOL = 7,
 	## BYE / DROP only
 	LEFT = 16, TIMEOUT = 17, DISCONNECTED = 18,
+	## BYE: the host ended the match after too many desync resyncs.
+	DESYNC = 19,
 }
 
 const U8_MAX := 0xFF

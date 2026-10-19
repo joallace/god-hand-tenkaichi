@@ -489,9 +489,20 @@ mode, port override, recent hosts, debug overlay.
    hook, `slot_controller` in save_state; `MatchEventHub` confirmed stream
    (offline = immediate); `tools/net_bench`; `export_presets.cfg` for Linux
    + Windows; **cross-OS hash check on a real Windows machine**.
+   *Status 2026-10-19: done except the real-Windows run (Wine smoke test
+   passes, §6 rule 5).*
 1. **Rollback core over loopback**: `Transport`, `LoopbackTransport`,
    `Session` (minimal), `InputHistory`, `RollbackDriver`, `TimeSync`, desync
    resync. 1v1 in a headless test with simulated latency/jitter/loss.
+   *Status 2026-10-19: done (plus `EnetTransport` + a localhost test).
+   `tests/net_loopback_test`: 2/4 peers (+CPU, co-op) at up to 150 ms /
+   10 % loss confirm exactly the offline sim's hashes; stall, forfeit on
+   leave, takeover/reclaim over the wire. `tests/net_desync_test`: resync,
+   dumps, abort past the limit. Notes: a guest's input to another guest takes
+   two hops, so auto delay must use that path's RTT (`rtt_max_ms` covers
+   direct links only — milestone 2); a CMD that arrives after the INPUT for
+   its tick on a guest is caught by the hash check and resynced, not
+   prevented.*
 2. **Online 1v1, playable**: `EnetTransport`, handshake/version checks,
    `Net` autoload, unified lobby (replaces join screen, keeps local modes
    working), join screen + recent hosts, UPnP, profile names, settings screen,
