@@ -9,10 +9,11 @@ const SfxrSynth := preload("res://tools/sfxr/sfxr_synth.gd")
 const Generator := preload("res://tools/generate_sfx.gd")
 
 const TMP_SFS := "user://sfx_test_roundtrip.sfs"
-## Sounds MatchSfx plays for the guard / throw / taunt events.
+## Sounds MatchSfx plays for the guard / throw / taunt and co-op events.
 const EVENT_SOUNDS: Array[StringName] = [
 	&"ki_guard", &"push_off", &"counter_guard", &"throw", &"throw_break",
 	&"taunt", &"taunt_done", &"ground_bounce",
+	&"downed", &"revive_start", &"revived", &"out", &"enemy_entry", &"lock_broken",
 ]
 
 var _ok := true

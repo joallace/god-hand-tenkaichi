@@ -9,9 +9,14 @@ extends Control
 ## FighterCamera, plus a full-rect tint ColorRect for per-view flashes.
 ## Containers are anchored full rect, so window resizes are automatic.
 ##
-## Also routes presentation events (MatchEventHub) to the cameras.
+## Also routes presentation events (MatchEventHub) to the cameras. In co-op
+## an ultimate's orbit cinematic plays only on its caster's view (the other
+## views get CoopViewHud's banner instead); in versus every view orbits.
 
 var cameras: Dictionary = {}  # slot -> FighterCamera
+## slot -> that view's clip Control (overlays like CoopViewHud go inside).
+var panels: Dictionary = {}
+var _coop := false
 var _tints: Dictionary = {}  # slot -> ColorRect
 var _tint_tweens: Dictionary = {}  # slot -> Tween
 
@@ -23,6 +28,7 @@ func _init() -> void:
 
 func build(config: MatchConfig, fighters: Array[Fighter], world: World3D, hub: MatchEventHub) -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_coop = config.mode == MatchConfig.Mode.COOP
 	var slots: Array[int] = config.local_view_slots()
 	var is_split := config.layout() == MatchConfig.Layout.SPLIT_SCREEN and slots.size() >= 2
 	if not is_split:
@@ -47,7 +53,9 @@ func build(config: MatchConfig, fighters: Array[Fighter], world: World3D, hub: M
 			row.add_child(div)
 		var f := _fighter_for(fighters, slots[i])
 		if f != null:
-			row.add_child(_make_view(f, is_split, world))
+			var view := _make_view(f, is_split, world)
+			row.add_child(view)
+			panels[f.slot] = view
 
 	if hub != null:
 		hub.fighter_event.connect(_on_fighter_event.bind(hub))
@@ -158,5 +166,6 @@ func _on_fighter_event(f: Fighter, kind: StringName, data: Dictionary, hub: Matc
 			_shake(f.slot, t.trauma_ko)
 		&"ultimate_start":
 			for s: int in cameras:
-				(cameras[s] as FighterCamera).play_ultimate_cinematic(f, s == f.slot)
+				if not _coop or s == f.slot:
+					(cameras[s] as FighterCamera).play_ultimate_cinematic(f, s == f.slot)
 			flash(-1, Tuning.vfx.ultimate_tint_color, Tuning.vfx.ultimate_tint_duration)

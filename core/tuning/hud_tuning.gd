@@ -84,3 +84,57 @@ extends Resource
 @export var text_guard_crash: String = "GUARD CRASH"
 @export var text_throw_break: String = "THROW BREAK"
 @export var text_counter: String = "COUNTER!"
+
+@export_group("Co-op (per-view HUD)")
+## Current target's bar: centered in each view, this far below its top edge.
+@export var coop_target_top: float = 104.0
+@export var coop_target_width: float = 360.0
+@export var coop_target_bar_height: float = 16.0
+@export var coop_target_ki_height: float = 8.0
+@export var coop_small_font_size: int = 18
+## Teammate panels, stacked from the view's bottom-left corner.
+@export var coop_partner_width: float = 200.0
+@export var coop_partner_bar_height: float = 10.0
+@export var coop_partner_ki_height: float = 6.0
+@export var coop_partner_margin: float = 16.0
+@export var coop_partner_spacing: float = 52.0
+## World-space HP pips over enemies (m above the feet, px size).
+@export var pip_world_height: float = 2.25
+@export var enemy_pip_width: float = 54.0
+@export var enemy_pip_height: float = 6.0
+@export var enemy_pip_bg_color: Color = Color(0.05, 0.05, 0.08, 0.8)
+@export var enemy_pip_color: Color = Color(1.0, 0.3, 0.2)
+## The pip of this view's current target.
+@export var enemy_pip_target_color: Color = Color(1.0, 0.85, 0.2)
+## Screen-edge arrows for off-screen enemies.
+@export var edge_arrow_size: float = 16.0
+@export var edge_arrow_inset: float = 28.0
+@export var edge_arrow_color: Color = Color(1.0, 0.35, 0.25, 0.9)
+## Revive ring over a downed teammate (m above the feet, px).
+@export var revive_marker_height: float = 1.2
+@export var revive_ring_radius: float = 26.0
+@export var revive_ring_width: float = 5.0
+@export var revive_ring_bg_color: Color = Color(0.0, 0.0, 0.0, 0.55)
+@export var revive_ring_color: Color = Color(0.4, 1.0, 0.5)
+@export var revive_arc_points: int = 32
+@export var downed_color: Color = Color(1.0, 0.55, 0.2)
+@export var out_color: Color = Color(0.55, 0.55, 0.6)
+## "P1 ULTIMATE" banner on the other views.
+@export var banner_font_size: int = 40
+## Vertical position as a fraction of the view height.
+@export_range(0.0, 1.0) var banner_y_ratio: float = 0.3
+@export var banner_hold: float = 1.2
+@export var banner_color: Color = Color(1.0, 0.9, 0.3)
+@export var enemies_left_font_size: int = 24
+
+@export_group("Co-op texts")
+@export var text_downed: String = "DOWNED"
+@export var text_out: String = "OUT"
+## Seconds left before a downed teammate bleeds out.
+@export var text_bleed_out: String = "%d"
+@export var text_ultimate_banner: String = "%s ULTIMATE"
+## Tag for enemy fighters (they have no player slot config).
+@export var text_enemy_tag: String = "ENEMY"
+@export var text_enemies_left: String = "ENEMIES  %d"
+@export var text_run_cleared: String = "CLEARED!"
+@export var text_run_failed: String = "WIPED OUT"

@@ -72,3 +72,23 @@ extends Resource
 @export var taunt_ki_color: Color = Color(0.45, 0.95, 1.0, 0.7)
 @export var taunt_ki_size: float = 1.6
 @export var taunt_ki_duration: float = 0.4
+
+@export_group("Co-op")
+## Enemy appearing at the ring edge (reappear-style flash + ring).
+@export var entry_color: Color = Color(1.0, 0.45, 0.35)
+@export var entry_size: float = 1.6
+@export var entry_duration: float = 0.35
+## Downed / revived bursts on the fighter.
+@export var downed_color: Color = Color(1.0, 0.55, 0.2, 0.8)
+@export var downed_size: float = 1.4
+@export var downed_duration: float = 0.35
+@export var revive_color: Color = Color(0.4, 1.0, 0.5, 0.8)
+@export var revive_size: float = 2.0
+@export var revive_duration: float = 0.45
+## A third party breaking a throw / vanish battle.
+@export var lock_broken_color: Color = Color(1.0, 1.0, 1.0)
+@export var lock_broken_size: float = 1.5
+@export var lock_broken_duration: float = 0.3
+## KO'd co-op enemies stay solid for this fraction of Tuning.coop.enemy_fade_frames,
+## then fade out over the rest.
+@export_range(0.0, 1.0) var ko_fade_delay_ratio: float = 0.4

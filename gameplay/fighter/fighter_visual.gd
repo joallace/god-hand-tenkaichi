@@ -215,6 +215,9 @@ var _aura: MeshInstance3D
 var _flash_left: float = 0.0
 var _time: float = 0.0
 var _fx: Array[MeshInstance3D] = []
+## Seconds this fighter has been KO'd (co-op enemy fade-out).
+var _ko_time: float = 0.0
+var _fade: float = 0.0
 
 
 func _ready() -> void:
@@ -243,6 +246,7 @@ func _process(delta: float) -> void:
 	_update_flash(delta)
 	_update_aura()
 	_update_fx(delta)
+	_update_ko_fade(delta)
 
 
 func _target_pose() -> Dictionary:
@@ -277,6 +281,29 @@ static func pose_id_for(id: StringName, state_name: StringName, frame: int, tuni
 			var hold := tuning.throw_break_frames if tuning != null else 0
 			return &"throw_hold" if frame < hold else &"throw_toss"
 	return id
+
+
+## Co-op: a KO'd enemy (KO is final, the director removes it after
+## Tuning.coop.enemy_fade_frames) stays solid for ko_fade_delay_ratio of that
+## time, then fades out. Downable teammates go DOWNED instead and never fade.
+func _update_ko_fade(delta: float) -> void:
+	var cfg := _fighter.director.config if _fighter.director != null else null
+	var fading := cfg != null and cfg.mode == MatchConfig.Mode.COOP and _fighter.is_ko() \
+			and not _fighter.downable
+	_ko_time = _ko_time + delta if fading else 0.0
+	var total := Tuning.coop.enemy_fade_frames / float(Tuning.match_rules.tick_rate)
+	var delay := total * Tuning.vfx.ko_fade_delay_ratio
+	var a := clampf((_ko_time - delay) / maxf(total - delay, 0.001), 0.0, 1.0) if fading else 0.0
+	if is_equal_approx(a, _fade):
+		return
+	_fade = a
+	for node in _body.find_children("*", "MeshInstance3D", true, false):
+		(node as GeometryInstance3D).transparency = a
+
+
+## 0 = solid .. 1 = fully faded (co-op KO fade).
+func fade_amount() -> float:
+	return _fade
 
 
 ## Overlays that aren't static poses: walk cycle, backflip spin/arc.

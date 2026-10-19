@@ -8,7 +8,8 @@ extends Node3D
 ## &"perfect_dodge", &"teleport" / &"vanish" {from?, to?, position?},
 ## &"guard_break", &"ko", &"ultimate_start", &"push_off", &"counter_guard",
 ## &"throw", &"throw_break", &"ground_bounce", &"taunt_done". Blocked hits
-## are tinted by guard_result (ki guard).
+## are tinted by guard_result (ki guard). Co-op: &"entry" (enemy appears),
+## &"downed", &"revived", &"lock_broken".
 
 var hub: MatchEventHub
 var _sphere: SphereMesh
@@ -100,6 +101,23 @@ func _on_fighter_event(f: Fighter, kind: StringName, data: Dictionary) -> void:
 			var p := f.global_position + Vector3.UP * v.fallback_hit_height
 			shockwave(p, v.ultimate_color, 4.0, 0.6)
 			flash(p, v.ultimate_color, 2.0, 0.4)
+		&"entry":
+			var p := hub.event_position(f, data, 0.0) + Vector3.UP * v.fallback_hit_height
+			flash(p, v.entry_color, v.entry_size, v.entry_duration)
+			shockwave(hub.event_position(f, data, 0.0) + Vector3.UP * v.ground_bounce_height, v.entry_color,
+					v.entry_size * 1.5, v.entry_duration)
+		&"downed":
+			var p := hub.event_position(f, data, 0.0) + Vector3.UP * v.ground_bounce_height
+			shockwave(p, v.downed_color, v.downed_size, v.downed_duration)
+		&"revived":
+			var p := f.global_position + Vector3.UP * v.fallback_hit_height
+			flash(p, v.revive_color, v.revive_size, v.revive_duration)
+			shockwave(f.global_position + Vector3.UP * v.ground_bounce_height, v.revive_color,
+					v.revive_size, v.revive_duration)
+		&"lock_broken":
+			var p := hub.event_position(f, data, 0.0) + Vector3.UP * v.fallback_hit_height
+			hit_spark(p, v.lock_broken_color, v.lock_broken_size * 0.5, v.lock_broken_duration, v.spark_count_heavy)
+			shockwave(p, v.lock_broken_color, v.lock_broken_size, v.lock_broken_duration)
 
 
 # --- primitives ----------------------------------------------------------------
