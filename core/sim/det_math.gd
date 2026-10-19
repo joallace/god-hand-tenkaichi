@@ -134,9 +134,9 @@ static func atan2(y: float, x: float) -> float:
 		return 0.0
 	var a: float
 	if ay <= ax:
-		a = atan(ay / ax)
+		a = DetMath.atan(ay / ax)
 	else:
-		a = HALF_PI - atan(ax / ay)
+		a = HALF_PI - DetMath.atan(ax / ay)
 	if x < 0.0:
 		a = PI_VAL - a
 	return -a if y < 0.0 else a
@@ -144,32 +144,32 @@ static func atan2(y: float, x: float) -> float:
 
 ## Unsigned angle between two 3D vectors in [0, π] (Vector3.angle_to).
 static func angle_to(a: Vector3, b: Vector3) -> float:
-	return atan2(a.cross(b).length(), a.dot(b))
+	return DetMath.atan2(a.cross(b).length(), a.dot(b))
 
 
 ## Signed angle from `a` to `b` in (-π, π] (Vector2.angle_to).
 static func angle_to_2d(a: Vector2, b: Vector2) -> float:
-	return atan2(a.cross(b), a.dot(b))
+	return DetMath.atan2(a.cross(b), a.dot(b))
 
 
 ## `v` rotated by `angle` radians about +Y (v.rotated(Vector3.UP, angle)).
 static func rotate_y(v: Vector3, angle: float) -> Vector3:
-	var c := cos(angle)
-	var s := sin(angle)
+	var c := DetMath.cos(angle)
+	var s := DetMath.sin(angle)
 	return Vector3(c * v.x + s * v.z, v.y, c * v.z - s * v.x)
 
 
 ## Rotation by `yaw` about +Y (Basis(Vector3.UP, yaw)), built from columns.
 ## Forward (-Z column negated) = (-sin, 0, -cos).
 static func yaw_basis(yaw: float) -> Basis:
-	var c := cos(yaw)
-	var s := sin(yaw)
+	var c := DetMath.cos(yaw)
+	var s := DetMath.sin(yaw)
 	return Basis(Vector3(c, 0.0, -s), Vector3.UP, Vector3(s, 0.0, c))
 
 
 ## Yaw whose forward (-Z) points along `dir` on the XZ plane (0 = -Z).
 static func yaw_of(dir: Vector3) -> float:
-	return atan2(-dir.x, -dir.z)
+	return DetMath.atan2(-dir.x, -dir.z)
 
 
 ## Basis.looking_at(target, up): -Z toward `target`. Already arithmetic-only

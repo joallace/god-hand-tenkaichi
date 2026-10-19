@@ -7,8 +7,11 @@ extends Node
 ##   godot --headless res://tools/replay_hash.tscn -- replay=<path>
 ## Record a CPU-only match first (no human input needed):
 ##   godot --headless res://tools/replay_hash.tscn -- record=<path> [seed=1 mode=versus|coop ticks=3600 level=<cpu level>]
+## Dump the full state at a tick (var_to_str of save_state) to diff two
+## platforms or peers:
+##   godot --headless res://tools/replay_hash.tscn -- replay=<path> dump=<tick> out=<file>
 
-const DEFAULTS := {"replay": "", "record": "", "seed": "1", "mode": "versus", "ticks": "3600", "level": "-1"}
+const DEFAULTS := {"replay": "", "record": "", "seed": "1", "mode": "versus", "ticks": "3600", "level": "-1", "dump": "", "out": ""}
 
 ## CPU-only co-op Waves setup used by `record` (and replay_test).
 const COOP_WAVES := 3
@@ -25,6 +28,8 @@ func _ready() -> void:
 	var code := 0
 	if args["record"] != "":
 		code = _record(args)
+	elif args["replay"] != "" and args["dump"] != "":
+		code = _dump(args["replay"], int(args["dump"]), args["out"])
 	elif args["replay"] != "":
 		code = _play(args["replay"])
 	else:
@@ -57,6 +62,23 @@ func _play(path: String) -> int:
 	print("end %d %d %s (%d of %d checkpoints differ)" % [res["end_tick"], res["final_hash"],
 		"OK" if res["ok"] else "MISMATCH", res["mismatches"], res["checked"]])
 	return 0 if res["ok"] else 1
+
+
+func _dump(path: String, at_tick: int, out: String) -> int:
+	var r := Replay.load_file(path)
+	var d := ReplayPlayer.create_director(r, self) if r != null else null
+	if d == null:
+		printerr("not a valid replay: %s" % path)
+		return 1
+	while d.tick < at_tick:
+		d.step()
+	var f := FileAccess.open(out, FileAccess.WRITE)
+	if f == null:
+		printerr("could not write %s" % out)
+		return 1
+	f.store_string(var_to_str(d.save_state()))
+	print("dumped tick %d hash %d to %s" % [d.tick, StateHash.of(d), out])
+	return 0
 
 
 ## Every slot a CPU. Versus: 1v1. Co-op: COOP_HUMANS CPU "humans" in a Waves

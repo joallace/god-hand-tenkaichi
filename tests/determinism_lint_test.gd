@@ -6,7 +6,9 @@ extends Node
 ## wall-clock time. Sim code uses DetMath and a seeded RandomNumberGenerator
 ## member instead. Prints each offending file:line.
 ##
-## - `DetMath.<fn>` calls never trip it; core/sim/det_math.gd is exempt.
+## - `DetMath.<fn>` calls never trip it; core/sim/det_math.gd is exempt,
+##   except that its own calls must be `DetMath.`-qualified: inside the class
+##   a bare `sin(` / `atan2(` resolves to the global built-in, not DetMath's.
 ## - Text after `#` (comments, ## docs) is ignored.
 ## - A proven-safe line ends with `# det-ok: <reason>` (e.g. a view-only node).
 ## - Not linted (manual rule): iterating a Dictionary is only deterministic if
@@ -55,6 +57,7 @@ var _strip_detmath := RegEx.create_from_string("DetMath\\.\\w+")
 func _ready() -> void:
 	_test_rules_self_check()
 	_test_scan()
+	_test_det_math_qualified()
 	print("DETERMINISM_LINT %s (%d failures)" % ["OK" if _fails == 0 else "FAIL", _fails])
 	get_tree().quit(0 if _fails == 0 else 1)
 
@@ -103,6 +106,26 @@ func _test_scan() -> void:
 		print("  " + h)
 	check(files.size() > 10, "scanned %d sim scripts" % files.size())
 	check(hits.is_empty(), "no non-deterministic calls in sim code (%d found)" % hits.size())
+
+
+## DetMath must call its own functions qualified (a bare `cos(` in it is the
+## libm built-in); the first two RULES (transcendentals) apply to it outside
+## `static func` declarations.
+func _test_det_math_qualified() -> void:
+	var regs := _compile().slice(0, 2)
+	var decl := RegEx.create_from_string("^\\s*static func ")
+	var hits: Array[String] = []
+	var lines := FileAccess.get_file_as_string(EXEMPT[0]).split("\n")
+	for i in lines.size():
+		if decl.search(lines[i]) != null:
+			continue
+		var code := _strip_detmath.sub(_split(lines[i])[0], "", true)
+		for r in regs:
+			if r.search(code) != null:
+				hits.append("%s:%d: %s" % [EXEMPT[0], i + 1, lines[i].strip_edges()])
+	for h in hits:
+		print("  unqualified: " + h)
+	check(hits.is_empty(), "DetMath calls its own functions qualified (%d bare)" % hits.size())
 
 
 func _compile() -> Array[RegEx]:

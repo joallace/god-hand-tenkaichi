@@ -181,7 +181,16 @@ Rules:
 5. **Cross-OS check**: `tools/replay_hash.tscn -- replay=<file>` prints the
    per-tick hash stream. CI-able on Linux; run the same replays on a real
    Windows machine (Wine's CRT is not the Windows CRT, so Wine is only a smoke
-   test). Exporting a Windows build needs an `export_presets.cfg` (none exists yet).
+   test). `export_presets.cfg` has Linux + Windows presets.
+   Wine smoke test (2026-10-19, official 4.7.2 win64 console binary run on
+   the project folder): a CPU-only versus replay (3600 ticks) and a co-op
+   Waves replay (2078 ticks) recorded on Linux match all checkpoints. It first
+   caught a real drift: inside `DetMath`, bare `sin(`/`cos(`/`atan(` calls
+   resolve to the *global* built-ins, so `yaw_basis`, `atan2` & co. were
+   libm-backed (glibc rounds correctly, so Linux-only tests couldn't see it);
+   the lint test now requires DetMath to call itself qualified. Diff two
+   states with `replay_hash -- replay=<f> dump=<tick> out=<file>`.
+   Still to do: the same check on a real Windows machine.
 6. All peers must run the **same Godot version** (handshake).
 
 ## 7. Rollback driver
