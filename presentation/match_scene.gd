@@ -12,6 +12,7 @@ extends Node
 ##   ├─ MatchSfx                  sound effects (via the Sfx autoload)
 ##   ├─ ViewLayout (Control)      split screen / single view SubViewports,
 ##   │                            each with a FighterCamera sharing World3D
+##   │                            (+ a CoopViewHud per view in co-op)
 ##   ├─ MatchHud (CanvasLayer 10) global top bar + announcer
 ##   └─ PauseMenu (CanvasLayer 50)
 
@@ -25,6 +26,7 @@ var hud: MatchHud
 var pause_menu: PauseMenu
 var vfx: VfxManager
 var sfx: MatchSfx
+var coop_huds: Dictionary = {}  # view slot -> CoopViewHud (co-op only)
 
 var _ending := false
 
@@ -71,6 +73,7 @@ func _ready() -> void:
 
 	director.fighters_spawned.connect(_on_fighters_spawned)
 	director.entity_spawned.connect(_on_entity_spawned)
+	director.entity_removed.connect(_on_entity_removed)
 	director.round_started.connect(_on_round_started)
 	director.match_ended.connect(_on_match_ended)
 	director.setup(config)
@@ -98,13 +101,25 @@ static func build_default_config() -> MatchConfig:
 func _on_fighters_spawned(fighters: Array[Fighter]) -> void:
 	hub.watch(fighters)
 	views.build(config, fighters, get_viewport().find_world_3d(), hub)
+	if config.mode == MatchConfig.Mode.COOP:
+		for slot: int in views.panels:
+			var ch := CoopViewHud.new()
+			(views.panels[slot] as Control).add_child(ch)
+			ch.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			ch.setup(director, hub, director.fighter_for_slot(slot), views.cameras[slot])
+			coop_huds[slot] = ch
 
 
-## Fighters joining mid-match (or rebuilt by a load) feed the event hub too.
-## HUD/views for them are co-op work (SPEC.md M3).
+## Fighters joining mid-match (or rebuilt by a load) feed the event hub too;
+## CoopViewHud reads director.fighters, so pips/arrows pick them up by itself.
 func _on_entity_spawned(e: SimEntity) -> void:
 	if e is Fighter:
 		hub.watch_fighter(e)
+
+
+func _on_entity_removed(e: SimEntity) -> void:
+	if e is Fighter:
+		hub.unwatch_fighter(e)
 
 
 func _on_round_started(_round_number: int) -> void:

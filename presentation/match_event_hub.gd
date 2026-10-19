@@ -36,13 +36,18 @@ func watch_fighter(f: Fighter) -> void:
 	f.event.connect(_on_event.bind(f))
 
 
+## Forget a fighter that is leaving the match (its signal goes with the node).
+func unwatch_fighter(f: Fighter) -> void:
+	_last_pos.erase(f)
+
+
 func last_position(f: Fighter) -> Vector3:
 	return _last_pos.get(f, f.global_position)
 
 
 func _physics_process(_delta: float) -> void:
 	for f in fighters:
-		if is_instance_valid(f):
+		if is_instance_valid(f) and f.is_inside_tree():
 			_last_pos[f] = f.global_position
 
 

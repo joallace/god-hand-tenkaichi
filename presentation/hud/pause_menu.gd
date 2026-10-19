@@ -5,7 +5,8 @@ extends CanvasLayer
 ## with any joypad / keyboard through the default ui_* actions.
 ## Resume: Resume button, ui_cancel, or pressing any local player's Pause
 ## binding again (the director doesn't poll inputs while paused, so this menu
-## polls the bindings itself).
+## polls the bindings itself). The subtitle names who paused; co-op runs add
+## "Restart Run" (same config, fresh match scene).
 
 const LAYER := 50
 const UI_THEME_PATH := "res://ui/theme/ui_theme.gd"
@@ -30,6 +31,7 @@ func _init() -> void:
 func setup(p_director: MatchDirector) -> void:
 	director = p_director
 	director.pause_requested.connect(open)
+	director.fighters_spawned.connect(_on_fighters_spawned.unbind(1))
 	_build()
 	visible = false
 
@@ -79,7 +81,23 @@ func _build() -> void:
 	if ResourceLoader.exists(Game.SCENE_CONTROLS):
 		_add_button(box, "Controls", _open_controls)
 	_add_button(box, "Quit to Menu", _quit)
+	_wire_focus()
 
+
+## Co-op runs get "Restart Run" under Resume (the config is only known once
+## the director has set up, after this menu's setup).
+func _on_fighters_spawned() -> void:
+	if director.config == null or director.config.mode != MatchConfig.Mode.COOP or _buttons.size() < 1:
+		return
+	var box := _buttons[0].get_parent()
+	_add_button(box, "Restart Run", _restart)
+	var b: Button = _buttons.pop_back()
+	_buttons.insert(1, b)
+	box.move_child(b, _buttons[0].get_index() + 1)
+	_wire_focus()
+
+
+func _wire_focus() -> void:
 	for i in _buttons.size():
 		var b := _buttons[i]
 		var prev := _buttons[(i - 1 + _buttons.size()) % _buttons.size()]
@@ -119,7 +137,8 @@ func open(slot: int) -> void:
 	get_tree().paused = true
 	visible = true
 	Sfx.play(&"pause")
-	_subtitle.text = "P%d paused" % (slot + 1)
+	var tag := director.config.player_tag(slot) if director.config != null else "P%d" % (slot + 1)
+	_subtitle.text = "%s paused" % tag
 	# The press that opened us must not immediately resume.
 	_pause_held = _sample_pause_buttons()
 	_buttons[0].grab_focus.call_deferred()
@@ -139,6 +158,11 @@ func resume() -> void:
 func _quit() -> void:
 	is_open = false
 	Game.goto(Game.SCENE_MAIN_MENU)
+
+
+func _restart() -> void:
+	is_open = false
+	Game.start_match(director.config)
 
 
 func _open_controls() -> void:

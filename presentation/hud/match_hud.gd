@@ -6,6 +6,13 @@ extends CanvasLayer
 ## a callout line (GUARD CRASH / THROW BREAK / COUNTER).
 ## Center: timer ("∞" when infinite) and announcer text (ROUND / FIGHT! /
 ## K.O. / TIME / DRAW / winner). Purely signal driven.
+##
+## Co-op (config.mode == COOP): panels only for the first two team-0 fighters
+## (humans / ally; enemies get per-view pips and a target bar from
+## CoopViewHud), no round pips or round announcements, the run timer is
+## hidden when infinite, an "ENEMIES n" counter sits under it (director's
+## enemies_left_changed; live enemy count until that exists) and run_ended
+## announces CLEARED / WIPED OUT.
 
 const LAYER := 10
 
@@ -13,6 +20,8 @@ var director: MatchDirector
 var root: Control
 var announcer: Label
 var timer_label: Label
+## Co-op only: enemies left in the run.
+var enemies_label: Label
 var panels: Dictionary = {}  # slot -> Dictionary of widgets
 
 var _announce_tween: Tween
@@ -59,6 +68,24 @@ func setup(p_director: MatchDirector, hub: MatchEventHub) -> void:
 		hub.fighter_event.connect(_on_fighter_event)
 
 
+## Co-op widgets. Built when the fighters spawn: the director only gets its
+## config in setup(), which runs after the HUD's setup.
+func _build_coop() -> void:
+	if enemies_label == null:
+		enemies_label = _label(Tuning.hud.enemies_left_font_size, Tuning.hud.text_color)
+		enemies_label.name = "EnemiesLeft"
+		enemies_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		root.add_child(enemies_label)
+		# Connected by name: the co-op run signals belong to the run director.
+		if director.has_signal(&"enemies_left_changed"):
+			director.connect(&"enemies_left_changed", _on_enemies_left_changed)
+		else:
+			director.entity_spawned.connect(_count_live_enemies.unbind(1))
+			director.entity_removed.connect(_count_live_enemies.unbind(1), CONNECT_DEFERRED)
+		if director.has_signal(&"run_ended"):
+			director.connect(&"run_ended", _on_run_ended)
+
+
 func _label(font_size: int, color: Color) -> Label:
 	var t := Tuning.hud
 	var l := Label.new()
@@ -78,9 +105,24 @@ func _label(font_size: int, color: Color) -> Label:
 
 # --- player panels -------------------------------------------------------------
 
+func _coop() -> bool:
+	return director != null and director.config != null and director.config.mode == MatchConfig.Mode.COOP
+
+
 func _on_fighters_spawned(fighters: Array[Fighter]) -> void:
-	for i in fighters.size():
-		_build_panel(fighters[i], i % 2 == 1)
+	if _coop():
+		_build_coop()
+		var team0: Array[Fighter] = []
+		for f in fighters:
+			if f.team == 0:
+				team0.append(f)
+		team0.sort_custom(func(a: Fighter, b: Fighter) -> bool: return a.slot < b.slot)
+		for i in mini(team0.size(), 2):
+			_build_panel(team0[i], i == 1)
+		_count_live_enemies()
+	else:
+		for i in fighters.size():
+			_build_panel(fighters[i], i % 2 == 1)
 	_layout()
 
 
@@ -131,6 +173,8 @@ func _build_panel(f: Fighter, right_side: bool) -> void:
 	pips.add_theme_constant_override("separation", 6)
 	pips.alignment = BoxContainer.ALIGNMENT_BEGIN if right_side else BoxContainer.ALIGNMENT_END
 	var rtw := director.config.rounds_to_win if director.config != null else 2
+	if _coop():
+		rtw = 0  # one run, no rounds
 	for i in rtw:
 		var pip := Panel.new()
 		pip.custom_minimum_size = Vector2.ONE * t.pip_size
@@ -195,6 +239,9 @@ func _layout() -> void:
 	announcer.size = Vector2(w, t.announce_font_size * 1.6)
 	announcer.position = Vector2(0, h * 0.36 - announcer.size.y * 0.5)
 	announcer.pivot_offset = announcer.size * 0.5
+	if enemies_label != null:
+		enemies_label.size = Vector2(w * 0.5, t.enemies_left_font_size + 12.0)
+		enemies_label.position = Vector2(w * 0.25, t.top_margin + t.timer_font_size + 16.0)
 
 	for slot: int in panels:
 		var p: Dictionary = panels[slot]
@@ -266,6 +313,8 @@ func _on_combo_changed(hits: int, slot: int) -> void:
 
 
 func _on_fighter_event(f: Fighter, kind: StringName, _data: Dictionary) -> void:
+	if kind == &"ko" and enemies_label != null and not director.has_signal(&"enemies_left_changed"):
+		_count_live_enemies()
 	if not panels.has(f.slot):
 		return
 	var t := Tuning.hud
@@ -303,6 +352,7 @@ func callout(slot: int, text: String, color: Color) -> void:
 
 func _on_timer_changed(seconds_left: int) -> void:
 	var t := Tuning.hud
+	timer_label.visible = seconds_left >= 0 or not _coop()
 	if seconds_left < 0:
 		timer_label.text = t.text_infinite
 		timer_label.label_settings.font_color = t.text_color
@@ -314,6 +364,8 @@ func _on_timer_changed(seconds_left: int) -> void:
 func _on_round_started(round_number: int) -> void:
 	var t := Tuning.hud
 	_refresh_pips()
+	if _coop():
+		return  # one run: just FIGHT!
 	var is_final := false
 	if director.config != null and director.config.rounds_to_win > 1:
 		is_final = true
@@ -329,6 +381,8 @@ func _on_phase_changed(phase: MatchDirector.Phase) -> void:
 
 
 func _on_round_ended(winner_slot: int, reason: StringName) -> void:
+	if _coop():
+		return  # run_ended announces the result
 	var t := Tuning.hud
 	_refresh_pips()
 	var text := t.text_ko
@@ -347,8 +401,32 @@ func _announce_round_winner(winner_slot: int) -> void:
 
 
 func _on_match_ended(winner_slot: int) -> void:
+	if _coop():
+		return
 	var t := Tuning.hud
 	announce(t.text_match_winner % (winner_slot + 1), _slot_color(winner_slot), -1.0)
+
+
+func _on_enemies_left_changed(left: int) -> void:
+	if enemies_label != null:
+		enemies_label.text = Tuning.hud.text_enemies_left % left
+
+
+## Fallback until the run director reports enemies left: enemies standing now.
+func _count_live_enemies() -> void:
+	var n := 0
+	for f in director.fighters:
+		if is_instance_valid(f) and not f.is_queued_for_deletion() and f.team != 0 and not f.is_ko():
+			n += 1
+	_on_enemies_left_changed(n)
+
+
+func _on_run_ended(cleared: bool) -> void:
+	var t := Tuning.hud
+	if cleared:
+		announce(t.text_run_cleared, t.announce_color, -1.0)
+	else:
+		announce(t.text_run_failed, t.ko_color, -1.0)
 
 
 func _slot_color(slot: int) -> Color:

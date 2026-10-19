@@ -144,6 +144,27 @@ const PRESETS := {
 	"match_win": {"wave_type": SQUARE, "base_freq": 0.3, "duty": 0.25, "env_sustain": 0.5,
 			"env_decay": 0.6, "env_punch": 0.4, "arp_speed": 0.55, "arp_mod": 0.55,
 			"vib_strength": 0.1, "vib_speed": 0.6},
+	# --- co-op ----------------------------------------------------------------
+	# Teammate down: a heavy falling thud with a sinking tone.
+	"downed": {"wave_type": SQUARE, "base_freq": 0.32, "freq_ramp": -0.35, "duty": 0.3,
+			"env_sustain": 0.2, "env_decay": 0.5, "env_punch": 0.4, "lpf_freq": 0.6},
+	# Revive starting: soft rising shimmer.
+	"revive_start": {"wave_type": SINE, "base_freq": 0.3, "freq_ramp": 0.15,
+			"env_attack": 0.1, "env_sustain": 0.15, "env_decay": 0.3,
+			"vib_strength": 0.2, "vib_speed": 0.6},
+	# Revived: bright rising arpeggio.
+	"revived": {"wave_type": SQUARE, "base_freq": 0.35, "duty": 0.25, "env_sustain": 0.25,
+			"env_decay": 0.45, "env_punch": 0.3, "arp_speed": 0.6, "arp_mod": 0.5, "hpf_freq": 0.05},
+	# Bled out: long falling tone.
+	"out": {"wave_type": SAW, "base_freq": 0.3, "freq_ramp": -0.2, "env_sustain": 0.35,
+			"env_decay": 0.55, "lpf_freq": 0.45, "vib_strength": 0.15, "vib_speed": 0.4},
+	# Enemy appearing at the ring edge: reversed-vanish zip.
+	"enemy_entry": {"wave_type": SAW, "base_freq": 0.25, "freq_ramp": 0.45,
+			"env_attack": 0.05, "env_sustain": 0.08, "env_decay": 0.25, "pha_offset": 0.2,
+			"hpf_freq": 0.1},
+	# A third party breaking a throw / vanish battle: sharp crack.
+	"lock_broken": {"wave_type": NOISE, "base_freq": 0.6, "freq_ramp": -0.3,
+			"env_sustain": 0.06, "env_decay": 0.3, "env_punch": 0.8, "hpf_freq": 0.15},
 	# --- menus ----------------------------------------------------------------
 	"ui_move": {"wave_type": SQUARE, "base_freq": 0.5, "env_sustain": 0.05,
 			"env_decay": 0.14, "hpf_freq": 0.15},

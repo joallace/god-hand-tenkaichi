@@ -10,6 +10,9 @@ extends Node
 ## State changes: attack (swing whoosh unless the move spawns a projectile or
 ## is a charge strike), dash, jump, charge (ki loop while in the state).
 ## Director: round start, FIGHT, KO/time-up, last-seconds ticks, match won.
+## Co-op: downed / revive_start / revived / out / lock_broken play their own
+## sounds, an enemy's &"entry" plays enemy_entry; fighters spawned mid-match
+## (entity_spawned) get the state sounds too, and their loops stop on removal.
 
 var director: MatchDirector
 var hub: MatchEventHub
@@ -24,6 +27,8 @@ func setup(p_director: MatchDirector, p_hub: MatchEventHub) -> void:
 	hub = p_hub
 	hub.fighter_event.connect(_on_fighter_event)
 	director.fighters_spawned.connect(_on_fighters_spawned)
+	director.entity_spawned.connect(_on_entity_spawned)
+	director.entity_removed.connect(_on_entity_removed)
 	director.round_started.connect(_on_round_started)
 	director.phase_changed.connect(_on_phase_changed)
 	director.round_ended.connect(_on_round_ended)
@@ -37,7 +42,22 @@ func _exit_tree() -> void:
 
 func _on_fighters_spawned(fighters: Array[Fighter]) -> void:
 	for f in fighters:
+		_watch(f)
+
+
+func _watch(f: Fighter) -> void:
+	if not f.state_changed.is_connected(_on_state_changed):
 		f.state_changed.connect(_on_state_changed.bind(f))
+
+
+func _on_entity_spawned(e: SimEntity) -> void:
+	if e is Fighter:
+		_watch(e)
+
+
+func _on_entity_removed(e: SimEntity) -> void:
+	if e is Fighter:
+		Sfx.stop_loop(e)
 
 
 func _on_fighter_event(_f: Fighter, kind: StringName, data: Dictionary) -> void:
@@ -70,6 +90,10 @@ func _on_fighter_event(_f: Fighter, kind: StringName, data: Dictionary) -> void:
 			Sfx.play_varied(&"swing_heavy")
 		&"beam":
 			Sfx.play(&"beam_fire")
+		&"entry":
+			Sfx.play_varied(&"enemy_entry")
+		&"downed", &"revive_start", &"revived", &"out", &"lock_broken":
+			Sfx.play_varied(kind)
 		&"perfect_dodge", &"dodge", &"guard_break", &"stagger", &"teleport", \
 				&"vanish", &"reappear", &"ki_blast", &"not_enough_ki", \
 				&"knockdown", &"ko", &"vanish_battle_end", &"push_off", \

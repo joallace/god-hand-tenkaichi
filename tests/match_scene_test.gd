@@ -98,6 +98,9 @@ func _finish() -> void:
 		to_cam.y = 0
 		_check(to_opp.dot(to_cam) < 0.0, "camera behind its fighter (slot %d)" % f.slot)
 	_check(_match.hud != null and _match.hud.panels.size() == 2, "HUD with 2 panels")
+	_check(_match.coop_huds.is_empty() and _match.hud.enemies_label == null, "versus has no co-op HUD")
+	_check((_match.hud.panels[0]["pips"] as HBoxContainer).get_child_count() == _match.config.rounds_to_win, "versus keeps round pips")
+	_check(_match.pause_menu.find_children("RestartRun", "Button", true, false).is_empty(), "versus pause has no Restart Run")
 	_check(_match.sfx != null and _match.sfx.is_inside_tree(), "MatchSfx present")
 	_check(_match.hud.timer_label.text != "", "timer text")
 	_check(_match.director.phase == MatchDirector.Phase.FIGHT, "in FIGHT phase")
