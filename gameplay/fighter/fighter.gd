@@ -5,8 +5,10 @@ extends CombatEntity
 ## PUBLIC CONTRACT (used by MatchDirector, CombatSystem, cameras, HUD) — keep
 ## these names/signatures stable:
 ##
-##   vars:    slot: int, opponent: Fighter, health: float, ki: float,
+##   vars:    slot: int, team: int, target: Fighter (may be null),
+##            health: float, ki: float,
 ##            combo_hits: int, def: CharacterDef, tuning: FighterTuning
+##            (`opponent` is a deprecated alias of `target`)
 ##   signals: health_changed(value: float, max_value: float)
 ##            ki_changed(value: float, max_value: float)
 ##            combo_changed(hits: int)          # hits landed BY this fighter
@@ -93,13 +95,15 @@ extends CombatEntity
 ##     vanish battle's window, or within guard_vanish_window() frames before
 ##     the first hit of a guardable melee string lands (vanish instead of
 ##     blocking; a press soon after the previous one never vanishes).
-##   Every teleport reappears around the opponent where the left stick points
-##   (see FighterTuning.teleport_dir_threshold); neutral = behind them.
+##   Every teleport reappears around its anchor (the fighter last hit for an
+##   offensive teleport, the vanish battle partner for an escape) where the
+##   left stick points (see FighterTuning.teleport_dir_threshold); neutral =
+##   behind them.
 ##
 ## Jumping (one air action per jump, same overloads as on the ground):
 ## LIGHT = jump attack, HEAVY = jump heavy (ki blast out of close range),
 ## BLAST = ki blast, CHARGE + HEAVY / SPECIAL = special. Moves started in the
-## air stall for MoveData.air_hang_frames, lunges dive at the opponent, and
+## air stall for MoveData.air_hang_frames, lunges dive at the target, and
 ## an air beam aims down at them.
 ##
 ## Dodges (right-stick flick) have per-direction timings (duck / sway /
@@ -110,8 +114,13 @@ extends CombatEntity
 ## Knocked down: a flick in the air flips back onto the feet (air tech); on
 ## the floor a button rises at once and a flick rolls.
 ##
-## Facing convention: the fighter's -Z (Godot forward) points at the opponent
-## while locked on. InputFrame.move +Y = toward opponent, +X = strafe right.
+## Teams: `target` is always on another team (picked by the MatchDirector),
+## but nothing assumes target.target == self: throws, vanish battles, combos
+## and teleports track their partner fighter by slot.
+##
+## Facing convention: the fighter's -Z (Godot forward) points at the target
+## while locked on. InputFrame.move +Y = toward target, +X = strafe right.
+## With no target the fighter keeps its facing (stick relative to it).
 ## Fighter-space Vector3 (MoveData offsets): x = right, y = up, z = forward.
 
 signal health_changed(value: float, max_value: float)
@@ -146,7 +155,17 @@ const BUFFER_SIZE := 12
 const NEVER := 1 << 20
 
 var slot: int = 0
-var opponent: Fighter
+var team: int = 0
+## Who this fighter fights: facing, fighter-space stick, attack tracking,
+## lunges, sidesteps, aimed blasts. Null = none (keeps its facing). Picked by
+## the MatchDirector; saved by slot.
+var target: Fighter
+## Deprecated pre-teams name of `target`; kept only so old code compiles.
+var opponent: Fighter:
+	get:
+		return target
+	set(value):
+		target = value
 var health: float
 var ki: float
 var combo_hits: int = 0
@@ -194,6 +213,14 @@ var _combo_moves_taken: Array[StringName] = []
 var _combo_relaunches: int = 0
 var _combo_last_melee: int = -1
 var _teleports_in_combo: int = 0
+## Partners by slot (-1 = none), so locks and chases never assume that
+## target.target == self: the fighter that last swung at us (our combo's
+## attacker, vanish escape anchor), the fighter we last hit (teleport chase),
+## our throw partner (thrower or victim) and the teleport reappear anchor.
+var _last_attacker_slot: int = -1
+var _last_victim_slot: int = -1
+var _grab_partner_slot: int = -1
+var _tp_anchor_slot: int = -1
 var _tp_kind: int = TeleportKind.OFFENSE
 var _vanish_battle: VanishBattle
 var _buffer: PackedInt32Array = PackedInt32Array()
@@ -331,6 +358,10 @@ func reset_for_round(xform: Transform3D) -> void:
 	_move_opens_string = true
 	_clear_combo_segment()
 	_teleports_in_combo = 0
+	_last_attacker_slot = -1
+	_last_victim_slot = -1
+	_grab_partner_slot = -1
+	_tp_anchor_slot = -1
 	_vanish_battle = null
 	_last_contact_id = -1
 	_clear_buffer()
@@ -569,6 +600,8 @@ func get_hurtbox() -> Array:
 
 ## Apply a hitbox that overlapped this fighter. Returns the Contact outcome.
 func receive_hit(hb: Hitbox) -> Contact:
+	if hb.attacker != null and hb.attacker != self:
+		_last_attacker_slot = hb.attacker.slot
 	if hb.source == hb.attacker and hb.attacker.state == State.THROWN:
 		return Contact.NONE  # grabbed this tick, before its own hit resolved
 	if state == State.DODGE and _dodge_kind == DodgeKind.DODGE and _state_frame < tuning.perfect_dodge_frames:
@@ -613,7 +646,7 @@ func _enter(s: State) -> void:
 
 
 func _tick_neutral() -> void:
-	_face_opponent(_turn_step())
+	_face_target(_turn_step())
 	if _try_actions(true):
 		return
 	var m := _input.move()
@@ -667,7 +700,7 @@ func _try_actions(allow_guard: bool) -> bool:
 
 
 func _tick_dash() -> void:
-	_face_opponent(_turn_step())
+	_face_target(_turn_step())
 	if _try_dodge():
 		return
 	if _consume(InputFrame.Btn.LIGHT) or _consume(InputFrame.Btn.HEAVY):
@@ -688,7 +721,7 @@ func _start_jump() -> void:
 
 
 func _tick_jump() -> void:
-	_face_opponent(_turn_step())
+	_face_target(_turn_step())
 	if not _air_attack_used and _try_air_action():
 		_air_attack_used = true
 
@@ -715,7 +748,7 @@ func _tick_attack() -> void:
 	var f := _state_frame
 	var track := m.startup - tuning.attack_track_lock_frames if m.track_frames < 0 else m.track_frames
 	if f <= track:
-		_face_opponent(_attack_turn_step())
+		_face_target(_attack_turn_step())
 	var lunging := f >= m.lunge_start and f < m.lunge_start + m.lunge_frames
 	if lunging and is_airborne():
 		_vel = _dive_velocity(m.lunge_speed)
@@ -748,11 +781,11 @@ func _tick_attack() -> void:
 
 
 ## Air lunge: along the facing, descending so it touches down at the
-## opponent's feet (never rising: fighters don't fly).
+## target's feet (never rising: fighters don't fly).
 func _dive_velocity(speed: float) -> Vector3:
 	var reach := 0.0
-	if opponent != null:
-		var d := opponent.global_position - global_position
+	if target != null:
+		var d := target.global_position - global_position
 		d.y = 0.0
 		reach = d.length()
 	var dir := _fwd() * reach + Vector3.DOWN * global_position.y
@@ -781,7 +814,7 @@ func _try_charge_strike(m: MoveData) -> bool:
 func _tick_charge_hold(m: MoveData) -> bool:
 	if _state_frame < m.charge_frame:
 		return false
-	_face_opponent(_attack_turn_step())
+	_face_target(_attack_turn_step())
 	_set_ground_velocity(Vector3.ZERO)
 	if _try_dodge():
 		return true
@@ -920,7 +953,7 @@ func _try_dodge(kind: DodgeKind = DodgeKind.DODGE) -> bool:
 func _tick_dodge() -> void:
 	var f := _state_frame
 	if _dodge_kind == DodgeKind.AIR_TECH:
-		_face_opponent(_turn_step())
+		_face_target(_turn_step())
 		_set_ground_velocity(-_fwd() * tuning.air_tech_back_speed)
 		return  # ends on landing (_on_land)
 	var chain_from := _per_dodge(tuning.duck_chain_from_frame, tuning.sway_chain_from_frame,
@@ -980,12 +1013,12 @@ func _try_dodge_attack(f: int) -> bool:
 	return _start_move_id(def.light_string[0] if not def.light_string.is_empty() else &"")
 
 
-## Move `step` meters along an arc around the opponent (sidestep).
+## Move `step` meters along an arc around the target (sidestep).
 func _sway_step(step: float, to_right: bool) -> void:
-	if opponent == null:
+	if target == null:
 		global_position += _right() * (step if to_right else -step)
 		return
-	var pivot := opponent.global_position
+	var pivot := target.global_position
 	pivot.y = global_position.y
 	var rel := global_position - pivot
 	var r := maxf(rel.length(), tuning.body_radius)
@@ -1020,7 +1053,7 @@ func _update_guard_pose() -> void:
 
 
 func _tick_guard() -> void:
-	_face_opponent(_turn_step())
+	_face_target(_turn_step())
 	if not _input.is_held(InputFrame.Btn.GUARD):
 		_enter(State.IDLE)
 		return
@@ -1048,13 +1081,13 @@ func _tick_guard_break() -> void:
 	if _state_frame >= _state_len:
 		if _guard_crashed:
 			_add_ki(maxf(tuning.guard_crash_ki_refill - ki, 0.0))
-		_end_opponent_combo()
+		_end_attacker_combo()
 		_enter(State.IDLE)
 
 
 ## Counter stance (stick forward + LIGHT from guard); see _try_counter_guard.
 func _tick_counter() -> void:
-	_face_opponent(_turn_step())
+	_face_target(_turn_step())
 	if _state_frame >= tuning.counter_guard_stance_frames:
 		if _input.is_held(InputFrame.Btn.GUARD):
 			_enter_guard()
@@ -1078,7 +1111,7 @@ func _tick_recoil() -> void:
 
 
 func _tick_taunt() -> void:
-	_face_opponent(_turn_step())
+	_face_target(_turn_step())
 	if _state_frame >= tuning.taunt_frames:
 		_add_ki(tuning.taunt_ki_gain)
 		event.emit(&"taunt_done", {"slot": slot, "ki": tuning.taunt_ki_gain})
@@ -1103,6 +1136,7 @@ func _try_grabbed(hb: Hitbox) -> bool:
 			return false
 	_end_vanish_battle(thrower.slot)
 	_enter(State.THROWN)
+	_grab_partner_slot = thrower.slot
 	_vel = Vector3.ZERO
 	_throw_breakable = _is_facing(hb.origin)
 	thrower._on_grab(self)
@@ -1114,23 +1148,25 @@ func _try_grabbed(hb: Hitbox) -> bool:
 
 func _on_grab(victim: Fighter) -> void:
 	_enter(State.THROW)
+	_grab_partner_slot = victim.slot
 	event.emit(&"throw", {"slot": slot, "target_slot": victim.slot, "position": global_position})
 
 
 func _tick_thrown() -> void:
-	if opponent == null or opponent.state != State.THROW:
+	var thrower := _fighter(_grab_partner_slot)
+	if thrower == null or thrower.state != State.THROW or thrower._grab_partner_slot != slot:
 		_enter(State.IDLE)
 		return
-	global_position = opponent.global_position + opponent._fwd() * tuning.throw_hold_distance
+	global_position = thrower.global_position + thrower._fwd() * tuning.throw_hold_distance
 	_set_ground_velocity(Vector3.ZERO)
-	_face_opponent(PI)
+	_face_toward(thrower, PI)
 	if _throw_breakable and _state_frame < tuning.throw_break_frames \
 			and _guard_press_armed and _since_guard_press < _state_frame:
 		_break_throw()
 
 
 func _break_throw() -> void:
-	var thrower := opponent
+	var thrower := _fighter(_grab_partner_slot)
 	_since_guard_press = NEVER  # used up
 	event.emit(&"throw_break", {"slot": slot, "attacker_slot": thrower.slot, "position": global_position})
 	var away := _fwd() * -tuning.throw_break_push_speed
@@ -1140,14 +1176,23 @@ func _break_throw() -> void:
 
 ## The thrower was hit: drop the victim.
 func _release_throw() -> void:
-	if opponent != null and opponent.state == State.THROWN:
-		opponent._enter(State.IDLE)
+	var victim := _grabbed_victim()
+	if victim != null:
+		victim._enter(State.IDLE)
+
+
+## The fighter this thrower holds, or null.
+func _grabbed_victim() -> Fighter:
+	var victim := _fighter(_grab_partner_slot)
+	if victim != null and victim.state == State.THROWN and victim._grab_partner_slot == slot:
+		return victim
+	return null
 
 
 func _tick_throw() -> void:
 	_set_ground_velocity(Vector3.ZERO)
 	var f := _state_frame
-	if f == tuning.throw_break_frames and opponent != null and opponent.state == State.THROWN:
+	if f == tuning.throw_break_frames and _grabbed_victim() != null:
 		_execute_throw()
 	if f >= tuning.throw_break_frames + tuning.throw_recovery_frames:
 		_enter(State.IDLE)
@@ -1156,7 +1201,7 @@ func _tick_throw() -> void:
 ## The grab held: the throw's damage and knockback land as a clean hit, sent
 ## forward, or behind the thrower for a back throw.
 func _execute_throw() -> void:
-	var victim := opponent
+	var victim := _grabbed_victim()
 	var dir := -_fwd() if _throw_back else _fwd()
 	if _throw_back:
 		victim.global_position = global_position + dir * tuning.throw_hold_distance
@@ -1177,7 +1222,7 @@ func _execute_throw() -> void:
 
 
 func _tick_charge() -> void:
-	_face_opponent(_turn_step())
+	_face_target(_turn_step())
 	if not _input.is_held(InputFrame.Btn.CHARGE):
 		_enter(State.IDLE)
 		return
@@ -1190,7 +1235,7 @@ func _tick_hitstun() -> void:
 	if _try_vanish_escape():
 		return
 	if _state_frame >= _state_len and not is_airborne():
-		_end_opponent_combo()
+		_end_attacker_combo()
 		_enter(State.IDLE)
 
 
@@ -1207,12 +1252,12 @@ func _tick_knockdown() -> void:
 		return
 	if _land_frame < 0:
 		if _state_frame >= tuning.air_tech_min_frames and _try_dodge(DodgeKind.AIR_TECH):
-			_end_opponent_combo()
+			_end_attacker_combo()
 		return
 	var lying := _state_frame - _land_frame
 	if lying >= tuning.knockdown_min_frames:
 		if _dodge_buffered() and _dodge_buf_dir != InputFrame.Dodge.FORWARD:
-			_end_opponent_combo()
+			_end_attacker_combo()
 			_try_dodge(DodgeKind.ROLL)
 			_invuln_frames = tuning.wakeup_invuln_frames
 			return
@@ -1236,14 +1281,14 @@ func _consume_rise() -> bool:
 
 
 func _wake_up() -> void:
-	_end_opponent_combo()
+	_end_attacker_combo()
 	_enter(State.WAKEUP)
 	_invuln_frames = tuning.wakeup_invuln_frames
 	event.emit(&"wakeup", {"slot": slot})
 
 
 func _tick_wakeup() -> void:
-	_face_opponent(_turn_step())
+	_face_target(_turn_step())
 	if _input.is_held(InputFrame.Btn.GUARD):
 		_enter_guard()  # get-ups can guard at once
 		return
@@ -1255,9 +1300,10 @@ func _tick_wakeup() -> void:
 
 ## Offensive vanish: right after landing a hit, reappear behind the victim.
 func _try_teleport() -> bool:
-	if not _teleport_buffered() or opponent == null:
+	var victim := _fighter(_last_victim_slot)
+	if not _teleport_buffered() or victim == null:
 		return false
-	if not opponent._is_teleport_target() or _since_hit_landed > tuning.teleport_hit_window:
+	if not victim._is_teleport_target() or _since_hit_landed > tuning.teleport_hit_window:
 		return false
 	if _teleports_in_combo >= tuning.teleport_max_per_combo:
 		return false
@@ -1265,8 +1311,9 @@ func _try_teleport() -> bool:
 	if not _spend_ki(tuning.teleport_cost_bars * tuning.ki_bar_size):
 		return false
 	_teleports_in_combo += 1
-	opponent._hold_for_teleport(tuning.teleport_frames + tuning.teleport_followup_window)
-	event.emit(&"teleport", {"slot": slot, "target_slot": opponent.slot, "position": global_position})
+	victim._hold_for_teleport(tuning.teleport_frames + tuning.teleport_followup_window)
+	event.emit(&"teleport", {"slot": slot, "target_slot": victim.slot, "position": global_position})
+	_tp_anchor_slot = victim.slot
 	_enter_teleport(TeleportKind.OFFENSE)
 	return true
 
@@ -1288,30 +1335,32 @@ func _hold_for_teleport(frames: int) -> void:
 
 ## Defensive vanish (from hitstun): starts a vanish battle.
 func _try_vanish_escape() -> bool:
-	if not _teleport_buffered() or opponent == null:
+	var attacker := _fighter(_last_attacker_slot)
+	if not _teleport_buffered() or attacker == null:
 		return false
 	_consume_teleport()
-	return _start_vanish_battle()
+	return _start_vanish_battle(attacker)
 
 
 ## Guard pressed just before the first hit of a melee string: vanish instead
 ## of blocking. Mashing GUARD doesn't count (see _guard_press_armed).
 func _try_guard_vanish(hb: Hitbox) -> bool:
-	if state == State.COUNTER or not hb.is_melee or not hb.opens_string or hb.attacker == null or opponent == null:
+	if state == State.COUNTER or not hb.is_melee or not hb.opens_string or hb.attacker == null:
 		return false
 	if not _guard_press_armed or _since_guard_press >= guard_vanish_window():
 		return false
 	if ki < VanishBattle.cost_from(tuning, tuning.guard_vanish_cost_bars, 0):
 		return false  # just block; no not_enough_ki nag on every guard
 	_consume_teleport()
-	if not _start_vanish_battle(tuning.guard_vanish_cost_bars):
+	if not _start_vanish_battle(hb.attacker, tuning.guard_vanish_cost_bars):
 		return false
 	_since_guard_press = NEVER  # used up: the next press is clean again
 	return true
 
 
-## Pay the opening cost and vanish behind the opponent, who must respond.
-func _start_vanish_battle(opening_bars: float = -1.0) -> bool:
+## Pay the opening cost and vanish behind `partner` (who hit us), who must
+## respond.
+func _start_vanish_battle(partner: Fighter, opening_bars: float = -1.0) -> bool:
 	if opening_bars < 0.0:
 		opening_bars = tuning.vanish_escape_cost_bars
 	if not _spend_ki(VanishBattle.cost_from(tuning, opening_bars, 0)):
@@ -1319,9 +1368,11 @@ func _start_vanish_battle(opening_bars: float = -1.0) -> bool:
 	var b := VanishBattle.new()
 	b.base_bars = opening_bars
 	b.serial = (director.tick if director else 0) * 4 + slot
+	b.vanisher_slot = partner.slot
+	b.responder_slot = slot
 	_vanish_battle = b
-	opponent._vanish_battle = b
-	_end_opponent_combo()
+	partner._vanish_battle = b
+	_end_attacker_combo()
 	_do_vanish_exchange(0)
 	return true
 
@@ -1339,12 +1390,27 @@ func _try_vanish_respond() -> bool:
 
 func _do_vanish_exchange(exchange: int) -> void:
 	var b := _vanish_battle
+	var partner := _vanish_partner()
 	b.exchange = exchange
 	b.vanisher_slot = slot
-	b.responder_slot = opponent.slot
+	b.responder_slot = partner.slot
 	event.emit(&"vanish", {"slot": slot, "exchange": exchange, "escape": true, "position": global_position})
+	_tp_anchor_slot = partner.slot
 	_enter_teleport(TeleportKind.ESCAPE)
-	opponent._enter_vanish_wait(VanishBattle.window_for(tuning, exchange))
+	partner._enter_vanish_wait(VanishBattle.window_for(tuning, exchange))
+
+
+## The other fighter of our vanish battle (whichever slot isn't ours).
+func _vanish_partner() -> Fighter:
+	if _vanish_battle == null:
+		return null
+	var b := _vanish_battle
+	return _fighter(b.responder_slot if b.vanisher_slot == slot else b.vanisher_slot)
+
+
+func _vanish_partner_slot() -> int:
+	var p := _vanish_partner()
+	return p.slot if p else -1
 
 
 func _enter_vanish_wait(window: int) -> void:
@@ -1360,11 +1426,11 @@ func _tick_vanish_wait() -> void:
 		_enter(State.IDLE)
 		return
 	if _state_frame >= tuning.teleport_frames:
-		_face_opponent(_turn_step())
+		_face_toward(_vanish_partner(), _turn_step())
 		if _teleport_buffered() and _try_vanish_respond():
 			return
 	if _state_frame >= _state_len:
-		_end_vanish_battle(opponent.slot if opponent else -1)
+		_end_vanish_battle(_vanish_partner_slot())
 		_enter(State.IDLE)
 
 
@@ -1375,9 +1441,10 @@ func _end_vanish_battle(winner_slot: int) -> void:
 	if b.active:
 		b.active = false
 		event.emit(&"vanish_battle_end", {"slot": slot, "exchanges": b.exchange + 1, "winner_slot": winner_slot})
+	var partner := _fighter(b.responder_slot if b.vanisher_slot == slot else b.vanisher_slot)
 	_vanish_battle = null
-	if opponent and opponent._vanish_battle == b:
-		opponent._vanish_battle = null
+	if partner and partner._vanish_battle == b:
+		partner._vanish_battle = null
 
 
 func _enter_teleport(kind: TeleportKind) -> void:
@@ -1397,22 +1464,26 @@ func _tick_teleport() -> void:
 		_enter(State.IDLE)
 
 
-## Reappear around the opponent where the latched stick points (from the
+## Reappear around the anchor (the fighter we chased, or our vanish battle
+## partner; else our target) where the latched stick points (from the
 ## teleporter's view), or behind their back with a neutral stick; facing them.
 func _reappear() -> void:
-	if opponent != null:
-		var p := opponent.global_position + _reappear_dir() * tuning.teleport_behind_distance
+	var anchor := _fighter(_tp_anchor_slot)
+	if anchor == null:
+		anchor = target
+	if anchor != null:
+		var p := anchor.global_position + _reappear_dir(anchor) * tuning.teleport_behind_distance
 		p.y = 0.0
 		global_position = p
-		_face_opponent(PI)
+		_face_toward(anchor, PI)
 	event.emit(&"reappear", {"slot": slot, "position": global_position})
 
 
-func _reappear_dir() -> Vector3:
+func _reappear_dir(anchor: Fighter) -> Vector3:
 	var v := Vector2(_tp_dir) / float(InputFrame.MOVE_SCALE)
 	if v.length() <= tuning.teleport_dir_threshold:
-		return -opponent._fwd()
-	var f := opponent.global_position - global_position
+		return -anchor._fwd()
+	var f := anchor.global_position - global_position
 	f.y = 0.0
 	f = f.normalized() if f.length_squared() > 0.0001 else _fwd()
 	var r := Vector3(-f.z, 0.0, f.x)
@@ -1459,8 +1530,8 @@ func _spawn_from(m: MoveData) -> void:
 		&"ki_blast":
 			var blast := KiBlast.new()
 			director.spawn_entity(blast)
-			var target := opponent.global_position + Vector3.UP * m.spawn_move.hitbox_offset.y if opponent else Vector3.ZERO
-			blast.launch(self, m.spawn_move, global_position + _to_world3(m.spawn_move.hitbox_offset), target)
+			var aim_at := target.global_position + Vector3.UP * m.spawn_move.hitbox_offset.y if target else Vector3.ZERO
+			blast.launch(self, m.spawn_move, global_position + _to_world3(m.spawn_move.hitbox_offset), aim_at)
 			event.emit(&"ki_blast", {"slot": slot, "position": blast.global_position})
 		&"beam":
 			var beam := Beam.new()
@@ -1470,13 +1541,13 @@ func _spawn_from(m: MoveData) -> void:
 
 
 ## Beam direction: flat along the facing, or from the air down at the
-## opponent (beam height above their feet).
+## target (beam height above their feet).
 func _beam_aim(shot: MoveData) -> Vector3:
 	var dir := _fwd()
-	if opponent == null or not is_airborne():
+	if target == null or not is_airborne():
 		return dir
 	var from := global_position + Vector3.UP * shot.hitbox_offset.y
-	var to := opponent.global_position + Vector3.UP * shot.hitbox_offset.y
+	var to := target.global_position + Vector3.UP * shot.hitbox_offset.y
 	return (to - from).normalized() if (to - from).length_squared() > 0.0001 else dir
 
 
@@ -1579,7 +1650,7 @@ func _take_hit(hb: Hitbox) -> void:
 	if _vanish_battle != null:
 		_end_vanish_battle(attacker.slot if attacker else -1)
 	if attacker != null:
-		attacker._on_hit_dealt(m)
+		attacker._on_hit_dealt(m, self)
 	var kb := hb.world_knockback()
 	var was_juggle := state == State.KNOCKDOWN
 	var loop := _is_loop_hit(hb, was_juggle)
@@ -1637,7 +1708,7 @@ func _clear_combo_segment() -> void:
 
 
 func _enter_ko(kb: Vector3) -> void:
-	_end_vanish_battle(opponent.slot if opponent else -1)
+	_end_vanish_battle(_vanish_partner_slot())
 	_enter(State.KO)
 	_land_frame = -1
 	_vel = kb
@@ -1667,8 +1738,9 @@ func _stagger(frames: int) -> void:
 	event.emit(&"stagger", {"slot": slot, "position": global_position})
 
 
-func _on_hit_dealt(m: MoveData) -> void:
+func _on_hit_dealt(m: MoveData, victim: Fighter) -> void:
 	_since_hit_landed = 0
+	_last_victim_slot = victim.slot
 	_set_combo(combo_hits + 1)
 	if m.grants_hit_ki:
 		_add_ki(tuning.ki_gain_on_hit_dealt + m.ki_gain)
@@ -1689,11 +1761,12 @@ func _emit_hit(hb: Hitbox, dmg: float, blocked: bool, guard_result: int = -1) ->
 
 
 ## Victim left hitstun/knockdown: the attacker's combo is over.
-func _end_opponent_combo() -> void:
-	if opponent == null:
+func _end_attacker_combo() -> void:
+	var attacker := _fighter(_last_attacker_slot)
+	if attacker == null:
 		return
-	opponent._set_combo(0)
-	opponent._teleports_in_combo = 0
+	attacker._set_combo(0)
+	attacker._teleports_in_combo = 0
 
 
 # =============================================================================
@@ -1759,16 +1832,27 @@ func _attack_turn_step() -> float:
 	return deg_to_rad(tuning.attack_track_turn_deg) / Tuning.match_rules.tick_rate
 
 
-func _face_opponent(max_step: float) -> void:
-	if opponent == null:
+func _face_target(max_step: float) -> void:
+	_face_toward(target, max_step)
+
+
+func _face_toward(f: Fighter, max_step: float) -> void:
+	if f == null:
 		return
-	var to := opponent.global_position - global_position
+	var to := f.global_position - global_position
 	to.y = 0.0
 	if to.length_squared() < 0.0001:
 		return
-	var target := atan2(-to.x, -to.z)
-	var diff := wrapf(target - _yaw, -PI, PI)
+	var want := atan2(-to.x, -to.z)
+	var diff := wrapf(want - _yaw, -PI, PI)
 	_set_yaw(_yaw + clampf(diff, -max_step, max_step))
+
+
+## Fighter in `p_slot` of this match, or null (-1, or no director).
+func _fighter(p_slot: int) -> Fighter:
+	if p_slot < 0 or director == null:
+		return null
+	return director.fighter_for_slot(p_slot)
 
 
 func _set_yaw(y: float) -> void:
@@ -1856,12 +1940,12 @@ func _consume_teleport() -> bool:
 	return tp or guard
 
 
-## Within close_combat_range of the opponent (ground plane): HEAVY strikes
+## Within close_combat_range of the target (ground plane): HEAVY strikes
 ## instead of firing a ki blast.
 func _in_close_range() -> bool:
-	if opponent == null:
+	if target == null:
 		return true
-	var d := opponent.global_position - global_position
+	var d := target.global_position - global_position
 	d.y = 0.0
 	return d.length() <= tuning.close_combat_range
 
@@ -1910,6 +1994,9 @@ func save_state() -> Dictionary:
 		"guard_pose_frames": _guard_pose_frames, "guard_crashed": _guard_crashed,
 		"throw_breakable": _throw_breakable, "throw_back": _throw_back,
 		"bounce_pending": _bounce_pending, "tp_dir": _tp_dir,
+		"team": team, "target": target.slot if target else -1,
+		"last_attacker": _last_attacker_slot, "last_victim": _last_victim_slot,
+		"grab_partner": _grab_partner_slot, "tp_anchor": _tp_anchor_slot,
 	})
 	return s
 
@@ -1945,10 +2032,11 @@ func load_state(s: Dictionary) -> void:
 	var vb: Dictionary = s["vanish"]
 	_vanish_battle = null
 	if not vb.is_empty():
-		# Both fighters reference one battle: if the opponent holds the same
+		# Both fighters reference one battle: if the partner holds the same
 		# battle (stale or already restored), refresh it in place and share.
-		if opponent and opponent._vanish_battle and opponent._vanish_battle.serial == vb["serial"]:
-			_vanish_battle = opponent._vanish_battle
+		var partner := _fighter(vb["responder"] if vb["vanisher"] == slot else vb["vanisher"])
+		if partner and partner._vanish_battle and partner._vanish_battle.serial == vb["serial"]:
+			_vanish_battle = partner._vanish_battle
 			_vanish_battle.apply_dict(vb)
 		else:
 			_vanish_battle = VanishBattle.from_dict(vb)
@@ -1978,6 +2066,12 @@ func load_state(s: Dictionary) -> void:
 	_throw_back = s["throw_back"]
 	_bounce_pending = s["bounce_pending"]
 	_tp_dir = s["tp_dir"]
+	team = s["team"]
+	target = _fighter(s["target"])
+	_last_attacker_slot = s["last_attacker"]
+	_last_victim_slot = s["last_victim"]
+	_grab_partner_slot = s["grab_partner"]
+	_tp_anchor_slot = s["tp_anchor"]
 	health_changed.emit(health, tuning.max_health)
 	ki_changed.emit(ki, ki_max())
 	combo_changed.emit(combo_hits)

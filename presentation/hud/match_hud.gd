@@ -358,7 +358,7 @@ func _slot_color(slot: int) -> Color:
 func _refresh_pips() -> void:
 	for slot: int in panels:
 		var pips: HBoxContainer = panels[slot]["pips"]
-		var won := director.wins[slot] if slot < director.wins.size() else 0
+		var won := director.wins_for_slot(slot)
 		var n := pips.get_child_count()
 		for i in n:
 			# Fill from the inner (center) side.

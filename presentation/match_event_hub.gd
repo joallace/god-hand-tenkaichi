@@ -53,8 +53,8 @@ func _on_event(kind: StringName, data: Dictionary, f: Fighter) -> void:
 ## Fighter that receives the hit described by a &"hit" event emitted by `f`.
 func hit_victim(f: Fighter, data: Dictionary) -> Fighter:
 	var attacker_slot: int = data.get("attacker_slot", -1)
-	if attacker_slot == f.slot and f.opponent != null:
-		return f.opponent
+	if attacker_slot == f.slot and f.target != null:
+		return f.target
 	return f
 
 

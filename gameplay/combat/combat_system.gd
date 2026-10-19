@@ -4,7 +4,8 @@ extends RefCounted
 ##   1. body separation (fighters can't overlap) + arena clamp
 ##   2. gather all live hitboxes (fighters in slot order, then entities in
 ##      spawn order) and test them against every other fighter's hurtbox
-##      using the pre-resolution state (simultaneous hits trade)
+##      using the pre-resolution state (simultaneous hits trade); the
+##      attacker's teammates are skipped unless MatchConfig.friendly_fire
 ##   3. apply contacts in that same deterministic order: the victim decides
 ##      the outcome (perfect dodge / invuln / block / hit), the source is told,
 ##      and hitstop is requested.
@@ -36,7 +37,7 @@ func resolve(_tick: int) -> void:
 			if src.has_contacted(hb.hit_id):
 				continue
 			for victim in director.fighters:
-				if victim == hb.attacker:
+				if victim == hb.attacker or _is_friendly(hb, victim):
 					continue
 				var hurt := victim.get_hurtbox()
 				if hurt.is_empty():
@@ -54,6 +55,13 @@ func resolve(_tick: int) -> void:
 			continue
 		hb.source.on_hitbox_contact(hb, victim, outcome)
 		director.request_hitstop(_hitstop_for(hb, victim, outcome))
+
+
+## Same-team contact, skipped unless MatchConfig.friendly_fire.
+func _is_friendly(hb: Hitbox, victim: Fighter) -> bool:
+	if hb.attacker == null or hb.attacker.team != victim.team:
+		return false
+	return director.config == null or not director.config.friendly_fire
 
 
 func _hitstop_for(hb: Hitbox, victim: Fighter, outcome: CombatEntity.Contact) -> int:
