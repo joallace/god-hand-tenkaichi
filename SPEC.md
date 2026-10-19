@@ -211,7 +211,11 @@ matter). Tokens limit how often you get hit from behind.
   a revive, the fighter is **OUT**: in waves, until the next wave break (which
   revives them); in brawl, for the rest of the run.
 - The CPU ally revives humans: its brain treats a downed teammate as a
-  high-priority goal when no enemy holds a melee token on it.
+  high-priority goal when no enemy holds a melee token on it. (A downed
+  fighter's tokens are released at once, so `CpuBrain` checks enemies within
+  `cpu.revive_safety_radius` holding a melee token on the ally or the downed
+  mate, grabbing or attacking the ally; past `cpu.revive_desperate_bleed_ratio`
+  of the bleed-out it revives anyway.)
 - **Wipe** = no team-0 fighter left standing (downed or out) → run lost.
 
 ### 5.2 Enemies
