@@ -69,6 +69,7 @@ func _ready() -> void:
 	pause_menu.setup(director)
 
 	director.fighters_spawned.connect(_on_fighters_spawned)
+	director.entity_spawned.connect(_on_entity_spawned)
 	director.round_started.connect(_on_round_started)
 	director.match_ended.connect(_on_match_ended)
 	director.setup(config)
@@ -96,6 +97,13 @@ static func build_default_config() -> MatchConfig:
 func _on_fighters_spawned(fighters: Array[Fighter]) -> void:
 	hub.watch(fighters)
 	views.build(config, fighters, get_viewport().find_world_3d(), hub)
+
+
+## Fighters joining mid-match (or rebuilt by a load) feed the event hub too.
+## HUD/views for them are co-op work (SPEC.md M3).
+func _on_entity_spawned(e: SimEntity) -> void:
+	if e is Fighter:
+		hub.watch_fighter(e)
 
 
 func _on_round_started(_round_number: int) -> void:

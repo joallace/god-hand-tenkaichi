@@ -26,6 +26,11 @@ signal round_ended(winner_slot: int, reason: StringName)
 signal match_ended(winner_slot: int)
 signal timer_changed(seconds_left: int)  # -1 when infinite
 signal pause_requested(slot: int)
+## A sim entity (fighter or projectile) joined / is about to leave the match:
+## spawned, freed, or rebuilt / dropped by load_state. Fighters created by
+## setup() are announced by fighters_spawned instead.
+signal entity_spawned(e: SimEntity)
+signal entity_removed(e: SimEntity)
 
 enum Phase { NONE, INTRO, FIGHT, OUTRO, MATCH_OVER }
 
@@ -43,6 +48,9 @@ var round_frames_left: int = 0
 var wins: PackedInt32Array = PackedInt32Array()
 ## Frames the whole sim stays frozen (ultimate, counter guard, push-stop).
 var world_freeze: int = 0
+## Next SimEntity.sim_id. Ids are never reused within a match, so snapshots
+## name entities unambiguously; fighters, then entities, tick in id order.
+var next_sim_id: int = 1
 ## When true the sim does not advance (pause menu). Inputs aren't polled.
 ## On unpause, sources resync so buttons still held from the menu (e.g. the
 ## A that pressed "Resume") don't register as fresh presses.
@@ -67,9 +75,8 @@ func setup(p_config: MatchConfig) -> void:
 		var src := p.create_input_source()
 		src.attach(self, p.slot)
 		sources.append(src)
-		var f := CharacterRegistry.create_fighter(p.character_id)
-		f.slot = p.slot
-		f.name = "Fighter%d" % (p.slot + 1)
+		var f := EntityFactory.create_fighter(p.slot, p.character_id, _config_team(p))
+		f.sim_id = _take_sim_id()
 		add_child(f)
 		f.director = self
 		fighters.append(f)
@@ -146,7 +153,7 @@ func _start_round() -> void:
 	round_number += 1
 	world_freeze = 0
 	for e in entities:
-		e.queue_free()
+		_free_node(e)
 	entities.clear()
 	round_frames_left = config.round_time_seconds * Tuning.match_rules.tick_rate
 	var d := Tuning.match_rules.spawn_distance * 0.5
@@ -207,17 +214,21 @@ func request_world_freeze(frames: int) -> void:
 	world_freeze = maxi(world_freeze, frames)
 
 
+## Register a new non-fighter entity (projectile, beam). It ticks after every
+## entity spawned before it.
 func spawn_entity(e: SimEntity) -> void:
 	e.director = self
+	e.sim_id = _take_sim_id()
 	add_child(e)
 	entities.append(e)
+	entity_spawned.emit(e)
 
 
 func _reap_entities() -> void:
 	for e in entities.duplicate():
 		if e.sim_dead:
 			entities.erase(e)
-			e.queue_free()
+			_free_node(e)
 
 
 func fighter_for_slot(slot: int) -> Fighter:
@@ -227,15 +238,115 @@ func fighter_for_slot(slot: int) -> Fighter:
 	return null
 
 
-## Snapshot for rollback. NOTE: spawned/despawned entities are not yet
-## reconstructed on load; that's future netcode work (entity factory by type).
+## Live fighter or entity with this sim_id, or null.
+func entity_by_id(id: int) -> SimEntity:
+	for f in fighters:
+		if f.sim_id == id:
+			return f
+	for e in entities:
+		if e.sim_id == id:
+			return e
+	return null
+
+
+# --- dynamic fighters ----------------------------------------------------------
+#
+# A fighter that joins mid-match (co-op waves) is CPU controlled: its init's
+# cpu_level >= 0 marks it, and its CpuInput is created with it here (or by
+# load_state when a snapshot needs it back), lives at the same index in
+# `sources`, is saved in "sources" like every other source, and is dropped
+# with it. Fighters from the MatchConfig rebuild their source from their
+# PlayerSlotConfig if a load ever has to recreate them.
+
+## Add a CPU fighter for `slot` (must be unused) mid-match. The caller places
+## it (reset_for_round). Control follows the phase.
+func spawn_fighter(slot: int, character_id: StringName, cpu_level: int, team: int = -1) -> Fighter:
+	if fighter_for_slot(slot) != null:
+		push_error("MatchDirector.spawn_fighter: slot %d already has a fighter" % slot)
+		return null
+	var f := EntityFactory.create(EntityFactory.fighter_desc(slot, character_id, team, maxi(cpu_level, 0))) as Fighter
+	f.sim_id = _take_sim_id()
+	_add_fighter(f, _source_for(f))
+	f.set_control_enabled(phase == Phase.FIGHT)
+	entity_spawned.emit(f)
+	return f
+
+
+## Take a fighter (and its input source) out of the match. Projectiles it
+## cast go with it; nobody keeps a reference to it.
+func remove_fighter(f: Fighter) -> void:
+	var i := fighters.find(f)
+	if i < 0:
+		return
+	fighters.remove_at(i)
+	sources.remove_at(i)
+	for e in entities.duplicate():
+		if e.get("caster") == f:
+			entities.erase(e)
+			_free_node(e)
+	_free_node(f)
+	_forget_removed_fighters()
+
+
+func _add_fighter(f: Fighter, src: InputSource) -> void:
+	add_child(f)
+	f.director = self
+	fighters.append(f)
+	src.attach(self, f.slot)
+	sources.append(src)
+
+
+func _source_for(f: Fighter) -> InputSource:
+	var level: int = f.spawn_init.get("cpu_level", -1)
+	if level >= 0:
+		return CpuInput.new(level)
+	for p in config.players:
+		if p.slot == f.slot:
+			return p.create_input_source()
+	return CpuInput.new(-1)
+
+
+## Drop links to fighters that left `fighters` (freed nodes must not be read).
+## CPU brains re-resolve their fighters lazily.
+func _forget_removed_fighters() -> void:
+	for f in fighters:
+		if f.opponent != null and not fighters.has(f.opponent):
+			f.opponent = null
+	for src in sources:
+		var cpu := src as CpuInput
+		if cpu != null and not (fighters.has(cpu.brain.me) and fighters.has(cpu.brain.opp)):
+			cpu.brain.me = null
+			cpu.brain.opp = null
+
+
+func _take_sim_id() -> int:
+	next_sim_id += 1
+	return next_sim_id - 1
+
+
+func _config_team(p: PlayerSlotConfig) -> int:
+	var t: Variant = p.get("team")
+	return t if t is int else -1
+
+
+func _free_node(e: SimEntity) -> void:
+	entity_removed.emit(e)
+	if e.get_parent() == self:
+		remove_child(e)
+	e.queue_free()
+
+
+## Snapshot for rollback: every live entity's spawn descriptor and state, so
+## load_state can rebuild entities spawned or freed since. Sources are saved
+## in fighter order.
 func save_state() -> Dictionary:
 	return {
 		"tick": tick, "phase": phase, "phase_frames": phase_frames,
 		"round_number": round_number, "round_frames_left": round_frames_left,
-		"wins": wins.duplicate(), "world_freeze": world_freeze,
-		"fighters": fighters.map(func(f: Fighter) -> Dictionary: return f.save_state()),
+		"wins": wins.duplicate(), "world_freeze": world_freeze, "next_sim_id": next_sim_id,
+		"fighters": fighters.map(func(f: Fighter) -> Dictionary: return {"desc": f.spawn_desc(), "state": f.save_state()}),
 		"sources": sources.map(func(src: InputSource) -> Dictionary: return src.save_state()),
+		"entities": entities.map(func(e: SimEntity) -> Dictionary: return {"desc": e.spawn_desc(), "state": e.save_state()}),
 	}
 
 
@@ -247,7 +358,78 @@ func load_state(s: Dictionary) -> void:
 	round_frames_left = s["round_frames_left"]
 	wins = s["wins"].duplicate()
 	world_freeze = s["world_freeze"]
+	next_sim_id = s["next_sim_id"]
+	var created: Array[SimEntity] = []
+	_restore_fighters(s["fighters"], s["sources"], created)
+	_restore_entities(s["entities"], created)
+	for e in created:
+		entity_spawned.emit(e)
+
+
+## Make `fighters`/`sources` match the snapshot: drop fighters it doesn't
+## have, rebuild the ones it has that are gone (each with a fresh source),
+## keep the rest (and their source objects), in snapshot order. Arrays are
+## changed in place: presentation holds references to them.
+func _restore_fighters(records: Array, source_states: Array, created: Array[SimEntity]) -> void:
+	var wanted := {}
+	for r: Dictionary in records:
+		wanted[r["desc"]["id"]] = true
+	var by_id := {}
 	for i in fighters.size():
-		fighters[i].load_state(s["fighters"][i])
+		var f := fighters[i]
+		if wanted.has(f.sim_id):
+			by_id[f.sim_id] = [f, sources[i]]
+		else:
+			_free_node(f)
+	var new_fighters: Array[Fighter] = []
+	var new_sources: Array[InputSource] = []
+	for r: Dictionary in records:
+		var id: int = r["desc"]["id"]
+		if by_id.has(id):
+			new_fighters.append(by_id[id][0])
+			new_sources.append(by_id[id][1])
+			continue
+		var f := EntityFactory.create(r["desc"]) as Fighter
+		add_child(f)
+		f.director = self
+		var src := _source_for(f)
+		src.attach(self, f.slot)
+		new_fighters.append(f)
+		new_sources.append(src)
+		created.append(f)
+	fighters.clear()
+	fighters.append_array(new_fighters)
+	sources.clear()
+	sources.append_array(new_sources)
+	_forget_removed_fighters()
+	for i in fighters.size():
+		fighters[i].load_state(records[i]["state"])
 	for i in sources.size():
-		sources[i].load_state(s["sources"][i])
+		sources[i].load_state(source_states[i])
+
+
+## Same for projectiles: drop, rebuild through the factory, relink (casters
+## exist by now), then load every state.
+func _restore_entities(records: Array, created: Array[SimEntity]) -> void:
+	var wanted := {}
+	for r: Dictionary in records:
+		wanted[r["desc"]["id"]] = true
+	var by_id := {}
+	for e in entities:
+		if wanted.has(e.sim_id):
+			by_id[e.sim_id] = e
+		else:
+			_free_node(e)
+	entities.clear()
+	for r: Dictionary in records:
+		var id: int = r["desc"]["id"]
+		var e: SimEntity = by_id.get(id)
+		if e == null:
+			e = EntityFactory.create(r["desc"])
+			e.director = self
+			add_child(e)
+			e.resolve_links(self)
+			created.append(e)
+		entities.append(e)
+	for i in entities.size():
+		entities[i].load_state(records[i]["state"])

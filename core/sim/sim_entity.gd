@@ -13,6 +13,11 @@ var sim_dead := false
 ## Frames this entity stays frozen by hit impact (MatchDirector.request_hitstop).
 ## While > 0 the director counts it down instead of calling sim_tick.
 var hitstop: int = 0
+## Stable id from MatchDirector's counter (spawn order); orders ticks and
+## names the entity in snapshots. -1 until registered.
+var sim_id: int = -1
+## The EntityFactory init this entity is rebuilt from (see spawn_desc()).
+var spawn_init: Dictionary = {}
 
 
 func sim_tick(_tick: int) -> void:
@@ -21,6 +26,22 @@ func sim_tick(_tick: int) -> void:
 
 func hitstop_left() -> int:
 	return hitstop
+
+
+## EntityFactory type name (&"fighter", &"ki_blast", ...). Override.
+func spawn_type() -> StringName:
+	return &""
+
+
+## How to rebuild this entity: an EntityFactory descriptor.
+func spawn_desc() -> Dictionary:
+	return {"type": spawn_type(), "id": sim_id, "init": spawn_init.duplicate()}
+
+
+## Second construction phase after a factory rebuild: look up the other
+## entities named in spawn_init (every entity of the snapshot exists by now).
+func resolve_links(_director: MatchDirector) -> void:
+	pass
 
 
 func save_state() -> Dictionary:
