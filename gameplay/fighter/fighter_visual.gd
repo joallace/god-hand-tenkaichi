@@ -268,6 +268,10 @@ static func pose_id_for(id: StringName, state_name: StringName, frame: int, tuni
 	match state_name:
 		&"walk", &"teleport":
 			return &"idle"  # teleporting fighters are hidden anyway
+		&"entering":
+			return &"idle"  # appears via the reappear effect
+		&"downed", &"out":
+			return &"knockdown"  # lying on the floor
 		&"throw":
 			# Holding the victim through the break window, then the toss.
 			var hold := tuning.throw_break_frames if tuning != null else 0

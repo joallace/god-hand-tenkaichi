@@ -26,7 +26,7 @@ func _init(p_director: MatchDirector) -> void:
 
 func resolve(_tick: int) -> void:
 	_separate_fighters()
-	var radius := Tuning.match_rules.arena_radius
+	var radius := director.arena_radius
 	for f in director.fighters:
 		_clamp_to_arena(f, radius - f.tuning.body_radius)
 

@@ -4,7 +4,7 @@ extends Resource
 ## Game.start_match(). Adding a mode = new Mode value + how menus fill this in;
 ## MatchDirector and fighters don't change.
 
-enum Mode { LOCAL_VERSUS, VERSUS_CPU, ONLINE }
+enum Mode { LOCAL_VERSUS, VERSUS_CPU, ONLINE, COOP }
 enum Layout { SPLIT_SCREEN, SINGLE_VIEW }
 
 @export var mode: Mode = Mode.LOCAL_VERSUS
@@ -18,6 +18,8 @@ enum Layout { SPLIT_SCREEN, SINGLE_VIEW }
 @export var rng_seed: int = 0
 ## Whether hitboxes hurt fighters of the attacker's own team.
 @export var friendly_fire: bool = false
+## Co-op run setup (Mode.COOP only, else null).
+@export var coop: CoopConfig
 
 
 static func from_defaults(p_mode: Mode = Mode.LOCAL_VERSUS) -> MatchConfig:

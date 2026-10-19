@@ -164,7 +164,7 @@ func _desired(delta: float) -> Array:
 	var pos := me + back * dist + Vector3.UP * height + right * t.shoulder_offset
 
 	# Keep inside a reasonable radius around the arena.
-	var max_r := Tuning.match_rules.arena_radius + t.radius_margin
+	var max_r := fighter.director.arena_radius + t.radius_margin
 	var horiz := Vector2(pos.x, pos.z)
 	if horiz.length() > max_r:
 		horiz = horiz.limit_length(max_r)

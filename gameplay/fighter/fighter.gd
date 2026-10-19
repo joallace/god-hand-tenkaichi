@@ -148,6 +148,7 @@ enum State {
 	IDLE, WALK, DASH, JUMP, ATTACK, DODGE, GUARD, GUARD_STUN, GUARD_BREAK,
 	CHARGE, HITSTUN, KNOCKDOWN, WAKEUP, TELEPORT, VANISH_WAIT, KO,
 	THROW, THROWN, TAUNT, COUNTER, RECOIL,
+	DOWNED, OUT, ENTERING,
 }
 enum TeleportKind { OFFENSE, ESCAPE }
 ## DODGE state flavors: a normal dodge, an air recovery flip, a get-up roll.
@@ -158,6 +159,7 @@ const STATE_NAMES: Array[StringName] = [
 	&"guard_stun", &"guard_break", &"charge", &"hitstun", &"knockdown",
 	&"wakeup", &"teleport", &"vanish_wait", &"ko",
 	&"throw", &"thrown", &"taunt", &"counter_guard", &"recoil",
+	&"downed", &"out", &"entering",
 ]
 const GUARD_POSE_NAMES: Array[StringName] = [&"guard", &"guard_high", &"guard_low"]
 const SMASH_DIR_NAMES: Array[StringName] = [&"forward", &"back", &"left", &"right"]
@@ -461,6 +463,37 @@ func is_vanished() -> bool:
 ## Can be picked as a new target (KO'd and vanished fighters can't).
 func is_targetable() -> bool:
 	return not is_ko() and not is_vanished()
+
+
+## Co-op (STUBS, filled in by milestone 3): at 0 HP a team-0 fighter in a
+## co-op run is DOWNED (health 0, so is_ko() is also true) until revived or
+## it bleeds out to OUT; a spawned enemy is ENTERING (intangible, can't act)
+## for its first Tuning.coop.entry_frames.
+func is_downed() -> bool:
+	return state == State.DOWNED
+
+
+func is_out() -> bool:
+	return state == State.OUT
+
+
+func is_entering() -> bool:
+	return state == State.ENTERING
+
+
+## Revive progress 0..1 while a teammate revives this downed fighter.
+func revive_progress() -> float:
+	return 0.0
+
+
+## Bleed-out progress 0..1 while downed (1 = goes OUT).
+func bleed_out_ratio() -> float:
+	return 0.0
+
+
+## Start the ENTERING state (spawned enemy appearing at the ring edge).
+func begin_entry(_frames: int) -> void:
+	pass
 
 
 ## True while a TARGET tap's manual lock holds the current target.

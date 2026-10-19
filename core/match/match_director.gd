@@ -49,6 +49,10 @@ var config: MatchConfig
 var fighters: Array[Fighter] = []
 var entities: Array[SimEntity] = []  # non-fighter entities (projectiles...)
 var combat: CombatSystem
+## Co-op attack tokens / grab lock (always present; disabled outside COOP).
+var encounter: EncounterDirector
+## Play radius (m): fighters are clamped inside it. Fixed for the match.
+var arena_radius: float = 0.0
 var sources: Array[InputSource] = []
 
 var tick: int = 0
@@ -83,6 +87,8 @@ var _last_second_emitted := -2
 func setup(p_config: MatchConfig) -> void:
 	config = p_config
 	combat = CombatSystem.new(self)
+	encounter = EncounterDirector.new(self)
+	arena_radius = _arena_radius_for(config)
 	var max_team := 0
 	for p in config.players:
 		max_team = maxi(max_team, p.team if p.team >= 0 else p.slot)
@@ -123,6 +129,7 @@ func step() -> void:
 		for e in entities.duplicate():
 			_tick_entity(e)
 		combat.resolve(tick)
+		encounter.sim_tick(tick)
 		_reap_entities()
 
 	phase_frames += 1
@@ -251,6 +258,11 @@ func _reap_entities() -> void:
 ## Default target for `f`: what its own auto policy (Fighter.best_target,
 ## Targeting.pick_auto) picks from scratch, or null if no enemy is
 ## targetable. Used at round start and spawn; one place to swap the policy.
+## Play radius for a match (co-op grows it with the planned field size).
+static func _arena_radius_for(_cfg: MatchConfig) -> float:
+	return Tuning.match_rules.arena_radius
+
+
 func pick_default_target(f: Fighter) -> Fighter:
 	return f.best_target()
 
@@ -465,6 +477,7 @@ func save_state() -> Dictionary:
 		"tick": tick, "phase": phase, "phase_frames": phase_frames,
 		"round_number": round_number, "round_frames_left": round_frames_left,
 		"wins": wins.duplicate(), "world_freeze": world_freeze, "next_sim_id": next_sim_id,
+		"encounter": encounter.save_state(),
 		"fighters": fighters.map(func(f: Fighter) -> Dictionary: return {"desc": f.spawn_desc(), "state": f.save_state()}),
 		"sources": sources.map(func(src: InputSource) -> Dictionary: return src.save_state()),
 		"entities": entities.map(func(e: SimEntity) -> Dictionary: return {"desc": e.spawn_desc(), "state": e.save_state()}),
@@ -480,6 +493,7 @@ func load_state(s: Dictionary) -> void:
 	wins = s["wins"].duplicate()
 	world_freeze = s["world_freeze"]
 	next_sim_id = s["next_sim_id"]
+	encounter.load_state(s["encounter"])
 	var created: Array[SimEntity] = []
 	_restore_fighters(s["fighters"], s["sources"], created)
 	_restore_entities(s["entities"], created)

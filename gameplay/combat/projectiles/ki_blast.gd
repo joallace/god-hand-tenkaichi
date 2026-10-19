@@ -38,7 +38,7 @@ func resolve_links(p_director: MatchDirector) -> void:
 func sim_tick(_tick: int) -> void:
 	_frame += 1
 	global_position += _vel / Tuning.match_rules.tick_rate
-	var limit := Tuning.match_rules.arena_radius * 1.5
+	var limit := director.arena_radius * 1.5
 	if _frame >= move.lifetime_frames or Vector2(global_position.x, global_position.z).length() > limit \
 			or global_position.y < 0.0:
 		sim_dead = true

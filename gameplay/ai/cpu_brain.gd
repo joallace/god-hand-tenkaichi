@@ -942,7 +942,7 @@ func _dist() -> float:
 
 func _near_wall() -> bool:
 	var p := me.global_position
-	return Vector2(p.x, p.z).length() > Tuning.match_rules.arena_radius - cfg.charge_abort_distance
+	return Vector2(p.x, p.z).length() > director.arena_radius - cfg.charge_abort_distance
 
 
 ## How far (ground meters, center to center) `m` can hit, lunge included.
