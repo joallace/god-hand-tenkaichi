@@ -25,17 +25,23 @@ before autoloads exist. See `tests/README.md`. Always wrap Godot calls in
     round-trip through `save_state`/`load_state` with the director.
   - `match/`: `MatchConfig` + `PlayerSlotConfig` (built by menus),
     `MatchDirector` (fixed 60 Hz tick loop, rounds, timer incl. infinite,
-    hitstop, save/load state).
+    world freeze, save/load state).
   - `sim/SimEntity`: base for everything ticked by the director (stable
     `sim_id`, `spawn_desc()`). `sim/EntityFactory` rebuilds entities from
     those descriptors: `MatchDirector.load_state` frees/recreates projectiles
     and fighters (`spawn_fighter`/`remove_fighter`) to match the snapshot.
     A new spawnable type needs a factory case, `spawn_type()`, `spawn_init`
     and, if it links to other entities, `resolve_links()`.
+  - Teams: every fighter has a `team` (default = slot, so 1v1 is two teams of
+    one) and a `target` (there is no `opponent`); `wins` is indexed by team.
+    Hitstop is per entity (`request_hitstop(participants, frames)`); only
+    ultimate / counter guard / push-stop use `request_world_freeze`.
+    Co-op plan and milestones: SPEC.md.
   - `tuning/`: one Resource class per category, loaded by the `Tuning` autoload
     from `data/tuning/<key>.tres`.
   - `game.gd`: `Game` autoload, scene flow.
-- `gameplay/` — `Fighter` (state machine, public contract in its header),
+- `gameplay/` — `Fighter` (state machine, public contract in its header;
+  `Targeting` picks/cycles its target),
   `CombatSystem`, `MoveData`, projectiles, `CharacterDef`/`CharacterRegistry`,
   `FighterVisual` (placeholder primitives, read-only view of the fighter).
   - `ai/CpuBrain`: the CPU opponent. Reads public fighter state behind a
