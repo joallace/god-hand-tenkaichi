@@ -20,7 +20,8 @@ before autoloads exist. See `tests/README.md`. Always wrap Godot calls in
 - `core/` — mode-agnostic foundation.
   - `input/`: `InputFrame` (the only thing gameplay reads; fighter-space move,
     `Btn` bitmask, dodge flick), `InputSource` subclasses (`LocalDeviceInput`
-    per device id, `CpuInput` wrapping a `CpuBrain`, `NetworkInput` stub),
+    per device id, `CpuInput` wrapping a `CpuBrain`, `NetworkInput` reading
+    an `InputHistory`),
     `Bindings` autoload (rebindable controls, `user://controls.cfg`). Sources
     round-trip through `save_state`/`load_state` with the director.
   - `match/`: `MatchConfig` + `PlayerSlotConfig` (built by menus),
@@ -42,6 +43,17 @@ before autoloads exist. See `tests/README.md`. Always wrap Godot calls in
     attack tokens + grab lock (CpuBrain asks before attacking; the CPU ally
     revives downed teammates), DOWNED/OUT/REVIVE and ENTERING fighter
     states. Plan and milestones: SPEC.md.
+  - `net/` (SPEC_ONLINE.md): `Transport` (packets on 3 channels: unreliable,
+    reliable, bulk; host = peer 1) with `EnetTransport` (raw ENetConnection,
+    `parse_address`) and `LoopbackTransport` on a `LoopbackNetwork`
+    (deterministic in-process latency/jitter/loss, silence, link drops; tests).
+    `Protocol`: static encode/decode, fixed layouts for hot messages,
+    var_to_bytes (+zstd for bulk) for the rest, every decode validated.
+    `Session`: handshake/rejects, peer table, host-relayed input routing with
+    per-(origin, dest) acks and redundancy, PING/RTT, timeouts, host-only
+    enforcement; it feeds the `InputHistory` (confirmed + used frames,
+    prediction, misprediction ticks) that `NetworkInput` reads. `TimeSync`:
+    frame advantage, wait frames, auto input delay.
   - `tuning/`: one Resource class per category, loaded by the `Tuning` autoload
     from `data/tuning/<key>.tres`.
   - `game.gd`: `Game` autoload, scene flow.
@@ -99,5 +111,6 @@ ours. Describe mechanics in our own words; never copy decomp code.
 
 ## Known gaps
 
-Online is a stub (plan: SPEC_ONLINE.md). The CPU only knows the moveset roles in `CharacterDef`
+Online has its net core (`core/net/`) but no RollbackDriver, `Net` autoload
+or online menus yet (plan: SPEC_ONLINE.md). The CPU only knows the moveset roles in `CharacterDef`
 (string, heavies, supers), not character-specific tricks.
