@@ -1,7 +1,8 @@
 extends Node
 ## Headless tests for the team model: team assignment, default targets, spawn
-## layout, friendly fire, team-aware round end, partner tracking in throws
-## and target save/load. Run as a scene:
+## layout, friendly fire, team-aware round end, partner tracking in throws,
+## target save/load and per-victim contacts (cleaving strikes, piercing
+## beams, single-target blasts and throws). Run as a scene:
 ##   godot --headless res://tests/teams_test.tscn
 
 const B := InputFrame.Btn
@@ -14,7 +15,8 @@ func _ready() -> void:
 	var tests: Array[Callable] = [
 		_test_1v1_spawn_unchanged, _test_2v2_setup, _test_friendly_fire,
 		_test_team_round_end, _test_time_out_mean_health, _test_throw_partner,
-		_test_target_save_load,
+		_test_target_save_load, _test_heavy_cleaves, _test_cleave_skips_ally,
+		_test_ki_blast_single_target, _test_beam_pierces, _test_throw_grabs_one,
 	]
 	for t in tests:
 		t.call()
@@ -205,3 +207,81 @@ func _test_target_save_load() -> void:
 	f[0].target = f[2]
 	d.load_state(s)
 	_check(f[0].target == null, "null target round-trips")
+
+
+func _hurt(f: Fighter) -> bool:
+	return f.health < f.tuning.max_health
+
+
+## Slot 0 at the origin facing -Z; slot 1 (nearest, its target) straight
+## ahead, slot 2 beside it, both inside the mid kick's sphere.
+const PAIR_FRONT: Array[Vector3] = [Vector3(0, 0, 0), Vector3(0, 0, -0.95), Vector3(0.88, 0, -0.95)]
+
+
+func _test_heavy_cleaves() -> void:
+	var d := _new_match([0, 1, 1])
+	_place(d, PAIR_FRONT)
+	_src(d, 0).press(2, B.HEAVY)
+	_run(d, 40)
+	_check(_hurt(d.fighters[1]) and _hurt(d.fighters[2]),
+		"one heavy hits both adjacent enemies (hp %.1f / %.1f)" % [d.fighters[1].health, d.fighters[2].health])
+	_check(d.fighters[0].combo_hits == 2, "each victim counts as a hit (combo %d)" % d.fighters[0].combo_hits)
+	var a := d.fighters[0]
+	var st := a.save_state()
+	a.clear_contacts()
+	a.load_state(st)
+	_check(a._contacted_slots == PackedInt32Array([1, 2]) and a._last_contact_id == st["last_contact"],
+		"per-victim contacts round-trip save/load (%s)" % [a._contacted_slots])
+
+
+func _test_cleave_skips_ally() -> void:
+	var d := _new_match([0, 0, 1])
+	_place(d, PAIR_FRONT)
+	_src(d, 0).press(2, B.HEAVY)
+	_run(d, 40)
+	_check(_hurt(d.fighters[2]) and not _hurt(d.fighters[1]),
+		"friendly fire off: the cleave hits the enemy, not the ally beside it")
+
+
+func _test_ki_blast_single_target() -> void:
+	var d := _new_match([0, 1, 1])
+	_place(d, [Vector3(0, 0, 6), Vector3(-0.46, 0, 0), Vector3(0.46, 0, 0)])
+	_src(d, 0).press(2, B.BLAST)
+	var blast: KiBlast = null
+	for i in 30:
+		d.step()
+		if not d.entities.is_empty() and d.entities[0] is KiBlast:
+			blast = d.entities[0]
+			break
+	if not _check(blast != null, "ki blast spawned"):
+		return
+	# Wide enough to touch both enemies on the same tick.
+	blast.move = blast.move.duplicate()
+	blast.move.hitbox_radius = 1.5
+	_run(d, 60)
+	var hurt := int(_hurt(d.fighters[1])) + int(_hurt(d.fighters[2]))
+	_check(hurt == 1, "a ki blast touching two enemies hits only the first (%d hurt)" % hurt)
+
+
+func _test_beam_pierces() -> void:
+	var d := _new_match([0, 1, 1, 1])
+	_place(d, [Vector3(0, 0, 6), Vector3(0, 0, 3), Vector3(0, 0, 1), Vector3(0, 0, -1)])
+	d.fighters[0].ki = d.fighters[0].ki_max()
+	_src(d, 0).stick(2, 4, Vector2(0, 1)).press(2, B.SPECIAL)
+	_run(d, 150)
+	var all := _hurt(d.fighters[1]) and _hurt(d.fighters[2]) and _hurt(d.fighters[3])
+	_check(all, "beam pierces three enemies in a line (hp %.1f / %.1f / %.1f)" % [
+		d.fighters[1].health, d.fighters[2].health, d.fighters[3].health])
+
+
+func _test_throw_grabs_one() -> void:
+	var d := _new_match([0, 1, 1])
+	_place(d, [Vector3(0, 0, 0), Vector3(-0.46, 0, -0.9), Vector3(0.46, 0, -0.9)])
+	_src(d, 0).press(2, B.THROW)
+	var thrown := 0
+	for i in 30:
+		d.step()
+		thrown = int(d.fighters[1].current_state_name() == &"thrown") + int(d.fighters[2].current_state_name() == &"thrown")
+		if thrown > 0:
+			break
+	_check(thrown == 1, "a throw grabs one of two enemies in reach (%d grabbed)" % thrown)

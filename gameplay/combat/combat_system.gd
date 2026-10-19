@@ -13,7 +13,9 @@ extends RefCounted
 ## Runs every tick the world isn't frozen. A source in its own hitstop makes
 ## no new contacts (it's mid-impact); a frozen victim can still be hit by a
 ## source that isn't frozen.
-## Stateless: one-hit-per-activation is tracked by each CombatEntity.
+## Stateless: one-hit-per-victim per activation (or one hit at all for
+## single-target hitboxes) is tracked by each CombatEntity. Several victims
+## hit by one activation the same tick all apply; hitstop takes the max.
 
 var director: MatchDirector
 
@@ -40,10 +42,10 @@ func resolve(_tick: int) -> void:
 		if src.hitstop > 0:
 			continue
 		for hb in src.get_active_hitboxes():
-			if src.has_contacted(hb.hit_id):
+			if src.has_contacted(hb):
 				continue
 			for victim in director.fighters:
-				if victim == hb.attacker or _is_friendly(hb, victim):
+				if victim == hb.attacker or _is_friendly(hb, victim) or src.has_contacted(hb, victim):
 					continue
 				var hurt := victim.get_hurtbox()
 				if hurt.is_empty():
@@ -54,7 +56,7 @@ func resolve(_tick: int) -> void:
 	for c: Array in contacts:
 		var hb: Hitbox = c[0]
 		var victim: Fighter = c[1]
-		if hb.source.has_contacted(hb.hit_id):
+		if hb.source.has_contacted(hb, victim):
 			continue
 		var outcome := victim.receive_hit(hb)
 		if outcome == CombatEntity.Contact.NONE:

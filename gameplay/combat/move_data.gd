@@ -74,6 +74,9 @@ enum GuardResult { PLAIN, KI_GUARD, PUSH_OFF, PUSH_STOP, UNBLOCKABLE }
 @export var grants_hit_ki: bool = true
 ## >0: the hitbox re-arms every N active frames (multi-hit beams/rushes).
 @export var multi_hit_interval: int = 0
+## Connects with its first victim only (rush supers); otherwise an activation
+## hits every fighter it overlaps once (beams pierce, strikes cleave crowds).
+@export var single_target: bool = false
 
 @export_group("Hitbox")
 ## Center of the hitbox (fighter space). For capsules, the start point.

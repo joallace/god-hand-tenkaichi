@@ -22,7 +22,7 @@ func fire(p_caster: Fighter, p_move: MoveData, caster_move_serial: int, aim: Vec
 		_dir = -p_caster.global_basis.z
 		_dir.y = 0.0
 	_dir = _dir.normalized()
-	_last_contact_id = -1
+	clear_contacts()
 	spawn_init = {"caster": p_caster.sim_id, "move": EntityFactory.move_ref(p_move)}
 	_place()
 	_build_visual()
@@ -76,14 +76,15 @@ func get_active_hitboxes() -> Array[Hitbox]:
 	hb.forward = _dir
 	hb.right = Vector3.UP.cross(-_dir).normalized()
 	hb.is_melee = false
+	hb.single_target = move.single_target
 	out.append(hb)
 	return out
 
 
 func save_state() -> Dictionary:
 	var s := super.save_state()
-	s.merge({"frame": _frame, "dir": _dir, "last_contact": _last_contact_id,
-		"caster_serial": _caster_move_serial, "dead": sim_dead})
+	s.merge({"frame": _frame, "dir": _dir, "caster_serial": _caster_move_serial, "dead": sim_dead})
+	save_contacts(s)
 	return s
 
 
@@ -91,7 +92,7 @@ func load_state(s: Dictionary) -> void:
 	super.load_state(s)
 	_frame = s["frame"]
 	_dir = s["dir"]
-	_last_contact_id = s["last_contact"]
+	load_contacts(s)
 	_caster_move_serial = s["caster_serial"]
 	sim_dead = s["dead"]
 

@@ -17,6 +17,7 @@ guard_ki_cost = 15.0
 guard_results = Array[int]([1, 1, 1])
 hitstop = 3
 grants_hit_ki = false
+single_target = true
 hitbox_offset = Vector3(0, 1.3, 0.85)
 hitbox_radius = 0.55
 lunge_speed = 2.0
