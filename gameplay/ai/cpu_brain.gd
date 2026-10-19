@@ -37,6 +37,17 @@ extends RefCounted
 ## circling, guarding, charging ki or taunting. With one enemy and tokens off
 ## (versus) none of this draws from the RNG, so 1v1 decisions are unchanged.
 ##
+## Co-op ally (team 0): a downed teammate nearby is a high-priority goal once
+## noticed (reaction + revive_delay_frames): walk to it and hold TAUNT until
+## it is up, unless an enemy near either of them is engaging (melee token on
+## the ally or the downed mate, grab lock, attack on the ally), which is
+## ignored once the mate has bled out past revive_desperate_bleed_ratio. It
+## still defends while walking or reviving (a hit cancels the revive; the goal
+## is re-checked every tick). The ally also scores targets by their distance
+## to its partner, regroups when it strays past ally_leash_distance, and
+## (friendly fire on) steps out of a partner's beam line. Versus never has a
+## downed teammate or a co-op ally, so none of it runs there.
+##
 ## Determinism: seeded RandomNumberGenerator; every decision variable
 ## round-trips through save_state()/load_state().
 
@@ -70,6 +81,7 @@ const SAVED: Array[StringName] = [
 	&"_contact_blocked", &"_punish_key", &"_last_held", &"_last_move", &"_mash_next",
 	&"_want_slot", &"_want_since", &"_last_hit_by", &"_side_slot", &"_side_serial",
 	&"_side_known_at", &"_side_answered_slot", &"_side_answered_serial", &"_had_token",
+	&"_down_slot", &"_down_known_at", &"_reviving", &"_revive_threat_at",
 ]
 
 var level: int
@@ -136,6 +148,14 @@ var _side_answered_slot: int = -1
 var _side_answered_serial: int = -1
 ## Co-op: held an attack token last tick (a new grant wakes the neutral game).
 var _had_token: bool = false
+## Co-op: downed teammate to revive (-1 = none), when that is noticed, and
+## whether the revive goal is being carried out.
+var _down_slot: int = -1
+var _down_known_at: int = 0
+var _reviving: bool = false
+## Clock of the last tick a revive threat was seen (the coast must stay clear
+## for revive_clear_frames before a revive starts).
+var _revive_threat_at: int = -(1 << 30)
 
 
 func _init(p_level: int = -1, seed_value: int = 0) -> void:
@@ -165,16 +185,25 @@ func reset() -> void:
 
 
 func think() -> InputFrame:
-	if not _resolve() or director.phase != MatchDirector.Phase.FIGHT:
+	var has_opp := _resolve()
+	if me == null or director.phase != MatchDirector.Phase.FIGHT:
+		return _idle_frame()
+	# No target (every enemy entering / vanished): only a revive to attend to.
+	if not has_opp and _downed_mate() == null:
 		return _idle_frame()
 	if me.hitstop_left() > 0 or director.world_freeze > 0:
 		return _frozen_frame()
 	_clock += 1
-	_perceive()
-	_perceive_side()
+	if has_opp:
+		_perceive()
+		_perceive_side()
 	_track_my_state()
-	_wake_on_token()
-	_decide()
+	_perceive_downed()
+	if has_opp:
+		_wake_on_token()
+		_decide()
+	else:
+		_decide_alone()
 	var f := _emit()
 	f.target_request = _choose_target()
 	return f
@@ -279,14 +308,24 @@ func _decide() -> void:
 			_follow_up()
 		S.GUARD_STUN:
 			_defend()
+		S.REVIVE:
+			_revive_hold()
 		_:
 			if me.state not in CAN_ACT:
 				return
-			if me.state == S.CHARGE and _keep_charging():
+			var mate := _revive_wanted()
+			if mate == null:
+				_stop_revive()
+			if me.state == S.CHARGE and mate == null and _keep_charging():
 				return
 			if _defend():
 				return
 			if me.state == S.DASH:
+				return
+			if _clear_partner_beam():
+				return
+			if mate != null:
+				_go_revive(mate)
 				return
 			if _press_followup() or _punish():
 				return
@@ -695,6 +734,8 @@ func _punish() -> bool:
 func _neutral() -> void:
 	var d := _dist()
 	_release(B.GUARD)
+	if _regroup():
+		return
 	if _limited() and _tokened_neutral(d):
 		return
 	if _taunt_safe(d) and me.ki < me.ki_max() and _roll(cfg.taunt_chance):
@@ -1008,6 +1049,10 @@ func _target_score(c: Fighter) -> float:
 	if enc != null and (enc.free_tokens(c, K.MELEE) > 0 or me.slot in enc.holders(c, K.MELEE)):
 		sc += cfg.target_free_token_bonus
 	sc += (1.0 - c.health_ratio()) * cfg.target_low_health_weight
+	if _coop_ally():
+		var mate := _nearest_mate(c.global_position)
+		if mate != null:
+			sc -= _flat_dist(c.global_position, mate.global_position) * cfg.ally_partner_distance_weight
 	return sc
 
 
@@ -1043,6 +1088,199 @@ func _is_behind(a: Fighter) -> bool:
 	var to := a.global_position - me.global_position
 	to.y = 0.0
 	return (-me.global_basis.z).dot(to) < 0.0
+
+
+# --- 6. Co-op ally: revives, regrouping, partner beams --------------------------
+
+## A team-0 fighter in co-op (tokens on): the human team's CPU ally.
+func _coop_ally() -> bool:
+	var enc := director.encounter
+	return enc != null and enc.enabled and me.team == EncounterDirector.PROTECTED_TEAM
+
+
+## Closest downed (landed: its bleed-out clock started) teammate within
+## revive_max_distance that no other teammate is reviving (ties: lower slot),
+## or null. Draws nothing from the RNG.
+func _downed_mate() -> Fighter:
+	var best: Fighter = null
+	var best_d := _p(cfg.revive_max_distance)
+	for f in director.fighters:
+		if f == me or f.team != me.team or not f.is_downed() or f.bleed_out_ratio() <= 0.0:
+			continue
+		var r := f.reviving_slot()
+		if r >= 0 and r != me.slot:
+			continue
+		var d := _dist_to(f)
+		if d < best_d or (best != null and is_equal_approx(d, best_d) and f.slot < best.slot):
+			best = f
+			best_d = d
+	return best
+
+
+## A newly downed teammate becomes known after the reaction delay plus
+## revive_delay_frames.
+func _perceive_downed() -> void:
+	var m := _downed_mate()
+	var s := m.slot if m != null else -1
+	if s != _down_slot:
+		_down_slot = s
+		_down_known_at = _clock + _reaction() + roundi(_p(cfg.revive_delay_frames)) if s >= 0 else 0
+
+
+## The downed teammate to go and revive now (noticed, and safe enough), or null.
+func _revive_wanted() -> Fighter:
+	if _down_slot < 0 or _clock < _down_known_at:
+		return null
+	var mate := director.fighter_for_slot(_down_slot)
+	if mate == null or not mate.is_downed():
+		return null
+	if _revive_threats(mate) > 0:
+		_revive_threat_at = _clock
+	var clear := _clock - _revive_threat_at >= roundi(_p(cfg.revive_clear_frames))
+	if not clear and mate.bleed_out_ratio() < _p(cfg.revive_desperate_bleed_ratio):
+		return null
+	return mate
+
+
+## Enemies within revive_safety_radius of me or `mate` that are engaging:
+## holding a melee token on either of us (SPEC §5.1; a downed fighter's own
+## tokens are released at once, so in practice the ones on me), grabbing me,
+## or attacking me.
+func _revive_threats(mate: Fighter) -> int:
+	var enc := director.encounter
+	var engaged: Array[int] = []
+	var grabber := -1
+	if enc != null:
+		engaged.append_array(enc.holders(me, K.MELEE))
+		engaged.append_array(enc.holders(mate, K.MELEE))
+		grabber = enc.grab_holder(me)
+	var r := cfg.revive_safety_radius
+	var n := 0
+	for e in director.fighters:
+		if e.team == me.team or e.is_ko() or e.is_entering():
+			continue
+		if _dist_to(e) > r and _flat_dist(e.global_position, mate.global_position) > r:
+			continue
+		if e.slot in engaged or e.slot == grabber or (e.target == me and e.attack_phase() >= 0):
+			n += 1
+	return n
+
+
+## Walk to the downed teammate, then hold TAUNT (from IDLE / WALK) to revive.
+func _go_revive(mate: Fighter) -> void:
+	if not _reviving:
+		_reviving = true
+		_release(B.GUARD)
+		_release(B.CHARGE)
+	if _dist_to(mate) > Tuning.coop.revive_range * cfg.revive_stop_share:
+		_release(B.TAUNT)
+		_walk = _stick_toward(mate.global_position)
+		_walk_until = _clock + 1
+		return
+	_walk_until = 0
+	if me.state != S.IDLE and me.state != S.WALK:
+		return
+	if _last_held & B.TAUNT:
+		_release(B.TAUNT)  # held, yet no revive started: let go and press again
+	elif not _holding(B.TAUNT):
+		_hold(B.TAUNT, _clock, Tuning.coop.revive_frames + cfg.revive_hold_tail_frames)
+
+
+## Reviving: keep TAUNT held while the goal stands; defend as usual (an
+## answered attack clears the plan, letting TAUNT go).
+func _revive_hold() -> void:
+	var mate := _revive_wanted()
+	if mate == null or mate.reviving_slot() != me.slot:
+		_stop_revive()
+		return
+	_reviving = true
+	if opp != null:
+		_defend()
+
+
+func _stop_revive() -> void:
+	if not _reviving:
+		return
+	_reviving = false
+	_release(B.TAUNT)
+	_walk_until = 0
+
+
+## No target to fight (every enemy entering or vanished): only revives.
+func _decide_alone() -> void:
+	if me.state == S.REVIVE:
+		_revive_hold()
+		return
+	if me.state not in CAN_ACT or me.state == S.DASH:
+		return
+	var mate := _revive_wanted()
+	if mate != null:
+		_go_revive(mate)
+	else:
+		_stop_revive()
+
+
+## Standing teammate nearest to `pos`, or null.
+func _nearest_mate(pos: Vector3) -> Fighter:
+	var best: Fighter = null
+	var best_d := INF
+	for f in director.fighters:
+		if f == me or f.team != me.team or f.is_ko():
+			continue
+		var d := _flat_dist(f.global_position, pos)
+		if d < best_d:
+			best = f
+			best_d = d
+	return best
+
+
+## Co-op ally strayed from the team (its target too): walk back to the
+## nearest teammate for this think interval.
+func _regroup() -> bool:
+	if not _coop_ally():
+		return false
+	var mate := _nearest_mate(me.global_position)
+	var leash := cfg.ally_leash_distance
+	if mate == null or _dist_to(mate) <= leash or _flat_dist(opp.global_position, mate.global_position) <= leash:
+		return false
+	_walk_for(_stick_toward(mate.global_position))
+	return true
+
+
+## Friendly fire on: a teammate (seen, after the reaction time) firing a beam
+## with me in its line: strafe out of it this tick. Draws nothing from the RNG.
+func _clear_partner_beam() -> bool:
+	if director.config == null or not director.config.friendly_fire:
+		return false
+	for f in director.fighters:
+		if f == me or f.team != me.team or f.state != S.ATTACK:
+			continue
+		var m := f.current_move()
+		if m == null or m.spawn_kind != &"beam" or f.state_frame() < roundi(_p(cfg.reaction_frames)):
+			continue
+		var to := me.global_position - f.global_position
+		to.y = 0.0
+		var along := to.dot(-f.global_basis.z)
+		var side := to.dot(f.global_basis.x)
+		if along <= 0.0 or along > cfg.ally_beam_clear_range or absf(side) >= cfg.ally_beam_clear_width:
+			continue
+		var away := f.global_basis.x * (1.0 if side >= 0.0 else -1.0)
+		_walk = _stick_toward(me.global_position + away)
+		_walk_until = _clock + 1
+		return true
+	return false
+
+
+## Fighter-space stick (+Y toward my target, +X strafe right) that walks
+## toward world point `p`.
+func _stick_toward(p: Vector3) -> Vector2:
+	var to := p - me.global_position
+	to.y = 0.0
+	if to.length_squared() < 0.000001:
+		return Vector2.ZERO
+	to = to.normalized()
+	var b := me.global_basis.orthonormalized()
+	return Vector2(to.dot(b.x), to.dot(-b.z))
 
 
 # =============================================================================
@@ -1208,6 +1446,10 @@ func _dist_to(f: Fighter) -> float:
 	var d := f.global_position - me.global_position
 	d.y = 0.0
 	return d.length()
+
+
+func _flat_dist(a: Vector3, b: Vector3) -> float:
+	return Vector2(a.x - b.x, a.z - b.z).length()
 
 
 func _near_wall() -> bool:

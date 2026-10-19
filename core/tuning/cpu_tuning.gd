@@ -186,6 +186,37 @@ extends Resource
 ## are defended against too.
 @export_range(0.0, 50.0) var side_threat_range: float = 8.0
 
+@export_group("Co-op ally")
+## A downed teammate (co-op) is a revive goal only within this distance (m).
+@export var revive_max_distance: Vector2 = Vector2(12.0, 30.0)
+## Extra frames (on top of the reaction delay) before a newly downed
+## teammate becomes the goal: lower = higher revive priority.
+@export var revive_delay_frames: Vector2 = Vector2(60, 0)
+## An enemy within this distance (m) of the ally or the downed teammate that
+## holds a melee token on either (or the grab lock / an attack on the ally)
+## makes the revive unsafe: the ally fights instead.
+@export_range(0.0, 30.0) var revive_safety_radius: float = 4.0
+## The coast must stay clear this many frames before a revive starts.
+@export var revive_clear_frames: Vector2 = Vector2(45, 15)
+## Threats are ignored once the teammate has bled out past this ratio (urgency): then it
+## goes for the revive anyway.
+@export var revive_desperate_bleed_ratio: Vector2 = Vector2(0.9, 0.55)
+## The ally walks in to this share of coop.revive_range before holding TAUNT.
+@export_range(0.1, 1.0) var revive_stop_share: float = 0.6
+## TAUNT is held this many frames past coop.revive_frames.
+@export_range(0, 120) var revive_hold_tail_frames: int = 15
+## Further than this (m) from the nearest standing teammate, with its target
+## also that far from the teammate, the ally walks back instead of chasing.
+@export_range(0.0, 50.0) var ally_leash_distance: float = 9.0
+## Ally target score lost per meter between a candidate and the ally's
+## nearest standing teammate (helps the partner, stays near the team).
+@export_range(0.0, 10.0) var ally_partner_distance_weight: float = 0.15
+## Friendly fire on: the ally steps out of a teammate's beam line when it is
+## within this lateral distance (m) of it...
+@export_range(0.0, 10.0) var ally_beam_clear_width: float = 1.5
+## ...and this far (m) ahead of the teammate.
+@export_range(0.0, 100.0) var ally_beam_clear_range: float = 30.0
+
 
 func level_count() -> int:
 	return maxi(level_names.size(), 1)
