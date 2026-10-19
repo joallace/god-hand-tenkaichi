@@ -54,3 +54,21 @@ extends Resource
 @export var join_start_delay: float = 1.0
 ## Stick deflection that counts as a menu direction on the join screen.
 @export var stick_nav_threshold: float = 0.6
+
+@export_group("Results screen")
+## Vertical gap between the headline, tally and button list (versus).
+@export var results_separation: int = 30
+## Tighter gap used by the co-op layout (headline, team line, table, buttons).
+@export var results_coop_separation: int = 8
+## Headline scale pulse: amplitude (fraction of size) and speed (rad/s).
+@export var results_pulse_amount: float = 0.04
+@export var results_pulse_speed: float = 4.0
+## Co-op stats table: min width of the row-label column / each player column,
+## gaps between cells, and the tallest it may get before it scrolls.
+@export var results_label_col_width: int = 230
+@export var results_player_col_width: int = 190
+@export var results_table_h_gap: int = 18
+@export var results_table_v_gap: int = 0
+@export var results_table_max_height: int = 260
+## Inner padding of the stats panel.
+@export var results_panel_padding: int = 10

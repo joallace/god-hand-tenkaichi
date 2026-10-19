@@ -4,12 +4,18 @@ extends Control
 ##   {"winner_slot": int (-1 = draw), "wins": PackedInt32Array, "config": MatchConfig}
 ## Co-op runs (config.mode COOP) show STAGE CLEAR / WIPED OUT: the run is
 ## cleared when the winner slot is one of config.players (team 0; enemies
-## aren't listed there), or when last_result has "cleared": true.
+## aren't listed there), or when last_result has "cleared": true. Below it:
+## the team line (run shape / waves cleared, run time; from "run") and a
+## stats table with one column per team-0 player (rows RunStats.ROWS, from
+## "stats", see presentation/run_stats.gd).
 
 var _headline: Label
 var _tally: Label
 var _rematch_btn: Button
 var _list: VBoxContainer
+var _table: GridContainer  # co-op only
+var _table_scroll: ScrollContainer  # co-op only
+var _col: VBoxContainer
 var _t := 0.0
 
 
@@ -23,8 +29,9 @@ func _ready() -> void:
 	var cfg: MatchConfig = res.get("config") as MatchConfig
 
 	var col := VBoxContainer.new()
+	_col = col
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	col.add_theme_constant_override("separation", 30)
+	col.add_theme_constant_override("separation", u.results_coop_separation if is_coop(res) else u.results_separation)
 
 	_headline = MenuHelpers.title(headline_text(res))
 	if is_coop(res):
@@ -33,10 +40,14 @@ func _ready() -> void:
 		_headline.add_theme_color_override("font_color", u.color_p1 if winner == 0 else u.color_p2)
 	col.add_child(_headline)
 
-	_tally = MenuHelpers.label(coop_summary_text(cfg) if is_coop(res) else tally_text(wins, cfg),
-			&"HeaderLabel", HORIZONTAL_ALIGNMENT_CENTER)
+	if is_coop(res):
+		_tally = MenuHelpers.label(coop_team_text(res), &"", HORIZONTAL_ALIGNMENT_CENTER)
+	else:
+		_tally = MenuHelpers.label(tally_text(wins, cfg), &"HeaderLabel", HORIZONTAL_ALIGNMENT_CENTER)
 	_tally.add_theme_color_override("font_color", u.color_text)
 	col.add_child(_tally)
+	if is_coop(res) and cfg != null:
+		col.add_child(_build_stats_panel(res, cfg))
 
 	_rematch_btn = MenuHelpers.button("Retry" if is_coop(res) else "Rematch", _on_rematch, cfg == null)
 	_list = MenuHelpers.vlist([
@@ -46,6 +57,7 @@ func _ready() -> void:
 	])
 	col.add_child(_list)
 	add_child(MenuHelpers.centered(col))
+	_fit_table()
 	MenuHelpers.focus_first(_list)
 
 
@@ -71,6 +83,9 @@ static func is_coop(res: Dictionary) -> bool:
 static func coop_cleared(res: Dictionary) -> bool:
 	if res.has("cleared"):
 		return bool(res["cleared"])
+	var run: Dictionary = res.get("run", {})
+	if run.has("cleared"):
+		return bool(run["cleared"])
 	var winner: int = int(res.get("winner_slot", -1))
 	var cfg := res.get("config") as MatchConfig
 	if winner < 0 or cfg == null:
@@ -81,20 +96,102 @@ static func coop_cleared(res: Dictionary) -> bool:
 	return false
 
 
-## "P1 (Brawler)  &  CPU (Brawler)" plus the run shape.
-static func coop_summary_text(cfg: MatchConfig) -> String:
-	if cfg == null:
-		return ""
-	var names: PackedStringArray = []
-	for p in cfg.players:
-		names.append("%s (%s)" % [cfg.player_tag(p.slot), MenuHelpers.character_name(p.character_id)])
-	var run := ""
-	if cfg.coop != null:
+## Team line: run shape (or waves cleared in a Waves run) and the run time.
+static func coop_team_text(res: Dictionary) -> String:
+	var cfg := res.get("config") as MatchConfig
+	var run: Dictionary = res.get("run", {})
+	var parts: PackedStringArray = []
+	if cfg != null and cfg.coop != null:
 		if cfg.coop.structure == CoopConfig.Structure.WAVES:
-			run = "Endless waves" if cfg.coop.endless else "%d waves" % cfg.coop.waves.size()
+			var waves := int(run.get("waves_cleared", -1))
+			if waves < 0:
+				parts.append("Endless waves" if cfg.coop.endless else "%d waves" % cfg.coop.waves.size())
+			elif cfg.coop.endless:
+				parts.append("Waves cleared: %d" % waves)
+			else:
+				parts.append("Waves cleared: %d / %d" % [waves, cfg.coop.waves.size()])
 		else:
-			run = "Brawl: %d enemies" % cfg.coop.enemy_count
-	return "  &  ".join(names) + ("\n" + run if run != "" else "")
+			parts.append("Brawl: %d enemies" % cfg.coop.enemy_count)
+	if run.has("seconds"):
+		parts.append("Time %s" % time_text(float(run["seconds"])))
+	return "   |   ".join(parts)
+
+
+## "m:ss" (whole seconds).
+static func time_text(seconds: float) -> String:
+	var s := maxi(floori(seconds), 0)
+	return "%d:%02d" % [s / 60, s % 60]
+
+
+## One stat cell; "-" when the run recorded nothing for it.
+static func stat_text(stats: Dictionary, slot: int, key: String) -> String:
+	var rec: Dictionary = stats.get(slot, {})
+	if not rec.has(key):
+		return "-"
+	if key == RunStats.DAMAGE:
+		return "%d" % roundi(float(rec[key]))
+	return str(int(rec[key]))
+
+
+func _build_stats_panel(res: Dictionary, cfg: MatchConfig) -> Control:
+	var u := UiTheme.tuning()
+	var stats: Dictionary = res.get("stats", {})
+	_table = GridContainer.new()
+	_table.columns = 1 + cfg.players.size()
+	_table.add_theme_constant_override("h_separation", u.results_table_h_gap)
+	_table.add_theme_constant_override("v_separation", u.results_table_v_gap)
+	_add_cell("", &"", u.results_label_col_width)
+	for p in cfg.players:
+		var tag := _add_cell(cfg.player_tag(p.slot), &"", u.results_player_col_width, HORIZONTAL_ALIGNMENT_CENTER)
+		tag.add_theme_color_override("font_color", _tag_color(cfg, p.slot))
+	_add_cell("", &"HintLabel", u.results_label_col_width)
+	for p in cfg.players:
+		_add_cell(MenuHelpers.character_name(p.character_id), &"HintLabel", u.results_player_col_width,
+				HORIZONTAL_ALIGNMENT_CENTER)
+	for row: Array in RunStats.ROWS:
+		var name_cell := _add_cell(String(row[1]), &"", u.results_label_col_width)
+		name_cell.add_theme_color_override("font_color", u.color_text_dim)
+		for p in cfg.players:
+			_add_cell(stat_text(stats, p.slot, String(row[0])), &"", u.results_player_col_width,
+					HORIZONTAL_ALIGNMENT_CENTER)
+
+	_table_scroll = ScrollContainer.new()
+	_table_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_table_scroll.add_child(_table)
+
+	var margin := MarginContainer.new()
+	for side in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:
+		margin.add_theme_constant_override(side, u.results_panel_padding)
+	margin.add_child(_table_scroll)
+	var panel := PanelContainer.new()
+	panel.theme_type_variation = &"PanelBox"
+	panel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	panel.add_child(margin)
+	return panel
+
+
+## Size the scroll box to the table (themed, so once in the tree), capped at
+## results_table_max_height; taller tables scroll.
+func _fit_table() -> void:
+	if _table == null:
+		return
+	var need := _table.get_combined_minimum_size()
+	_table_scroll.custom_minimum_size = Vector2(need.x, minf(need.y, UiTheme.tuning().results_table_max_height))
+
+
+func _add_cell(text: String, variation: StringName, min_width: int,
+		align := HORIZONTAL_ALIGNMENT_LEFT) -> Label:
+	var l := MenuHelpers.label(text, variation, align)
+	l.custom_minimum_size.x = min_width
+	_table.add_child(l)
+	return l
+
+
+static func _tag_color(cfg: MatchConfig, slot: int) -> Color:
+	var u := UiTheme.tuning()
+	if cfg.player_tag(slot) == "CPU":
+		return u.color_text_dim
+	return u.color_p1 if slot == 0 else u.color_p2
 
 
 static func tally_text(wins: PackedInt32Array, cfg: MatchConfig) -> String:
@@ -113,7 +210,8 @@ func _process(delta: float) -> void:
 	_t += delta
 	if _headline.size.x > 0.0:
 		_headline.pivot_offset = _headline.size * 0.5
-		_headline.scale = Vector2.ONE * (1.0 + 0.04 * sin(_t * 4.0))
+		var u := UiTheme.tuning()
+		_headline.scale = Vector2.ONE * (1.0 + u.results_pulse_amount * sin(_t * u.results_pulse_speed))
 
 
 func _unhandled_input(event: InputEvent) -> void:
