@@ -43,6 +43,10 @@ var pressed: int = 0
 var released: int = 0
 ## Dodge flick that fired this tick (edge-triggered; NONE most ticks).
 var dodge: Dodge = Dodge.NONE
+## Slot of the fighter this player wants as its target (-1 = no request).
+## Devices leave it -1 and use TARGET; CpuBrain sets it to steer its own
+## fighter's target (Fighter treats a valid request like a manual lock).
+var target_request: int = -1
 
 
 func move() -> Vector2:
@@ -82,17 +86,19 @@ func duplicate_frame() -> InputFrame:
 	f.pressed = pressed
 	f.released = released
 	f.dodge = dodge
+	f.target_request = target_request
 	return f
 
 
 func equals(other: InputFrame) -> bool:
 	return other != null and move_x == other.move_x and move_y == other.move_y \
-		and held == other.held and dodge == other.dodge
+		and held == other.held and dodge == other.dodge and target_request == other.target_request
 
 
-## Compact serialization for netcode: [move_x, move_y, held, dodge].
+## Compact serialization for netcode: [move_x, move_y, held, dodge,
+## target_request].
 func to_array() -> PackedInt32Array:
-	return PackedInt32Array([move_x, move_y, held, dodge])
+	return PackedInt32Array([move_x, move_y, held, dodge, target_request])
 
 
 static func from_array(a: PackedInt32Array) -> InputFrame:
@@ -101,6 +107,7 @@ static func from_array(a: PackedInt32Array) -> InputFrame:
 	f.move_y = a[1]
 	f.held = a[2]
 	f.dodge = a[3] as Dodge
+	f.target_request = a[4] if a.size() > 4 else -1
 	return f
 
 
