@@ -13,7 +13,7 @@ func _ready() -> void:
 
 	var col := VBoxContainer.new()
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	col.add_theme_constant_override("separation", 14)
+	col.add_theme_constant_override("separation", UiTheme.tuning().main_menu_separation)
 	_title = MenuHelpers.title("GOD HAND TENKAICHI")
 	col.add_child(_title)
 	var sub := MenuHelpers.label("ULTIMATE STREET-FIGHTING BUDOKAI", &"HintLabel", HORIZONTAL_ALIGNMENT_CENTER)

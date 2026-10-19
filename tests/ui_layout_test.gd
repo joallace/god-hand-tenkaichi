@@ -1,0 +1,273 @@
+extends Node
+## Headless layout test: every menu screen / overlay must fit the base
+## viewport (1152x648, project.godot's default with canvas_items/expand), and
+## a wider one. Each screen is instantiated in a SubViewport of that size;
+## after the containers sort, every visible Control's global rect must lie
+## inside the viewport. Children of ScrollContainers are skipped (clipping
+## there is intended); the ScrollContainer itself is checked.
+##   godot --headless res://tests/ui_layout_test.tscn
+
+const SIZES: Array[Vector2i] = [Vector2i(1152, 648), Vector2i(1600, 648)]
+## A realistic long SDL pad name, to check device labels clip.
+const LONG_PAD_NAME := "PS5 DualSense Wireless Controller (Bluetooth, Extended Report Mode)"
+const TOLERANCE := 1.0
+
+var _fails := 0
+var _vp: SubViewport
+
+
+func _ready() -> void:
+	for s in SIZES:
+		_vp = SubViewport.new()
+		_vp.size = s
+		_vp.gui_disable_input = true
+		add_child(_vp)
+		await _run_all(str(s))
+		_vp.queue_free()
+		await frames(2)
+	await _report_results_screen()
+	print("UI_LAYOUT %s (%d failures)" % ["OK" if _fails == 0 else "FAIL", _fails])
+	get_tree().quit(0 if _fails == 0 else 1)
+
+
+func _run_all(tag: String) -> void:
+	await _check_scene(Game.SCENE_MAIN_MENU, "main menu " + tag)
+	await _check_how_to_play(tag)
+	await _check_scene(Game.SCENE_CONTROLS, "controls screen (pad) " + tag)
+	await _check_controls_keyboard(tag)
+	await _check_controls_overlay(tag)
+	for m in [MatchConfig.Mode.LOCAL_VERSUS, MatchConfig.Mode.VERSUS_CPU, MatchConfig.Mode.COOP]:
+		await _check_join(m, tag)
+	await _check_pause_menu(tag)
+
+
+func check(cond: bool, what: String) -> void:
+	print("%s: %s" % ["PASS" if cond else "FAIL", what])
+	if not cond:
+		_fails += 1
+
+
+func frames(n: int) -> void:
+	for i in n:
+		await get_tree().process_frame
+
+
+## Out-of-bounds visible controls under `root` (outside any ScrollContainer).
+func overflows(root: Node) -> PackedStringArray:
+	var out: PackedStringArray = []
+	var bounds := Rect2(Vector2.ZERO, Vector2(_vp.size)).grow(TOLERANCE)
+	_collect(root, bounds, out)
+	return out
+
+
+func _collect(n: Node, bounds: Rect2, out: PackedStringArray) -> void:
+	if n is Control:
+		var c := n as Control
+		if not c.is_visible_in_tree():
+			return
+		var r := c.get_global_rect()
+		if not bounds.encloses(r):
+			var desc := "%s(%s) rect=%s" % [c.get_class(), c.name, r]
+			if c is Label or c is Button:
+				desc += " text=%s" % c.get("text").c_escape().left(40)
+			out.append(desc)
+		if c is ScrollContainer:
+			return
+	elif n is CanvasItem and not (n as CanvasItem).visible:
+		return
+	elif n is CanvasLayer and not (n as CanvasLayer).visible:
+		return
+	for child in n.get_children():
+		_collect(child, bounds, out)
+
+
+## Visible labels under `root` whose text is cut by their overrun behaviour
+## (ellipsis), ignoring labels showing `except`.
+func truncated(root: Node, except: String) -> PackedStringArray:
+	var out: PackedStringArray = []
+	for n in root.find_children("*", "Label", true, false):
+		var l := n as Label
+		if not l.is_visible_in_tree() or l.text == except or l.text_overrun_behavior == TextServer.OVERRUN_NO_TRIMMING \
+				or l.autowrap_mode != TextServer.AUTOWRAP_OFF:
+			continue
+		var font := l.get_theme_font("font")
+		var fs := l.get_theme_font_size("font_size")
+		for line in l.text.split("\n"):
+			if font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > l.size.x + TOLERANCE:
+				out.append("%s (width %.0f)" % [line, l.size.x])
+	return out
+
+
+func _assert_fits(root: Node, what: String) -> void:
+	await frames(3)
+	var bad := overflows(root)
+	check(bad.is_empty(), "%s fits the viewport" % what)
+	for b in bad.slice(0, 6):
+		print("    overflow: ", b)
+
+
+func _check_scene(path: String, what: String) -> void:
+	var n := (load(path) as PackedScene).instantiate()
+	_vp.add_child(n)
+	await _assert_fits(n, what)
+	n.queue_free()
+	await frames(1)
+
+
+func _check_how_to_play(tag: String) -> void:
+	var h := HowToPlayPanel.new()
+	_vp.add_child(h)
+	await _assert_fits(h, "how-to-play overlay " + tag)
+	var scroll := _find(h, func(c: Node) -> bool: return c is ScrollContainer) as ScrollContainer
+	check(scroll != null, "how-to-play controls list is in a ScrollContainer " + tag)
+	if scroll != null:
+		var bar := scroll.get_v_scroll_bar()
+		var can_scroll := bar.max_value - bar.page > 1.0
+		# The list uses the free height: all of it, or at least half the screen.
+		check(scroll.size.y >= minf(bar.max_value, _vp.size.y * 0.5) - TOLERANCE,
+				"how-to-play list gets a usable height (%.0f of %.0f) %s" % [scroll.size.y, bar.max_value, tag])
+		if can_scroll:
+			var before := scroll.scroll_vertical
+			h.call("scroll_by", 1)
+			await frames(2)
+			check(scroll.scroll_vertical > before, "how-to-play scrolls down from the pad/keyboard " + tag)
+	h.queue_free()
+	await frames(1)
+
+
+func _check_controls_keyboard(tag: String) -> void:
+	var cs := (load(Game.SCENE_CONTROLS) as PackedScene).instantiate() as ControlsScreen
+	cs.kind = Bindings.Kind.KEYBOARD
+	cs.slot = 1
+	_vp.add_child(cs)
+	await _assert_fits(cs, "controls screen (keyboard P2) " + tag)
+	# Longest status line (rebind prompt).
+	cs.begin_listen("DODGE_RIGHT")
+	await _assert_fits(cs, "controls screen while listening " + tag)
+	cs.cancel_listen()
+	cs.queue_free()
+	await frames(1)
+
+
+func _check_controls_overlay(tag: String) -> void:
+	var cs := ControlsScreen.open_overlay(_vp)
+	await _assert_fits(cs.get_parent(), "controls overlay " + tag)
+	cs.get_parent().queue_free()
+	await frames(1)
+
+
+func _check_join(m: MatchConfig.Mode, tag: String) -> void:
+	var names := {MatchConfig.Mode.LOCAL_VERSUS: "versus", MatchConfig.Mode.VERSUS_CPU: "vs CPU",
+			MatchConfig.Mode.COOP: "co-op"}
+	var what := "join screen %s " % names[m]
+	JoinScreen._memory = {}
+	JoinScreen._coop_memory = {}
+	JoinScreen.pending_mode = m
+	var j := (load(Game.SCENE_JOIN) as PackedScene).instantiate() as JoinScreen
+	j.auto_start = false
+	_vp.add_child(j)
+	await _assert_fits(j, what + "(nobody joined) " + tag)
+	j.join(Bindings.Kind.PAD, 0)
+	j.join(Bindings.Kind.PAD, 1)
+	# Widest values: longest fighter name everywhere, longest level name.
+	var longest := _longest_character()
+	var low_level := 0
+	for s in j.slots:
+		s.char_index = longest
+		s.cpu_level = low_level
+	j.coop_enemy_level = low_level
+	j.coop_ally_level = low_level
+	j.coop_ally_char = longest
+	if m == MatchConfig.Mode.COOP:
+		# Every row shown (Waves + ally rows), both cursors on the same row.
+		j.coop_structure = CoopConfig.Structure.WAVES
+		j.coop_ally = true
+		j.coop_roster = longest + 1
+		for s in j.slots:
+			s.cursor = JoinScreen.Row.ENEMY_COUNT
+	elif m == MatchConfig.Mode.LOCAL_VERSUS:
+		for s in j.slots:
+			s.cursor = JoinScreen.Row.ROUNDS
+	j._refresh()
+	for ui: Dictionary in j._ui:
+		if j.slots[j._ui.find(ui)].type == JoinScreen.SlotType.HUMAN:
+			(ui["device"] as Label).text = LONG_PAD_NAME
+	await _assert_fits(j, what + "(2 pads joined) " + tag)
+	var cut := truncated(j, LONG_PAD_NAME)
+	check(cut.is_empty(), what + "shows every row / name untrimmed " + tag)
+	for c in cut.slice(0, 6):
+		print("    trimmed: ", c)
+	if m == MatchConfig.Mode.COOP:
+		var scroll := j._settings_scroll
+		check(scroll != null, what + "settings rows are in a ScrollContainer " + tag)
+		if scroll != null:
+			# Walking the cursor to the last row keeps that row in view.
+			j.slots[0].cursor = JoinScreen.Row.CHARACTER
+			for i in j.rows().size() - 1:
+				j._command(0, JoinScreen.Cmd.DOWN)
+			await frames(3)
+			var last: Label = j._timer_label
+			var view := scroll.get_global_rect().grow(TOLERANCE)
+			check(j.slots[0].cursor == JoinScreen.Row.TIMER and view.encloses(last.get_global_rect()),
+					what + "settings list follows the cursor to the last row " + tag)
+	JoinScreen._memory = {}
+	JoinScreen._coop_memory = {}
+	JoinScreen.pending_mode = MatchConfig.Mode.LOCAL_VERSUS
+	j.queue_free()
+	await frames(1)
+
+
+func _check_pause_menu(tag: String) -> void:
+	var p := PauseMenu.new()
+	_vp.add_child(p)
+	p.call("_build")
+	p.visible = true
+	await _assert_fits(p, "pause menu " + tag)
+	p.queue_free()
+	await frames(1)
+
+
+## Results screen is reported only (being rewritten elsewhere).
+func _report_results_screen() -> void:
+	_vp = SubViewport.new()
+	_vp.size = SIZES[0]
+	_vp.gui_disable_input = true
+	add_child(_vp)
+	var cfg := MatchConfig.from_defaults(MatchConfig.Mode.LOCAL_VERSUS)
+	for i in 2:
+		var p := PlayerSlotConfig.new()
+		p.slot = i
+		p.character_id = MenuHelpers.character_ids()[0]
+		cfg.players.append(p)
+	var saved := Game.last_result
+	Game.last_result = {"winner_slot": 0, "wins": PackedInt32Array([2, 1]), "config": cfg}
+	var r := (load(Game.SCENE_RESULTS) as PackedScene).instantiate()
+	_vp.add_child(r)
+	await frames(3)
+	var bad := overflows(r)
+	print("INFO: results screen %s at %s" % ["fits" if bad.is_empty() else "OVERFLOWS", _vp.size])
+	for b in bad.slice(0, 6):
+		print("    overflow: ", b)
+	r.queue_free()
+	Game.last_result = saved
+	_vp.queue_free()
+	await frames(2)
+
+
+func _longest_character() -> int:
+	var ids := MenuHelpers.character_ids()
+	var best := 0
+	for i in ids.size():
+		if MenuHelpers.character_name(ids[i]).length() > MenuHelpers.character_name(ids[best]).length():
+			best = i
+	return best
+
+
+func _find(n: Node, pred: Callable) -> Node:
+	for c in n.get_children():
+		if pred.call(c):
+			return c
+		var d := _find(c, pred)
+		if d != null:
+			return d
+	return null

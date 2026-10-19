@@ -102,6 +102,10 @@ var _cpu_level_label: Label
 var _cpu_blurb_label: Label
 var _status_label: Label
 var _coop_labels: Dictionary = {}  # Row -> Label
+var _row_labels: Dictionary = {}  # Row -> Label, every row in the settings panel
+var _settings_scroll: ScrollContainer
+## Slot whose cursor moved last (the settings list follows it).
+var _last_cursor_slot := -1
 
 
 func _ready() -> void:
@@ -360,9 +364,11 @@ func _command(idx: int, cmd: int) -> void:
 		SlotState.JOINED:
 			match cmd:
 				Cmd.UP:
+					_last_cursor_slot = idx
 					_move_cursor(s, -1)
 					Sfx.play(&"ui_move")
 				Cmd.DOWN:
+					_last_cursor_slot = idx
 					_move_cursor(s, 1)
 					Sfx.play(&"ui_move")
 				Cmd.LEFT:
@@ -657,17 +663,21 @@ func _build_ui() -> void:
 	var u := UiTheme.tuning()
 	var root := VBoxContainer.new()
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	root.offset_left = 40
-	root.offset_right = -40
-	root.offset_top = 16
-	root.offset_bottom = -16
-	root.add_theme_constant_override("separation", 12)
+	root.offset_left = u.join_margin.x
+	root.offset_right = -u.join_margin.x
+	root.offset_top = u.join_margin.y
+	root.offset_bottom = -u.join_margin.y
+	root.add_theme_constant_override("separation", u.join_root_separation)
 	add_child(root)
 
-	root.add_child(MenuHelpers.title("CHOOSE YOUR FIGHTERS"))
+	var title := MenuHelpers.title("CHOOSE YOUR FIGHTERS")
+	title.add_theme_font_size_override("font_size", u.join_title_font)
+	root.add_child(title)
+	# Player panels and the shared settings panel share the width (no minimum
+	# widths: long values are cut with an ellipsis, never pushed off-screen).
 	var row := HBoxContainer.new()
 	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	row.add_theme_constant_override("separation", 30)
+	row.add_theme_constant_override("separation", u.join_column_separation)
 	root.add_child(row)
 
 	for i in slots.size():
@@ -679,31 +689,42 @@ func _build_ui() -> void:
 
 	_status_label = MenuHelpers.label("", &"HeaderLabel", HORIZONTAL_ALIGNMENT_CENTER)
 	root.add_child(_status_label)
-	root.add_child(MenuHelpers.label(
+	var hint := MenuHelpers.label(
 			"Pad: START/A join  -  D-pad/stick choose  -  A ready  -  B back/leave\n"
 			+ "Keyboard: ENTER join  -  your MOVE keys choose (arrows if alone)  -  LIGHT/JUMP ready  -  PAUSE/ESC back",
-			&"HintLabel", HORIZONTAL_ALIGNMENT_CENTER))
+			&"HintLabel", HORIZONTAL_ALIGNMENT_CENTER)
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	root.add_child(hint)
+
+
+## Single-line label that shrinks with an ellipsis instead of widening its panel.
+static func _fit_label(text: String, variation: StringName = &"", font_size := 0) -> Label:
+	var l := MenuHelpers.label(text, variation, HORIZONTAL_ALIGNMENT_CENTER)
+	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	if font_size > 0:
+		l.add_theme_font_size_override("font_size", font_size)
+	return l
 
 
 func _build_player_panel(i: int, color: Color) -> Dictionary:
+	var u := UiTheme.tuning()
 	var panel := PanelContainer.new()
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var sb := (UiTheme.get_theme().get_stylebox("panel", "PanelContainer") as StyleBoxFlat).duplicate() as StyleBoxFlat
 	sb.border_color = color
-	sb.set_border_width_all(6)
+	sb.set_border_width_all(u.join_panel_border)
 	panel.add_theme_stylebox_override("panel", sb)
 	var col := VBoxContainer.new()
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
 	panel.add_child(col)
-	var header := MenuHelpers.title("CPU" if slots[i].type == SlotType.CPU else "PLAYER %d" % (i + 1), &"HeaderLabel")
+	var header := _fit_label("CPU" if slots[i].type == SlotType.CPU else "PLAYER %d" % (i + 1), &"HeaderLabel")
 	header.add_theme_color_override("font_color", color)
 	col.add_child(header)
-	var device := MenuHelpers.label("", &"HintLabel", HORIZONTAL_ALIGNMENT_CENTER)
+	var device := _fit_label("", &"HintLabel")
 	col.add_child(device)
-	var state := MenuHelpers.label("", &"HeaderLabel", HORIZONTAL_ALIGNMENT_CENTER)
+	var state := _fit_label("", &"HeaderLabel", u.join_state_font)
 	col.add_child(state)
-	var character := MenuHelpers.label("", &"", HORIZONTAL_ALIGNMENT_CENTER)
-	character.add_theme_font_size_override("font_size", UiTheme.tuning().font_button)
+	var character := _fit_label("", &"", u.join_character_font)
 	col.add_child(character)
 	var hint := MenuHelpers.label("", &"HintLabel", HORIZONTAL_ALIGNMENT_CENTER)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -711,39 +732,61 @@ func _build_player_panel(i: int, color: Color) -> Dictionary:
 	return {"panel": panel, "device": device, "state": state, "character": character, "hint": hint, "color": color}
 
 
+## Shared rows (match rules / co-op run) live once, in the middle panel. They
+## scroll when they don't fit; the row under the last-moved cursor is kept in view.
 func _build_settings_panel() -> Control:
+	var u := UiTheme.tuning()
 	var panel := PanelContainer.new()
 	panel.theme_type_variation = &"PanelBox"
-	panel.custom_minimum_size.x = 420
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.size_flags_stretch_ratio = u.join_settings_ratio
+	var outer := VBoxContainer.new()
+	panel.add_child(outer)
+	outer.add_child(_fit_label("CO-OP RUN" if is_coop() else "MATCH RULES", &"HeaderLabel"))
+	_settings_scroll = ScrollContainer.new()
+	_settings_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_settings_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	outer.add_child(_settings_scroll)
 	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	panel.add_child(col)
-	col.add_child(MenuHelpers.title("CO-OP RUN" if is_coop() else "MATCH RULES", &"HeaderLabel"))
-	_cpu_level_label = MenuHelpers.label("", &"", HORIZONTAL_ALIGNMENT_CENTER)
+	col.add_theme_constant_override("separation", u.join_row_separation)
+	_settings_scroll.add_child(col)
+	_cpu_level_label = _fit_label("", &"", u.join_row_font)
 	_cpu_blurb_label = MenuHelpers.label("", &"HintLabel", HORIZONTAL_ALIGNMENT_CENTER)
 	_cpu_blurb_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_rounds_label = MenuHelpers.label("", &"", HORIZONTAL_ALIGNMENT_CENTER)
-	_timer_label = MenuHelpers.label("", &"", HORIZONTAL_ALIGNMENT_CENTER)
+	_rounds_label = _fit_label("", &"", u.join_row_font)
+	_timer_label = _fit_label("", &"", u.join_row_font)
 	for l in [_cpu_level_label, _cpu_blurb_label, _rounds_label, _timer_label]:
-		if l != _cpu_blurb_label:
-			l.add_theme_font_size_override("font_size", UiTheme.tuning().font_button)
 		col.add_child(l)
 	_cpu_level_label.visible = cpu_slot() >= 0
 	_cpu_blurb_label.visible = cpu_slot() >= 0
+	_row_labels = {Row.CPU_LEVEL: _cpu_level_label, Row.ROUNDS: _rounds_label, Row.TIMER: _timer_label}
 	if is_coop():
 		_rounds_label.visible = false  # one run, no rounds
 		col.remove_child(_timer_label)
 		for r in [Row.COOP_STRUCTURE, Row.ENEMY_COUNT, Row.WAVES, Row.ENEMY_LEVEL, Row.ENEMY_ROSTER,
 				Row.ALLY, Row.ALLY_LEVEL, Row.ALLY_CHARACTER, Row.FRIENDLY_FIRE]:
-			var l := MenuHelpers.label("", &"", HORIZONTAL_ALIGNMENT_CENTER)
-			l.add_theme_font_size_override("font_size", UiTheme.tuning().font_body)
+			var l := _fit_label("", &"", u.join_row_font)
 			_coop_labels[r] = l
+			_row_labels[r] = l
 			col.add_child(l)
-		_timer_label.add_theme_font_size_override("font_size", UiTheme.tuning().font_body)
 		col.add_child(_timer_label)
-	col.add_child(MenuHelpers.label("Any joined player:\nup/down to pick a row,\nleft/right to change it",
-			&"HintLabel", HORIZONTAL_ALIGNMENT_CENTER))
+	var how := MenuHelpers.label("Any player: up/down row, left/right value",
+			&"HintLabel", HORIZONTAL_ALIGNMENT_CENTER)
+	how.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	outer.add_child(how)
 	return panel
+
+
+## Scroll the settings list so the row under the last-moved cursor shows.
+func _scroll_to_cursor() -> void:
+	if _settings_scroll == null or _last_cursor_slot < 0 or _last_cursor_slot >= slots.size():
+		return
+	var l: Label = _row_labels.get(slots[_last_cursor_slot].cursor)
+	if l != null and l.visible:
+		_settings_scroll.ensure_control_visible(l)
 
 
 func _cursor_tags(row: int) -> String:
@@ -782,10 +825,13 @@ func _refresh() -> void:
 			SlotType.REMOTE:
 				device.text = "Online peer %d" % s.peer_id if s.peer_id != 0 else "Waiting for opponent..."
 			_:
-				device.text = MenuHelpers.device_label(s.device_kind, s.device_id, i) if s.state != SlotState.EMPTY else "-"
+				if s.state != SlotState.EMPTY:
+					device.text = MenuHelpers.device_label(s.device_kind, s.device_id, i)
+				else:
+					device.text = "(optional)" if is_coop() and i > 0 else "-"
 		match s.state:
 			SlotState.EMPTY:
-				state.text = "PRESS START\nOR ENTER" + ("\n(optional)" if is_coop() and i > 0 else "")
+				state.text = "PRESS START\nOR ENTER"
 				state.add_theme_color_override("font_color", u.color_text)
 				hint.text = ""
 			SlotState.JOINED:
@@ -818,6 +864,7 @@ func _refresh() -> void:
 	if is_coop():
 		_refresh_coop_rows()
 	_refresh_status()
+	_scroll_to_cursor.call_deferred()
 
 
 ## Text of every co-op row, hidden when not in rows().

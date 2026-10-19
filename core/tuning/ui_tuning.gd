@@ -49,7 +49,39 @@ extends Resource
 ## (plus the confirm press must have been released).
 @export var rebind_arm_delay: float = 0.15
 
+@export_group("Layout")
+## Vertical gap between the main menu's title, subtitle, buttons and hint.
+@export var main_menu_separation: int = 10
+## How-to-play overlay: space kept free around the panel (x: sides, y: top/bottom).
+@export var how_to_margin: Vector2 = Vector2(48, 20)
+## How-to-play grid gaps (x: between columns, y: between rows).
+@export var how_to_grid_separation: Vector2i = Vector2i(40, 6)
+## Pixels scrolled per ui_up / ui_down press (held keys repeat).
+@export var how_to_scroll_step: float = 64.0
+## Right-stick scroll speed (pixels per second at full deflection).
+@export var how_to_stick_scroll_speed: float = 900.0
+## Right-stick deflection below which the how-to-play list doesn't scroll.
+@export var how_to_stick_deadzone: float = 0.3
+
 @export_group("Join screen")
+## Space kept free around the join screen (x: sides, y: top/bottom).
+@export var join_margin: Vector2 = Vector2(24, 12)
+## Gap between the title, the panels row, the status and the hint lines.
+@export var join_root_separation: int = 4
+## Gap between the player panels and the shared settings panel.
+@export var join_column_separation: int = 16
+## The screen title is smaller than other titles so the rows fit 648 px.
+@export var join_title_font: int = 44
+## Player panel: "CHOOSE!" / "READY!" state line and the fighter name.
+@export var join_state_font: int = 30
+@export var join_character_font: int = 26
+## Shared settings rows (match rules / co-op run) font and row gap.
+@export var join_row_font: int = 20
+@export var join_row_separation: int = 2
+## Settings panel width relative to one player panel (both expand).
+@export var join_settings_ratio: float = 1.5
+## Border width of the P1/P2-coloured player panels.
+@export var join_panel_border: int = 6
 ## Seconds between "all ready" and the match starting (cancel by un-readying).
 @export var join_start_delay: float = 1.0
 ## Stick deflection that counts as a menu direction on the join screen.
