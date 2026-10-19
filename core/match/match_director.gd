@@ -16,12 +16,21 @@ extends Node3D
 ## effects (ultimate, counter guard, push-stop) freeze the whole world instead
 ## (request_world_freeze), which also pauses the round timer.
 ##
+## Teams: every fighter has a team (PlayerSlotConfig.team, default = slot, so
+## 1v1 is two teams of one). A round ends when at most one team has a fighter
+## standing; on time-out the team with the best mean health ratio wins.
+## `wins` is indexed by TEAM; round_ended/match_ended still carry a winner
+## slot (the lowest slot of the winning team, -1 = draw) and
+## `last_winner_team` holds the team. Each fighter's `target` is picked by
+## pick_default_target() (nearest standing enemy).
+##
 ## Presentation (cameras, HUD, VFX) only observes signals and node transforms.
 
 signal fighters_spawned(fighters: Array[Fighter])
 signal phase_changed(phase: Phase)
 signal round_started(round_number: int)
-## winner_slot = -1 on draw. reason: &"ko", &"time", &"draw"
+## winner_slot = -1 on draw (lowest slot of the winning team otherwise; the
+## team is in last_winner_team). reason: &"ko", &"time", &"draw"
 signal round_ended(winner_slot: int, reason: StringName)
 signal match_ended(winner_slot: int)
 signal timer_changed(seconds_left: int)  # -1 when infinite
@@ -45,12 +54,15 @@ var phase: Phase = Phase.NONE
 var phase_frames: int = 0
 var round_number: int = 0
 var round_frames_left: int = 0
+## Rounds won, indexed by team id.
 var wins: PackedInt32Array = PackedInt32Array()
 ## Frames the whole sim stays frozen (ultimate, counter guard, push-stop).
 var world_freeze: int = 0
 ## Next SimEntity.sim_id. Ids are never reused within a match, so snapshots
 ## name entities unambiguously; fighters, then entities, tick in id order.
 var next_sim_id: int = 1
+## Team that won the last round (-1 = draw / none yet).
+var last_winner_team: int = -1
 ## When true the sim does not advance (pause menu). Inputs aren't polled.
 ## On unpause, sources resync so buttons still held from the menu (e.g. the
 ## A that pressed "Resume") don't register as fresh presses.
@@ -69,7 +81,10 @@ var _last_second_emitted := -2
 func setup(p_config: MatchConfig) -> void:
 	config = p_config
 	combat = CombatSystem.new(self)
-	wins.resize(config.players.size())
+	var max_team := 0
+	for p in config.players:
+		max_team = maxi(max_team, p.team if p.team >= 0 else p.slot)
+	wins.resize(max_team + 1)
 	wins.fill(0)
 	for p in config.players:
 		var src := p.create_input_source()
@@ -80,9 +95,6 @@ func setup(p_config: MatchConfig) -> void:
 		add_child(f)
 		f.director = self
 		fighters.append(f)
-	if fighters.size() == 2:
-		fighters[0].opponent = fighters[1]
-		fighters[1].opponent = fighters[0]
 	fighters_spawned.emit(fighters)
 	_start_round()
 
@@ -136,17 +148,17 @@ func _tick_fight() -> void:
 	if not config.is_infinite_time() and world_freeze == 0:
 		round_frames_left -= 1
 		_emit_timer()
-	var ko: Array[Fighter] = fighters.filter(func(f: Fighter) -> bool: return f.is_ko())
-	if not ko.is_empty():
-		var winner := -1
-		if ko.size() == 1:
-			winner = fighters[1 - fighters.find(ko[0])].slot
-		_end_round(winner, &"ko" if winner >= 0 else &"draw")
-	elif not config.is_infinite_time() and round_frames_left <= 0:
-		var a := fighters[0].health_ratio()
-		var b := fighters[1].health_ratio()
-		var winner := -1 if is_equal_approx(a, b) else (fighters[0].slot if a > b else fighters[1].slot)
+	var standing := _standing_teams()
+	if standing.size() < _teams().size():
+		if standing.size() <= 1:
+			var winner := standing[0] if standing.size() == 1 else -1
+			_end_round(winner, &"ko" if winner >= 0 else &"draw")
+			return
+	if not config.is_infinite_time() and round_frames_left <= 0:
+		var winner := _best_health_team()
 		_end_round(winner, &"time" if winner >= 0 else &"draw")
+		return
+	_update_targets()
 
 
 func _start_round() -> void:
@@ -156,11 +168,11 @@ func _start_round() -> void:
 		_free_node(e)
 	entities.clear()
 	round_frames_left = config.round_time_seconds * Tuning.match_rules.tick_rate
-	var d := Tuning.match_rules.spawn_distance * 0.5
 	for i in fighters.size():
-		var pos := Vector3(0, 0, d if i == 0 else -d)
-		fighters[i].reset_for_round(Transform3D(Basis.looking_at(-pos.normalized()), pos))
+		fighters[i].reset_for_round(spawn_transform(i))
 		fighters[i].set_control_enabled(false)
+	for f in fighters:
+		f.target = pick_default_target(f)
 	for s in sources:
 		s.reset()
 	_last_second_emitted = -2
@@ -169,20 +181,21 @@ func _start_round() -> void:
 	round_started.emit(round_number)
 
 
-func _end_round(winner_slot: int, reason: StringName) -> void:
+func _end_round(winner_team: int, reason: StringName) -> void:
 	for f in fighters:
 		f.set_control_enabled(false)
-	if winner_slot >= 0:
-		wins[winner_slot] += 1
+	last_winner_team = winner_team
+	if winner_team >= 0:
+		wins[winner_team] += 1
 	_set_phase(Phase.OUTRO)
-	round_ended.emit(winner_slot, reason)
+	round_ended.emit(team_lead_slot(winner_team), reason)
 
 
 func _after_round() -> void:
-	for slot in wins.size():
-		if wins[slot] >= config.rounds_to_win:
+	for team in wins.size():
+		if wins[team] >= config.rounds_to_win:
 			_set_phase(Phase.MATCH_OVER)
-			match_ended.emit(slot)
+			match_ended.emit(team_lead_slot(team))
 			return
 	_start_round()
 
@@ -231,6 +244,117 @@ func _reap_entities() -> void:
 			_free_node(e)
 
 
+# --- Teams ---------------------------------------------------------------------
+
+## Default target policy: the nearest standing fighter of another team (ties:
+## lowest slot), or null if there is none. One place to swap the policy.
+func pick_default_target(f: Fighter) -> Fighter:
+	var best: Fighter = null
+	var best_d := INF
+	for o in fighters:
+		if o.team == f.team or o.is_ko():
+			continue
+		var d := f.global_position.distance_squared_to(o.global_position)
+		if d < best_d:
+			best = o
+			best_d = d
+	return best
+
+
+## Re-pick for every standing fighter whose target is gone or KO'd (keeps the
+## old one when no enemy stands, e.g. the round is ending).
+func _update_targets() -> void:
+	for f in fighters:
+		if f.is_ko() or (f.target != null and not f.target.is_ko() and f.target.team != f.team):
+			continue
+		var t := pick_default_target(f)
+		if t != null:
+			f.target = t
+
+
+## Team ids present, ascending.
+func _teams() -> Array[int]:
+	var out: Array[int] = []
+	for f in fighters:
+		if not f.team in out:
+			out.append(f.team)
+	out.sort()
+	return out
+
+
+## Teams with at least one fighter not KO'd, ascending.
+func _standing_teams() -> Array[int]:
+	var out: Array[int] = []
+	for f in fighters:
+		if not f.is_ko() and not f.team in out:
+			out.append(f.team)
+	out.sort()
+	return out
+
+
+## Time-out winner: highest mean health ratio of a team's fighters; -1 on a tie.
+func _best_health_team() -> int:
+	var best := -1
+	var best_ratio := -1.0
+	var tie := false
+	for team in _teams():
+		var sum := 0.0
+		var n := 0
+		for f in fighters:
+			if f.team == team:
+				sum += f.health_ratio()
+				n += 1
+		var r := sum / n
+		if best >= 0 and is_equal_approx(r, best_ratio):
+			tie = true
+		elif r > best_ratio:
+			best = team
+			best_ratio = r
+			tie = false
+	return -1 if tie else best
+
+
+## Lowest slot on `team` (-1 for team -1 or an empty team).
+func team_lead_slot(team: int) -> int:
+	var lead := -1
+	for f in fighters:
+		if f.team == team and (lead < 0 or f.slot < lead):
+			lead = f.slot
+	return lead
+
+
+## Rounds won by the team of the fighter in `slot`.
+func wins_for_slot(slot: int) -> int:
+	var f := fighter_for_slot(slot)
+	if f == null or f.team >= wins.size():
+		return 0
+	return wins[f.team]
+
+
+## Round start transform of fighters[i]: teams on opposite sides of the ring
+## (more than two teams: evenly around it), spawn_distance apart across the
+## centre, teammates side by side spawn_team_spacing apart, facing inward.
+func spawn_transform(i: int) -> Transform3D:
+	var f := fighters[i]
+	var teams := _teams()
+	var ti := teams.find(f.team)
+	var mates: Array[Fighter] = []
+	for o in fighters:
+		if o.team == f.team:
+			mates.append(o)
+	var mi := mates.find(f)
+	var radial := Vector3.BACK
+	if teams.size() == 2:
+		radial = Vector3.BACK if ti == 0 else Vector3.FORWARD
+	elif teams.size() > 2:
+		var a := TAU * ti / teams.size()
+		radial = Vector3(sin(a), 0.0, cos(a))
+	var side := Vector3(-radial.z, 0.0, radial.x)
+	var r := Tuning.match_rules
+	var pos := radial * (r.spawn_distance * 0.5) + side * ((mi - (mates.size() - 1) * 0.5) * r.spawn_team_spacing)
+	return Transform3D(Basis.looking_at(-radial), pos)
+
+
 func fighter_for_slot(slot: int) -> Fighter:
 	for f in fighters:
 		if f.slot == slot:
@@ -266,8 +390,12 @@ func spawn_fighter(slot: int, character_id: StringName, cpu_level: int, team: in
 		return null
 	var f := EntityFactory.create(EntityFactory.fighter_desc(slot, character_id, team, maxi(cpu_level, 0))) as Fighter
 	f.sim_id = _take_sim_id()
+	if f.team >= wins.size():
+		wins.resize(f.team + 1)  # new entries are 0
 	_add_fighter(f, _source_for(f))
 	f.set_control_enabled(phase == Phase.FIGHT)
+	f.target = pick_default_target(f)
+	_update_targets()
 	entity_spawned.emit(f)
 	return f
 
@@ -310,13 +438,13 @@ func _source_for(f: Fighter) -> InputSource:
 ## CPU brains re-resolve their fighters lazily.
 func _forget_removed_fighters() -> void:
 	for f in fighters:
-		if f.opponent != null and not fighters.has(f.opponent):
-			f.opponent = null
+		if f.target != null and not fighters.has(f.target):
+			f.target = null
 	for src in sources:
 		var cpu := src as CpuInput
-		if cpu != null and not (fighters.has(cpu.brain.me) and fighters.has(cpu.brain.opp)):
-			cpu.brain.me = null
-			cpu.brain.opp = null
+		if cpu != null and cpu.brain.opp != null and not fighters.has(cpu.brain.opp):
+			cpu.brain.opp = null  # the brain re-binds to its fighter's new target
+	_update_targets()
 
 
 func _take_sim_id() -> int:
@@ -325,8 +453,7 @@ func _take_sim_id() -> int:
 
 
 func _config_team(p: PlayerSlotConfig) -> int:
-	var t: Variant = p.get("team")
-	return t if t is int else -1
+	return p.team if p.team >= 0 else p.slot
 
 
 func _free_node(e: SimEntity) -> void:

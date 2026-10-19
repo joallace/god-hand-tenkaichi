@@ -16,6 +16,8 @@ enum Layout { SPLIT_SCREEN, SINGLE_VIEW }
 ## Seeds match randomness (CPU decisions). The join screen randomizes it;
 ## online peers would have to share it.
 @export var rng_seed: int = 0
+## Whether hitboxes hurt fighters of the attacker's own team.
+@export var friendly_fire: bool = false
 
 
 static func from_defaults(p_mode: Mode = Mode.LOCAL_VERSUS) -> MatchConfig:

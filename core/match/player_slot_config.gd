@@ -5,6 +5,9 @@ extends Resource
 enum InputKind { LOCAL, CPU, NETWORK }
 
 @export var slot: int = 0
+## Team id; fighters on the same team are allies. -1 = own team (= slot), so
+## a plain 1v1 config is two teams of one.
+@export var team: int = -1
 @export var character_id: StringName = &"brawler"
 @export var input_kind: InputKind = InputKind.LOCAL
 ## For LOCAL: Bindings.Kind (PAD or KEYBOARD).

@@ -1,6 +1,6 @@
 class_name CpuBrain
 extends RefCounted
-## The CPU opponent. Every sim tick it looks at the match through the
+## The CPU fighter. Every sim tick it looks at the match through the
 ## MatchDirector and returns the InputFrame a player would have produced, so
 ## fighters need no AI-specific code paths (CpuInput wraps it).
 ##
@@ -51,7 +51,7 @@ const GUARD_RESULT_RANK: Array[int] = [2, 1, 3, 4, 0]  # PLAIN, KI_GUARD, PUSH_O
 ## Variables saved for rollback (see save_state).
 const SAVED: Array[StringName] = [
 	&"_clock", &"_plan", &"_dodge_at", &"_dodge_dir", &"_walk", &"_walk_until",
-	&"_next_think", &"_opp_state", &"_opp_serial", &"_opp_known_at", &"_opp_seen_state",
+	&"_next_think", &"_opp_slot", &"_opp_state", &"_opp_serial", &"_opp_known_at", &"_opp_seen_state",
 	&"_threat_serial", &"_my_serial", &"_my_state", &"_my_frame", &"_reflex_done", &"_rise_done",
 	&"_string_left", &"_chase", &"_followup", &"_counter_until", &"_contact_serial",
 	&"_contact_blocked", &"_punish_key", &"_last_held", &"_last_move", &"_mash_next",
@@ -75,6 +75,8 @@ var _dodge_dir: int = D.NONE
 var _walk: Vector2 = Vector2.ZERO
 var _walk_until: int = 0
 var _next_think: int = 0
+## Slot of the fighter being watched as `opp` (me.target; -1 = none).
+var _opp_slot: int = -1
 ## Opponent state/move as last observed, and when that becomes perceived.
 var _opp_state: int = S.IDLE
 var _opp_serial: int = -1
@@ -149,19 +151,35 @@ func think() -> InputFrame:
 # Perception
 # =============================================================================
 
+## Binds `me` and follows its target as `opp` (null target = no thinking).
+## A new target is perceived from scratch (reaction delay applies again).
 func _resolve() -> bool:
-	if me != null and opp != null:
-		return true
 	if director == null:
 		return false
-	me = director.fighter_for_slot(slot)
-	if me == null or me.opponent == null:
-		me = null
-		return false
-	opp = me.opponent
-	me.event.connect(_on_my_event)
-	opp.event.connect(_on_opp_event)
-	return true
+	if me == null:
+		me = director.fighter_for_slot(slot)
+		if me == null:
+			return false
+		me.event.connect(_on_my_event)
+	var want := me.target.slot if me.target else -1
+	if want != _opp_slot:
+		if _opp_slot >= 0:
+			_opp_state = -1
+			_opp_serial = -1
+		_opp_slot = want
+	_bind_opp()
+	return opp != null
+
+
+func _bind_opp() -> void:
+	var f := director.fighter_for_slot(_opp_slot) if _opp_slot >= 0 else null
+	if f == opp:
+		return
+	if opp != null and opp.event.is_connected(_on_opp_event):
+		opp.event.disconnect(_on_opp_event)
+	opp = f
+	if opp != null:
+		opp.event.connect(_on_opp_event)
 
 
 ## A new opponent state or move becomes known after the reaction delay.

@@ -2,13 +2,14 @@ class_name FighterCamera
 extends Camera3D
 ## Lock-on camera for one fighter (Budokai Tenkaichi / God Hand style).
 ##
-## Sits behind its fighter on the opponent->fighter line, raised and offset to
+## Sits behind its fighter on the target->fighter line, raised and offset to
 ## the right shoulder, looking at a point between the fighters biased toward
-## the opponent. Distance grows with separation. Yaw is smoothed and speed
-## limited so cross-ups swing around instead of popping. Visual only: reads
+## the target (fighter.target; none = a point ahead). Distance grows with
+## separation. Yaw is smoothed and speed limited so cross-ups swing around
+## instead of popping. Visual only: reads
 ## fighter transforms, never writes gameplay state.
 ##
-## InputFrame.move is in fighter space (+Y = toward opponent), so keeping the
+## InputFrame.move is in fighter space (+Y = toward target), so keeping the
 ## camera behind the fighter makes "stick up" = "screen forward".
 ##
 ## Effects API: add_trauma(), fov_punch(), play_ultimate_cinematic().
@@ -135,12 +136,12 @@ func _desired(delta: float) -> Array:
 	var t := Tuning.camera
 	var me := fighter.global_position
 	var opp := me + (-fighter.global_basis.z) * 4.0
-	if fighter.opponent != null and is_instance_valid(fighter.opponent):
-		opp = fighter.opponent.global_position
+	if fighter.target != null and is_instance_valid(fighter.target):
+		opp = fighter.target.global_position
 	var flat := Vector3(me.x - opp.x, 0.0, me.z - opp.z)
 	var sep := flat.length()
 
-	# Yaw of the "behind me" direction (opponent -> me).
+	# Yaw of the "behind me" direction (target -> me).
 	if sep > 0.05:
 		var target_yaw := atan2(flat.x, flat.z)
 		if not _have_yaw or delta <= 0.0:

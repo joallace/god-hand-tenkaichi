@@ -79,8 +79,9 @@ func _on_fighter_event(f: Fighter, kind: StringName, data: Dictionary) -> void:
 			flash(p, v.throw_color, v.throw_size, v.throw_duration, true)
 		&"throw_break":
 			var p := hub.event_position(f, data, 0.0) + Vector3.UP * v.fallback_hit_height
-			if f.opponent != null:
-				p = p.lerp(f.opponent.global_position + Vector3.UP * v.fallback_hit_height, 0.5)
+			var thrower := _director_fighter(f, data.get("attacker_slot", -1))
+			if thrower != null:
+				p = p.lerp(thrower.global_position + Vector3.UP * v.fallback_hit_height, 0.5)
 			hit_spark(p, v.throw_break_color, v.throw_break_size * 0.5, v.throw_break_duration, v.spark_count_heavy)
 			shockwave(p, v.throw_break_color, v.throw_break_size, v.throw_break_duration)
 		&"ground_bounce":
@@ -105,6 +106,13 @@ func _on_fighter_event(f: Fighter, kind: StringName, data: Dictionary) -> void:
 
 ## Unshaded translucent material. Solid (mix) blending reads better than
 ## additive against the bright sky. `on_top` draws through bodies (sparks).
+## Fighter in `slot` of `f`'s match (read only), or null.
+func _director_fighter(f: Fighter, slot: int) -> Fighter:
+	if slot < 0 or f.director == null:
+		return null
+	return f.director.fighter_for_slot(slot)
+
+
 func _additive(color: Color, on_top: bool = false) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED

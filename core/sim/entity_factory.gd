@@ -7,7 +7,7 @@ extends RefCounted
 ## Descriptor (SimEntity.spawn_desc()):
 ##   {"type": StringName, "id": int (sim_id), "init": Dictionary}
 ## Types and their init:
-##   &"fighter":  {slot, character_id, team (-1 = unset), cpu_level
+##   &"fighter":  {slot, character_id, team (-1 = slot), cpu_level
 ##                (-1 = from the MatchConfig; >= 0 = spawned mid-match with
 ##                its own CpuInput, see MatchDirector.spawn_fighter)}
 ##   &"ki_blast": {caster: caster sim_id, move: MoveData resource_path}
@@ -45,15 +45,14 @@ static func fighter_desc(slot: int, character_id: StringName, team: int = -1, cp
 	}}
 
 
-## A fighter node for `slot` (its def, visual and node name). team < 0 leaves
-## the fighter's default.
+## A fighter node for `slot` (its def, visual and node name). team < 0 = the
+## slot (1v1: two teams of one).
 static func create_fighter(slot: int, character_id: StringName, team: int = -1, cpu_level: int = -1) -> Fighter:
 	var f := CharacterRegistry.create_fighter(character_id)
 	f.slot = slot
 	f.name = "Fighter%d" % (slot + 1)
 	f.spawn_init = fighter_desc(slot, character_id, team, cpu_level)["init"]
-	if team >= 0 and "team" in f:
-		f.set("team", team)
+	f.team = team if team >= 0 else slot
 	return f
 
 

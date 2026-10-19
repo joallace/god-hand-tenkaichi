@@ -92,7 +92,7 @@ func _finish() -> void:
 		_check(cam.get_viewport() is SubViewport, "camera inside SubViewport")
 		_check(cam.get_viewport().world_3d == _match.get_viewport().find_world_3d(), "shared World3D")
 		var f := cam.fighter
-		var to_opp := (f.opponent.global_position - f.global_position)
+		var to_opp := (f.target.global_position - f.global_position)
 		var to_cam := (cam.global_position - f.global_position)
 		to_opp.y = 0
 		to_cam.y = 0

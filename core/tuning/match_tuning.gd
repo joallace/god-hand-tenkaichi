@@ -11,3 +11,5 @@ extends Resource
 @export var round_outro_frames: int = 150
 @export var arena_radius: float = 18.0
 @export var spawn_distance: float = 8.0
+## Side-by-side spacing (m) of teammates on their team's spawn line.
+@export var spawn_team_spacing: float = 2.5

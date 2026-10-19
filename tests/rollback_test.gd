@@ -205,7 +205,7 @@ func _test_spawn_remove_fighter() -> void:
 	d.load_state(snap_two)
 	_check(d.fighters.size() == 2 and d.fighter_for_slot(2) == null and d.sources.size() == 2, "loading an older snapshot drops the spawned fighter")
 	_run(d, 10)
-	_check(d.fighters[0].opponent == d.fighters[1], "1v1 links survive the round trip")
+	_check(d.fighters[0].target == d.fighters[1], "1v1 links survive the round trip")
 
 
 ## Long CPU vs CPU fight (projectiles come and go): save, re-simulate, compare.

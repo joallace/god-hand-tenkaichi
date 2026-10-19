@@ -48,7 +48,7 @@ func _new_match(count: int = 2, distance: float = 1.4, third_pos := Vector3(3, 0
 	for i in count:
 		d.sources[i] = ScriptedInput.new()
 	if count > 2:
-		d.fighters[2].opponent = d.fighters[1]
+		d.fighters[2].target = d.fighters[1]
 	while d.phase != MatchDirector.Phase.FIGHT:
 		d.step()
 	for i in count:
