@@ -1,7 +1,8 @@
 class_name Arena
 extends Node3D
-## Stylized circular arena: tiled stone floor of radius
-## Tuning.match_rules.arena_radius, rocky ring edge, translucent energy wall at
+## Stylized circular arena: tiled stone floor of radius `radius` (set it to
+## MatchDirector.arena_radius_for(config) before adding; 0 =
+## Tuning.match_rules.arena_radius), rocky ring edge, translucent energy wall at
 ## the boundary, boulders/pillars outside the ring, distant mountains, a bright
 ## procedural sky and a shadowed sun. Visual only, plus a flat static floor
 ## collider (top at y = 0) for any physics-based movement.
@@ -56,7 +57,7 @@ void fragment() {
 }
 """
 
-var radius: float
+var radius: float = 0.0
 
 
 func _init() -> void:
@@ -64,7 +65,8 @@ func _init() -> void:
 
 
 func _ready() -> void:
-	radius = Tuning.match_rules.arena_radius
+	if radius <= 0.0:
+		radius = Tuning.match_rules.arena_radius
 	_build_environment()
 	_build_ground()
 	_build_ring()

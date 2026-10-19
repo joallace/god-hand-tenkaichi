@@ -26,6 +26,11 @@ extends Node3D
 ## ones (_update_targets); manual locks and periodic re-picks are the
 ## fighter's own targeting (see Fighter header). Both use Targeting.
 ##
+## Co-op (Mode.COOP): one run, no rounds (INTRO -> FIGHT -> MATCH_OVER).
+## config.players are team 0 and `downable`; CoopRun (`coop`) spawns the
+## team-1 enemies, refills the field, removes KO'd enemies and decides the
+## end (run_ended); round_time_seconds limits the whole run (time-out = loss).
+##
 ## Presentation (cameras, HUD, VFX) only observes signals and node transforms.
 
 signal fighters_spawned(fighters: Array[Fighter])
@@ -42,6 +47,11 @@ signal pause_requested(slot: int)
 ## setup() are announced by fighters_spawned instead.
 signal entity_spawned(e: SimEntity)
 signal entity_removed(e: SimEntity)
+## Co-op: the run is over (cleared = every enemy beaten). match_ended follows
+## with team 0's lead slot when cleared, -1 otherwise.
+signal run_ended(cleared: bool)
+## Co-op: enemies still to beat (queued + standing) changed.
+signal enemies_left_changed(left: int)
 
 enum Phase { NONE, INTRO, FIGHT, OUTRO, MATCH_OVER }
 
@@ -53,6 +63,8 @@ var combat: CombatSystem
 var encounter: EncounterDirector
 ## Play radius (m): fighters are clamped inside it. Fixed for the match.
 var arena_radius: float = 0.0
+## Co-op run flow (null outside Mode.COOP).
+var coop: CoopRun
 var sources: Array[InputSource] = []
 
 var tick: int = 0
@@ -88,10 +100,12 @@ func setup(p_config: MatchConfig) -> void:
 	config = p_config
 	combat = CombatSystem.new(self)
 	encounter = EncounterDirector.new(self)
-	arena_radius = _arena_radius_for(config)
-	var max_team := 0
+	arena_radius = arena_radius_for(config)
+	if is_coop():
+		coop = CoopRun.new(self)
+	var max_team := CoopRun.ENEMY_TEAM if is_coop() else 0
 	for p in config.players:
-		max_team = maxi(max_team, p.team if p.team >= 0 else p.slot)
+		max_team = maxi(max_team, _config_team(p))
 	wins.resize(max_team + 1)
 	wins.fill(0)
 	for p in config.players:
@@ -100,6 +114,7 @@ func setup(p_config: MatchConfig) -> void:
 		sources.append(src)
 		var f := EntityFactory.create_fighter(p.slot, p.character_id, _config_team(p))
 		f.sim_id = _take_sim_id()
+		_apply_mode_flags(f)
 		add_child(f)
 		f.director = self
 		fighters.append(f)
@@ -157,6 +172,13 @@ func _tick_fight() -> void:
 	if not config.is_infinite_time() and world_freeze == 0:
 		round_frames_left -= 1
 		_emit_timer()
+	if coop != null:
+		coop.tick_fight()
+		if phase == Phase.FIGHT and not config.is_infinite_time() and round_frames_left <= 0:
+			_end_run(false)
+		if phase == Phase.FIGHT:
+			_update_targets()
+		return
 	var standing := _standing_teams()
 	if standing.size() < _teams().size():
 		if standing.size() <= 1:
@@ -184,6 +206,8 @@ func _start_round() -> void:
 		f.target = pick_default_target(f)
 	for s in sources:
 		s.reset()
+	if coop != null:
+		coop.start()
 	_last_second_emitted = -2
 	_emit_timer()
 	_set_phase(Phase.INTRO)
@@ -198,6 +222,21 @@ func _end_round(winner_team: int, reason: StringName) -> void:
 		wins[winner_team] += 1
 	_set_phase(Phase.OUTRO)
 	round_ended.emit(team_lead_slot(winner_team), reason)
+
+
+## Co-op run over (CoopRun or time-out): no OUTRO, straight to MATCH_OVER.
+func _end_run(cleared: bool) -> void:
+	for f in fighters:
+		f.set_control_enabled(false)
+	last_winner_team = CoopRun.HUMAN_TEAM if cleared else CoopRun.ENEMY_TEAM
+	wins[last_winner_team] += 1
+	_set_phase(Phase.MATCH_OVER)
+	run_ended.emit(cleared)
+	match_ended.emit(team_lead_slot(CoopRun.HUMAN_TEAM) if cleared else -1)
+
+
+func is_coop() -> bool:
+	return config != null and config.mode == MatchConfig.Mode.COOP
 
 
 func _after_round() -> void:
@@ -255,14 +294,18 @@ func _reap_entities() -> void:
 
 # --- Teams ---------------------------------------------------------------------
 
+## Play radius for a match: co-op grows it by arena_radius_per_extra_fighter
+## for every fighter the run can field beyond two.
+static func arena_radius_for(cfg: MatchConfig) -> float:
+	var r := Tuning.match_rules.arena_radius
+	if cfg != null and cfg.mode == MatchConfig.Mode.COOP:
+		r += Tuning.coop.arena_radius_per_extra_fighter * maxi(CoopRun.planned_field_size(cfg) - 2, 0)
+	return r
+
+
 ## Default target for `f`: what its own auto policy (Fighter.best_target,
 ## Targeting.pick_auto) picks from scratch, or null if no enemy is
 ## targetable. Used at round start and spawn; one place to swap the policy.
-## Play radius for a match (co-op grows it with the planned field size).
-static func _arena_radius_for(_cfg: MatchConfig) -> float:
-	return Tuning.match_rules.arena_radius
-
-
 func pick_default_target(f: Fighter) -> Fighter:
 	return f.best_target()
 
@@ -340,6 +383,7 @@ func wins_for_slot(slot: int) -> int:
 ## Round start transform of fighters[i]: teams on opposite sides of the ring
 ## (more than two teams: evenly around it), spawn_distance apart across the
 ## centre, teammates side by side spawn_team_spacing apart, facing inward.
+## Co-op: team 0 stands around the centre (CoopRun.human_transform).
 func spawn_transform(i: int) -> Transform3D:
 	var f := fighters[i]
 	var teams := _teams()
@@ -349,6 +393,8 @@ func spawn_transform(i: int) -> Transform3D:
 		if o.team == f.team:
 			mates.append(o)
 	var mi := mates.find(f)
+	if coop != null and f.team == CoopRun.HUMAN_TEAM:
+		return CoopRun.human_transform(mi, mates.size())
 	var radial := Vector3.BACK
 	if teams.size() == 2:
 		radial = Vector3.BACK if ti == 0 else Vector3.FORWARD
@@ -396,6 +442,7 @@ func spawn_fighter(slot: int, character_id: StringName, cpu_level: int, team: in
 		return null
 	var f := EntityFactory.create(EntityFactory.fighter_desc(slot, character_id, team, maxi(cpu_level, 0))) as Fighter
 	f.sim_id = _take_sim_id()
+	_apply_mode_flags(f)
 	if f.team >= wins.size():
 		wins.resize(f.team + 1)  # new entries are 0
 	_add_fighter(f, _source_for(f))
@@ -458,8 +505,16 @@ func _take_sim_id() -> int:
 	return next_sim_id - 1
 
 
+## Co-op forces every config player onto team 0.
 func _config_team(p: PlayerSlotConfig) -> int:
+	if is_coop():
+		return CoopRun.HUMAN_TEAM
 	return p.team if p.team >= 0 else p.slot
+
+
+## Mode-derived fighter flags (not saved; reapplied to rebuilt fighters).
+func _apply_mode_flags(f: Fighter) -> void:
+	f.downable = coop != null and f.team == CoopRun.HUMAN_TEAM
 
 
 func _free_node(e: SimEntity) -> void:
@@ -478,6 +533,7 @@ func save_state() -> Dictionary:
 		"round_number": round_number, "round_frames_left": round_frames_left,
 		"wins": wins.duplicate(), "world_freeze": world_freeze, "next_sim_id": next_sim_id,
 		"encounter": encounter.save_state(),
+		"coop": coop.save_state() if coop != null else {},
 		"fighters": fighters.map(func(f: Fighter) -> Dictionary: return {"desc": f.spawn_desc(), "state": f.save_state()}),
 		"sources": sources.map(func(src: InputSource) -> Dictionary: return src.save_state()),
 		"entities": entities.map(func(e: SimEntity) -> Dictionary: return {"desc": e.spawn_desc(), "state": e.save_state()}),
@@ -494,6 +550,8 @@ func load_state(s: Dictionary) -> void:
 	world_freeze = s["world_freeze"]
 	next_sim_id = s["next_sim_id"]
 	encounter.load_state(s["encounter"])
+	if coop != null:
+		coop.load_state(s["coop"])
 	var created: Array[SimEntity] = []
 	_restore_fighters(s["fighters"], s["sources"], created)
 	_restore_entities(s["entities"], created)
@@ -525,6 +583,7 @@ func _restore_fighters(records: Array, source_states: Array, created: Array[SimE
 			new_sources.append(by_id[id][1])
 			continue
 		var f := EntityFactory.create(r["desc"]) as Fighter
+		_apply_mode_flags(f)
 		add_child(f)
 		f.director = self
 		var src := _source_for(f)

@@ -31,7 +31,7 @@ var _ending := false
 
 func _ready() -> void:
 	config = Game.current_config
-	if config == null or config.players.size() < 2:
+	if config == null or (config.players.size() < 2 and config.mode != MatchConfig.Mode.COOP):
 		config = build_default_config()
 		Game.current_config = config
 
@@ -40,6 +40,7 @@ func _ready() -> void:
 	add_child(world)
 
 	arena = Arena.new()
+	arena.radius = MatchDirector.arena_radius_for(config)
 	world.add_child(arena)
 
 	hub = MatchEventHub.new()

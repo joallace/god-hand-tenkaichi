@@ -16,6 +16,10 @@ extends Resource
 @export_range(0.0, 10.0) var arena_radius_per_extra_fighter: float = 1.5
 ## Distance (m) of the human team's start positions from the centre.
 @export_range(0.0, 20.0) var human_spawn_radius: float = 2.0
+## Enemies appear this far (m) inside the ring edge (beyond body radius).
+@export_range(0.0, 10.0) var spawn_edge_inset: float = 1.0
+## Angle (degrees) between enemies appearing on the same tick.
+@export_range(0.0, 180.0) var spawn_spread_degrees: float = 25.0
 
 @export_group("Attack tokens")
 ## Enemies that may be attacking one player in melee at the same time.
