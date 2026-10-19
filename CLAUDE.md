@@ -94,6 +94,24 @@ on; clear rate, hits from outside the view cone, token leaks). Run with
 `godot --headless res://tools/coop_sim.tscn -- runs=12 enemies=4
 coop.melee_tokens_per_player=1` (any `coop.<prop>=<n>` overrides tuning).
 
+`tools/net_bench.tscn`: headless rollback cost bench (SPEC_ONLINE.md §12).
+CPU-only match, then mean/p50/p95/max of `step`, `save_state`, `load_state`,
+snapshot `var_to_bytes`+hash and an N-tick rollback, the per-frame budget
+estimate vs 8 ms, a determinism check (OK/MISMATCH, non-zero exit on
+mismatch) and a `NET_BENCH ...` summary line. `godot --headless
+res://tools/net_bench.tscn -- humans=2 enemies=6 [mode=coop|versus ticks=1800
+warmup=600 rollback=8 seed=7 coop.field_cap=10]`; the field is humans +
+enemies, clamped by `coop.field_cap`. Record results in SPEC_ONLINE.md §12.1.
+
+## Export
+
+`export_presets.cfg` has "Linux" and "Windows Desktop" (x86_64, embedded pck,
+excludes `tests/ tools/ docs/ *.md`) writing to `builds/` (gitignored). Needs
+the 4.7.2 export templates (editor: Editor → Manage Export Templates →
+Download, or install the 4.7.2 `.tpz` from godotengine.org), then
+`mkdir -p builds/linux && godot --headless --export-release "Linux" builds/linux/god_hand_tenkaichi.x86_64`
+(or `"Windows Desktop" builds/windows/god_hand_tenkaichi.exe`).
+
 ## Design references
 
 `docs/bt3_reference.md` and `docs/god_hand_reference.md` hold mechanics and

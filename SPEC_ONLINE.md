@@ -388,6 +388,42 @@ Uses now: desync debugging, `tools/replay_hash`, determinism tests. Viewer: late
 - During resim, visuals do nothing (they read state on `_process`), so resim
   is sim-only cost.
 
+### 12.1 Bench results
+
+2026-10-19, dev box (AMD Ryzen 5 5500U, headless, editor open in the
+background), `tools/net_bench.tscn` defaults: 600-tick warmup, 1800 measured
+ticks, rollback 8, CPU humans at level 7, enemies at level 3, seed 7. Times in
+ms (mean / p95). "Est." is the §12 formula `8×step + save + load` (p95s);
+"Full" adds the snapshot a real driver takes on every re-simulated tick,
+`8×(step + save) + load` (p95s). Every run: determinism OK (~223 rollbacks
+each re-simulated byte-identically).
+
+| Run | Fighters | step | save_state | load_state | var_to_bytes+hash | snapshot | 8-tick rollback | Est. | Full |
+|---|---|---|---|---|---|---|---|---|---|
+| versus 1v1 | 2 | 0.09 / 0.15 | 0.08 / 0.11 | 0.10 / 0.15 | 0.07 | 8 KB | 0.77 / 1.03 | 1.4 | 2.2 |
+| co-op 2 humans + 4 | 6 | 0.36 / 0.45 | 0.23 / 0.25 | 0.25 / 0.37 | 0.18 | 23 KB | 2.97 / 3.42 | 4.2 | 5.9 |
+| co-op 2 + 6 | 8 | 0.52 / 0.68 | 0.31 / 0.35 | 0.33 / 0.58 | 0.24 | 31 KB | 4.14 / 4.72 | 6.4 | 8.8 |
+| co-op 2 + 8 (`coop.field_cap=10`) | 10 | 0.72 / 0.92 | 0.40 / 0.50 | 0.43 / 0.68 | 0.31 | 38 KB | 5.65 / 6.51 | 8.6 | 12.1 |
+| co-op 4 + 6 (`coop.field_cap=10`) | 10 | 0.73 / 0.94 | 0.39 / 0.45 | 0.41 / 0.65 | 0.31 | 38 KB | 5.76 / 6.62 | 8.6 | 11.8 |
+
+What it implies:
+
+- Cost is linear in fighters on the field and independent of how many are
+  human: ~0.07 ms step, ~0.04 ms save, ~0.04 ms load and ~4 KB snapshot per
+  fighter. Projectiles are noise next to fighters.
+- 1v1 is far inside budget (≤ 2.2 ms even with per-tick resim snapshots).
+- `save_state` is ~60% of `step`, so snapshotting every resimulated tick
+  costs almost as much as the resim itself; "Full" is the honest worst case.
+- **`coop.online_field_cap` = 6 stays.** At 6 fighters the full worst case
+  is 5.9 ms p95 on this mid-range laptop CPU, ~25% headroom for slower peers.
+  8 fighters is 6.4 ms by the §12 formula but 8.8 ms with resim snapshots,
+  over budget; 10 is over either way. Raising the cap to 8 needs one of:
+  cheaper snapshots (§12 bullet above: skip snapshots that can't be rolled
+  back to, or PackedArray state), `max_rollback_frames` ≤ 6 for big fields,
+  or a faster minimum spec. Rerun the bench after any of those.
+- `var_to_bytes` + hash of a full snapshot is ~0.2–0.3 ms; at
+  `net.checksum_interval` = 30 that is negligible.
+
 ## 13. Disconnects, drop-in, reconnect
 
 - **Detection**: no packets from a peer for `disconnect_timeout_frames`
