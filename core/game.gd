@@ -10,6 +10,8 @@ const SCENE_RESULTS := "res://scenes/menus/results_screen.tscn"
 ## Config for the match about to start / in progress.
 var current_config: MatchConfig
 ## Filled when a match ends: {"winner_slot": int, "wins": PackedInt32Array, "config": MatchConfig}
+## plus, after a co-op run, RunStats.result(): "stats" (team-0 slot -> per-
+## player counters) and "run" (cleared, frames, seconds, waves_cleared).
 var last_result: Dictionary = {}
 
 
@@ -25,8 +27,11 @@ func restart_match() -> void:
 		start_match(current_config)
 
 
-func finish_match(winner_slot: int, wins: PackedInt32Array) -> void:
+func finish_match(winner_slot: int, wins: PackedInt32Array, extra: Dictionary = {}) -> void:
 	last_result = {"winner_slot": winner_slot, "wins": wins, "config": current_config}
+	for k: Variant in extra:
+		if not last_result.has(k):
+			last_result[k] = extra[k]
 	goto(SCENE_RESULTS)
 
 
