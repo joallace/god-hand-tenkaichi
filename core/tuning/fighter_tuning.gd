@@ -142,6 +142,9 @@ extends Resource
 @export var throw_break_recoil_frames: int = 16
 ## Thrower recovery after the throw executes.
 @export var throw_recovery_frames: int = 24
+## Third-party hit broke a throw or vanish battle (SPEC.md §4.5): frames of
+## invulnerability the freed, un-hit participant gets as it recovers.
+@export var lock_break_invuln_frames: int = 12
 
 @export_group("Taunt")
 ## Taunt length; the ki reward is paid on its last frame (if not hit first).
