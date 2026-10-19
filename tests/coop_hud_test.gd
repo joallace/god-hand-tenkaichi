@@ -1,8 +1,8 @@
 extends Node
 ## Headless test for the co-op presentation layer: a MatchScene with a COOP
-## config (2 local players on team 0), enemies spawned mid-match through
-## director.spawn_fighter (the co-op run flow lives in the director), then:
-## per-view CoopViewHud (target bar, partner panel, pips / edge arrows that
+## config (2 local players on team 0) and the run's own enemies
+## (CoopConfig.enemy_count of them, repositioned by the test once they spawn
+## at the ring edge, checked after their entry ends), then: per-view CoopViewHud (target bar, partner panel, pips / edge arrows that
 ## follow spawns and removals, target bar following a target change, ultimate
 ## banner on the other view only), global HUD (team-0 panels only, enemies
 ## left, infinite timer hidden), co-op events through VFX/SFX, KO fade, and
@@ -25,6 +25,7 @@ func _init() -> void:
 func _ready() -> void:
 	var cfg := MatchConfig.from_defaults(MatchConfig.Mode.COOP)
 	cfg.coop = CoopConfig.new()
+	cfg.coop.enemy_count = ENEMY_SLOTS.size()
 	cfg.round_time_seconds = 0
 	for i in 2:
 		var p := PlayerSlotConfig.new()
@@ -70,13 +71,12 @@ func _physics_process(_delta: float) -> void:
 				p1.global_position + fwd * 7.0 + p1.global_basis.x * 3.0,
 			]
 			for i in ENEMY_SLOTS.size():
-				var e := d.spawn_fighter(ENEMY_SLOTS[i], &"brawler", 0, 1)
+				var e := d.fighter_for_slot(ENEMY_SLOTS[i])
 				e.set_control_enabled(false)
 				e.global_position = spots[i]
-				e.event.emit(&"entry", {"slot": e.slot, "position": e.global_position})
 				_enemies.append(e)
 			_check((_match.hud.enemies_label.text) == Tuning.hud.text_enemies_left % 3, "enemies left = 3 after spawns")
-		20:
+		40:
 			for slot: int in _match.coop_huds:
 				var ch: CoopViewHud = _match.coop_huds[slot]
 				_check(_all_marked(ch) == ENEMY_SLOTS, "view %d marks every enemy (pips %s, arrows %s)" % [slot, ch.pip_slots(), ch.arrow_slots()])
@@ -90,7 +90,7 @@ func _physics_process(_delta: float) -> void:
 			var p1 := d.fighters[0]
 			p1.target = _enemies[2]
 			p1.set(&"_target_locked", true)
-		22:
+		42:
 			var ch0: CoopViewHud = _match.coop_huds[0]
 			_check(ch0.shown_target() == _enemies[2], "target bar follows a target change")
 			# Ultimate by P2: banner on P1's view, not on P2's own.
@@ -104,22 +104,22 @@ func _physics_process(_delta: float) -> void:
 			f0.event.emit(&"lock_broken", {"slot": 0, "partner_slot": 2, "by_slot": 1, "kind": &"throw", "position": f0.global_position})
 			# KO the first enemy (presentation only reads health): it fades.
 			_enemies[0].health = 0.0
-		30:
+		50:
 			# Remove the second enemy mid-match.
 			d.remove_fighter(_enemies[1])
-		40:
+		100:
 			_check(_match.hud.enemies_label.text == Tuning.hud.text_enemies_left % 1, "enemies left counts KO + removal (%s)" % _match.hud.enemies_label.text)
 			for slot: int in _match.coop_huds:
 				var ch: CoopViewHud = _match.coop_huds[slot]
 				_check(_all_marked(ch) == [_enemies[2].slot], "view %d marks only the remaining enemy (%s)" % [slot, _all_marked(ch)])
-		200:
+		110:
 			var vis := _enemies[0].find_children("*", "FighterVisual", true, false)
 			_check(not vis.is_empty() and (vis[0] as FighterVisual).fade_amount() > 0.0, "KO'd enemy fades out")
 			var live := _enemies[2].find_children("*", "FighterVisual", true, false)
 			_check(not live.is_empty() and (live[0] as FighterVisual).fade_amount() == 0.0, "standing enemy stays solid")
 			d.pause_requested.emit(1)
 			_check(_match.pause_menu.find_children("RestartRun", "Button", true, false).size() == 1, "pause menu has Restart Run")
-		210:
+		120:
 			_match.pause_menu.resume()
 		FRAMES:
 			_finish()

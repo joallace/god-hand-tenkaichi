@@ -162,7 +162,7 @@ func _quit() -> void:
 
 func _restart() -> void:
 	is_open = false
-	Game.start_match(director.config)
+	Game.restart_match()
 
 
 func _open_controls() -> void:
