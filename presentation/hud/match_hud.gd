@@ -183,7 +183,10 @@ func _build_panel(f: Fighter, right_side: bool) -> void:
 		for pc in director.config.players:
 			if pc.slot == f.slot:
 				char_name = String(pc.character_id).to_upper()
-	name_label.text = "%s  %s" % [tag, char_name] if not right_side else "%s  %s" % [char_name, tag]
+	tag = slot_tag(director, f.slot)
+	p["char_name"] = char_name
+	p["tag"] = tag
+	name_label.text = _name_text(tag, char_name, right_side)
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT if right_side else HORIZONTAL_ALIGNMENT_LEFT
 	root.add_child(name_label)
 	p["name"] = name_label
@@ -416,6 +419,33 @@ func callout(slot: int, text: String, color: Color) -> void:
 
 func _process(_delta: float) -> void:
 	_sync_state()
+	_refresh_names()
+
+
+## On-screen name of a slot: MatchConfig.player_tag, or "CPU (<name>)" once
+## a CPU took over that human slot (director state, so right after a rollback).
+static func slot_tag(d: MatchDirector, slot: int) -> String:
+	if d == null or d.config == null:
+		return "P%d" % (slot + 1)
+	var tag := d.config.player_tag(slot)
+	if d.controller_for_slot(slot) == MatchDirector.Controller.CPU and d.config_index(slot) >= 0 \
+			and d.config.players[d.config_index(slot)].input_kind != PlayerSlotConfig.InputKind.CPU:
+		return Tuning.hud.text_cpu_takeover % tag
+	return tag
+
+
+static func _name_text(tag: String, char_name: String, right_side: bool) -> String:
+	return "%s  %s" % [tag, char_name] if not right_side else "%s  %s" % [char_name, tag]
+
+
+## Panel names follow takeovers / reclaims.
+func _refresh_names() -> void:
+	for slot: int in panels:
+		var p: Dictionary = panels[slot]
+		var tag := slot_tag(director, slot)
+		if tag != p.get("tag", ""):
+			p["tag"] = tag
+			(p["name"] as Label).text = _name_text(tag, p.get("char_name", ""), p["right"])
 
 
 ## Timer and enemies-left follow sim state (right after any rollback).

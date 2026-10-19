@@ -161,6 +161,8 @@ extends Resource
 @export var notice_color: Color = Color(1.0, 0.55, 0.4)
 @export var notice_hold: float = 2.5
 @export var text_disconnected: String = "%s disconnected"
+## A human slot a CPU took over (co-op disconnect / Leave Run): "CPU (<name>)".
+@export var text_cpu_takeover: String = "CPU (%s)"
 ## Winner announcements online (player names instead of P1 / P2).
 @export var text_round_winner_name: String = "%s WINS"
 @export var text_match_winner_name: String = "%s VICTORY!"

@@ -13,11 +13,17 @@ extends RefCounted
 ##   COOP [HUMAN, HUMAN], both optional (SPEC.md §9 rows); ONLINE (versus over
 ##   the network) [HUMAN, HUMAN] where each slot records the peer that owns it.
 ## The MODE row switches between `modes()` (offline: the three local modes;
-## online: ONLINE only until online co-op lands).
+## online: ONLINE and COOP).
 ##
 ## Online: a slot's `owner_peer` is the peer that joined it (0 = free).
 ## Shared rows (rules) belong to the host: a guest's slot only has the
 ## CHARACTER row, and a rule change by the host un-readies everyone else.
+## Online co-op (SPEC_ONLINE.md §15 milestone 3) has
+## min(Tuning.net.max_humans, max_fighters) optional HUMAN slots; the CPU
+## ally takes one of the Tuning.net.max_fighters places (human_capacity), so
+## it can't be switched on with every place taken. Switching modes online
+## packs the joined humans into the new layout's human slots in slot order
+## (a peer whose slot no longer exists is left without one).
 
 enum SlotType { HUMAN, CPU }
 enum SlotState { EMPTY, JOINED, READY }
@@ -39,7 +45,7 @@ const EV_JOIN := &"join"
 ## Offline modes, in MODE row order.
 const LOCAL_MODES: Array[MatchConfig.Mode] = [
 	MatchConfig.Mode.LOCAL_VERSUS, MatchConfig.Mode.VERSUS_CPU, MatchConfig.Mode.COOP]
-const ONLINE_MODES: Array[MatchConfig.Mode] = [MatchConfig.Mode.ONLINE]
+const ONLINE_MODES: Array[MatchConfig.Mode] = [MatchConfig.Mode.ONLINE, MatchConfig.Mode.COOP]
 const MIN_ROUNDS := 1
 const MAX_ROUNDS := 5
 
@@ -103,13 +109,16 @@ func set_mode(m: MatchConfig.Mode) -> void:
 	var old := slots.duplicate()
 	mode = m
 	configure_for_mode()
-	for i in mini(old.size(), slots.size()):
-		if old[i].type == SlotType.HUMAN and slots[i].type == SlotType.HUMAN:
-			slots[i] = old[i]
-			if slots[i].state == SlotState.READY:
-				slots[i].state = SlotState.JOINED
-		elif slots[i].type == SlotType.HUMAN or old[i].type == SlotType.HUMAN:
-			slots[i].char_index = old[i].char_index
+	if online:
+		_pack_humans(old)
+	else:
+		for i in mini(old.size(), slots.size()):
+			if old[i].type == SlotType.HUMAN and slots[i].type == SlotType.HUMAN:
+				slots[i] = old[i]
+				if slots[i].state == SlotState.READY:
+					slots[i].state = SlotState.JOINED
+			elif slots[i].type == SlotType.HUMAN or old[i].type == SlotType.HUMAN:
+				slots[i].char_index = old[i].char_index
 	if is_coop() and time_options.find(0) >= 0:
 		time_index = time_options.find(0)  # co-op runs default to no time limit
 	fix_cursors()
@@ -123,6 +132,10 @@ func configure_for_mode() -> void:
 			types = [SlotType.HUMAN, SlotType.CPU]
 		_:
 			types = [SlotType.HUMAN, SlotType.HUMAN]
+	if online and is_coop():
+		types = []
+		for i in mini(Tuning.net.max_humans, Tuning.net.max_fighters):
+			types.append(SlotType.HUMAN)
 	slots.clear()
 	for t in types:
 		var s := Slot.new()
@@ -130,6 +143,21 @@ func configure_for_mode() -> void:
 		if t == SlotType.CPU:
 			s.state = SlotState.READY
 		slots.append(s)
+
+
+## Online: joined humans keep their picks in the new layout's human slots,
+## in slot order, un-readied; picks of empty slots carry over by index.
+func _pack_humans(old: Array) -> void:
+	var joined: Array = old.filter(func(s: Slot) -> bool:
+		return s.type == SlotType.HUMAN and s.state != SlotState.EMPTY)
+	for i in slots.size():
+		if i < old.size():
+			slots[i].char_index = old[i].char_index
+		if slots[i].type != SlotType.HUMAN or joined.is_empty():
+			continue
+		slots[i] = joined.pop_front()
+		if slots[i].state == SlotState.READY:
+			slots[i].state = SlotState.JOINED
 
 
 func modes() -> Array[MatchConfig.Mode]:
@@ -156,10 +184,32 @@ func coop_endless() -> bool:
 # --- slots ---------------------------------------------------------------------
 
 func first_free_slot() -> int:
+	if joined_humans() >= human_capacity():
+		return -1
 	for i in slots.size():
 		if slots[i].type == SlotType.HUMAN and slots[i].state == SlotState.EMPTY:
 			return i
 	return -1
+
+
+func joined_humans() -> int:
+	var n := 0
+	for s in slots:
+		if s.type == SlotType.HUMAN and s.state != SlotState.EMPTY:
+			n += 1
+	return n
+
+
+## Humans that can join: every HUMAN slot, minus the CPU ally's place
+## online (Tuning.net.max_fighters fighters in all).
+func human_capacity() -> int:
+	var n := 0
+	for s in slots:
+		if s.type == SlotType.HUMAN:
+			n += 1
+	if online and is_coop() and coop_ally:
+		n = mini(n, Tuning.net.max_fighters - 1)
+	return n
 
 
 func nobody_joined() -> bool:
@@ -327,6 +377,8 @@ func _change_row(idx: int, dir: int) -> void:
 		Row.ENEMY_ROSTER:
 			coop_roster = posmod(coop_roster + dir, n + 1)
 		Row.ALLY:
+			if not coop_ally and online and joined_humans() >= Tuning.net.max_fighters:
+				return  # no place left for the ally
 			coop_ally = not coop_ally
 		Row.ALLY_LEVEL:
 			coop_ally_level = clampi(coop_ally_level + dir, 0, Tuning.cpu.level_count() - 1)
@@ -444,6 +496,23 @@ func build_coop_config(seed_value: int) -> MatchConfig:
 		cfg.players.append(a)
 	cfg.coop = c
 	return cfg
+
+
+## A new room takes a local lobby's rules: co-op stays co-op (with its run
+## setup), any versus becomes online versus.
+func carry_rules_from(local: LobbyModel) -> void:
+	rounds_to_win = local.rounds_to_win
+	coop_structure = local.coop_structure
+	coop_enemy_count = local.coop_enemy_count
+	coop_waves = local.coop_waves
+	coop_enemy_level = local.coop_enemy_level
+	coop_roster = local.coop_roster
+	coop_ally = local.coop_ally
+	coop_ally_level = local.coop_ally_level
+	coop_ally_char = local.coop_ally_char
+	friendly_fire = local.friendly_fire
+	set_mode(MatchConfig.Mode.COOP if local.is_coop() and MatchConfig.Mode.COOP in modes() else MatchConfig.Mode.ONLINE)
+	time_index = local.time_index
 
 
 # --- wire form (host -> guests) ---------------------------------------------------

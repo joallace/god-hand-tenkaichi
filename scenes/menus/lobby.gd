@@ -160,8 +160,7 @@ func open_online() -> Error:
 				and (keep == null or s.join_order < keep.join_order):
 			keep = s
 	model = Net.room.model
-	model.rounds_to_win = _local_model.rounds_to_win
-	model.time_index = _local_model.time_index
+	model.carry_rules_from(_local_model)
 	_watch_room()
 	if keep != null:
 		Net.room.join_local(keep.device_kind, keep.device_id)

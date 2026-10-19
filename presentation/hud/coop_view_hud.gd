@@ -129,7 +129,7 @@ func partner_count() -> int:
 func _tag(f: Fighter) -> String:
 	if fighter != null and f.team != fighter.team:
 		return Tuning.hud.text_enemy_tag
-	return director.config.player_tag(f.slot) if director.config != null else "P%d" % (f.slot + 1)
+	return MatchHud.slot_tag(director, f.slot)
 
 
 func _ki_max(f: Fighter) -> float:
@@ -215,6 +215,7 @@ func _process(_delta: float) -> void:
 			continue
 		(p["health"] as HudHealthBar).set_ratio(m.health_ratio())
 		(p["ki"] as HudKiGauge).set_ki(m.ki, _ki_max(m))
+		(p["name"] as Label).text = _tag(m)
 		var st: Label = p["status"]
 		if m.is_out():
 			st.text = t.text_out

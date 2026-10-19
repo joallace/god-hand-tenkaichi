@@ -16,8 +16,10 @@ extends RefCounted
 ##   {"op": "leave_run"}                co-op match: your slots become CPUs
 ##   {"op": "to_lobby"}                 host only: results -> lobby
 ## After any change the host broadcasts `state_dict()` (LOBBY_STATE); every
-## peer emits `changed`. Online M2 limits each peer to
-## Tuning.net.max_local_players_online slot(s).
+## peer emits `changed`. Each peer is limited to
+## Tuning.net.max_local_players_online slot(s). Modes: versus (Mode.ONLINE)
+## and co-op (Mode.COOP, up to Tuning.net.max_humans humans); a mode switch
+## can move a peer's slot, and `local_devices` follows it (_remap_devices).
 ##
 ## Starting: when every slot is ready the host counts down
 ## Tuning.net.lobby_countdown_frames (guests count the same frames from the
@@ -229,6 +231,7 @@ func _apply(peer: int, req: Dictionary) -> void:
 			_set_phase(Phase.LOBBY)
 		_:
 			return
+	_remap_devices()
 	_update_countdown()
 	_broadcast()
 
@@ -352,11 +355,27 @@ func _on_lobby_state(lobby: Dictionary) -> void:
 	changed.emit()
 
 
+## Devices whose slot is no longer ours (a mode switch packed the slots)
+## move to our slots without a device, in slot order; the rest are dropped.
+func _remap_devices() -> void:
+	var mine := my_slots()
+	var lost: Array = []
+	var keys: Array = local_devices.keys()
+	keys.sort()
+	for slot: int in keys:
+		if not slot in mine:
+			lost.append(local_devices[slot])
+			local_devices.erase(slot)
+	for slot in mine:
+		if lost.is_empty():
+			break
+		if not local_devices.has(slot):
+			local_devices[slot] = lost.pop_front()
+
+
 ## Guest: a slot the host gave us takes the device we joined with.
 func _claim_pending_slot() -> void:
-	for slot in local_devices.keys():
-		if not slot in my_slots():
-			local_devices.erase(slot)
+	_remap_devices()
 	if _pending_device.is_empty():
 		return
 	for slot in my_slots():
@@ -385,10 +404,18 @@ func _begin(config_dict: Dictionary, seed_value: int) -> void:
 		_broadcast()
 	last_config = shared
 	var cfg := MatchConfig.from_dict(shared.to_dict())
+	# Lobby slot order = config slot order (co-op renumbers its joined humans
+	# from 0), so our devices go to our config slots in order.
+	var devices: Array = []
+	var keys: Array = local_devices.keys()
+	keys.sort()
+	for slot: int in keys:
+		devices.append(local_devices[slot])
 	for p in cfg.players:
-		if p.owner_peer == local_peer() and local_devices.has(p.slot):
-			p.device_kind = local_devices[p.slot][0]
-			p.device_id = local_devices[p.slot][1]
+		if p.owner_peer == local_peer() and p.input_kind != PlayerSlotConfig.InputKind.CPU and not devices.is_empty():
+			var d: Array = devices.pop_front()
+			p.device_kind = d[0]
+			p.device_id = d[1]
 	match_starting.emit(cfg)
 
 

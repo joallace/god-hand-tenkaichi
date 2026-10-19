@@ -44,7 +44,8 @@ func _test_model_modes() -> void:
 	m.command(a, LobbyModel.Cmd.RIGHT)
 	check(m.mode == MatchConfig.Mode.LOCAL_VERSUS and m.cpu_slot() < 0, "Game row wraps back to Versus")
 	var o := LobbyModel.new(MatchConfig.Mode.ONLINE, true)
-	check(not o.rows().has(LobbyModel.Row.MODE), "online lobby (versus only for now) has no Game row")
+	check(o.rows().has(LobbyModel.Row.MODE) and o.modes() == LobbyModel.ONLINE_MODES
+			and LobbyModel.ONLINE_MODES.has(MatchConfig.Mode.COOP), "online lobby's Game row: Versus / Co-op")
 	var h := o.join(Bindings.Kind.PAD, 0, Transport.HOST_PEER, "Host")
 	var g := o.join(Bindings.Kind.PAD, -1, 2, "Guest")
 	check(o.rows_for(g) == ([LobbyModel.Row.CHARACTER] as Array[int]) and o.rows_for(h).has(LobbyModel.Row.ROUNDS),

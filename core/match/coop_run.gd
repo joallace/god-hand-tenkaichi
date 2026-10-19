@@ -6,7 +6,7 @@ extends RefCounted
 ## One run, no rounds: team 0 (config.players: humans + optional CPU ally)
 ## against team 1 enemies the run spawns itself through
 ## MatchDirector.spawn_fighter. `_queue` enemies are still to come; at most
-## Tuning.coop.field_cap fighters (both teams, KO'd enemies until removed)
+## field_cap_for(config) fighters (both teams, KO'd enemies until removed)
 ## are on the field. A freed slot is refilled after refill_delay_frames; a
 ## KO'd enemy lingers enemy_fade_frames, then is removed. New enemies appear
 ## on the ring edge farthest from team 0 and play their ENTERING state.
@@ -70,7 +70,20 @@ static func planned_field_size(config: MatchConfig) -> int:
 			enemies = maxi(enemies, w.count)
 		if c.endless:
 			enemies = maxi(enemies, Tuning.coop.endless_max_count)
-	return mini(Tuning.coop.field_cap, config.players.size() + enemies)
+	return mini(field_cap_for(config), config.players.size() + enemies)
+
+
+## Fighter cap of the field for this config: Tuning.coop.field_cap, clamped
+## to Tuning.coop.online_field_cap online (every peer re-simulates the whole
+## field on a rollback; SPEC_ONLINE.md §12), and never so low that team 0
+## leaves no room for an enemy. Shared config -> same on every peer.
+static func field_cap_for(config: MatchConfig) -> int:
+	if config == null:
+		return Tuning.coop.field_cap
+	var cap := Tuning.coop.field_cap
+	if config.is_online():
+		cap = mini(cap, Tuning.coop.online_field_cap)
+	return maxi(cap, config.players.size() + 1)
 
 
 ## Team-0 start transform for the i-th of n teammates: around the centre at
@@ -98,7 +111,7 @@ func _start_wave(i: int) -> void:
 	if is_waves():
 		director.wave_started.emit(wave)
 	var k := 0
-	while _queue > 0 and director.fighters.size() < Tuning.coop.field_cap:
+	while _queue > 0 and director.fighters.size() < field_cap_for(director.config):
 		_spawn_enemy(k)
 		k += 1
 	for f in director.fighters:
@@ -242,7 +255,7 @@ func _tick_fades() -> void:
 
 
 func _tick_refill() -> void:
-	if _queue <= 0 or director.fighters.size() >= Tuning.coop.field_cap:
+	if _queue <= 0 or director.fighters.size() >= field_cap_for(director.config):
 		_refill_wait = -1
 		return
 	if _refill_wait < 0:
