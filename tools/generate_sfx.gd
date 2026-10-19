@@ -165,6 +165,14 @@ const PRESETS := {
 	# A third party breaking a throw / vanish battle: sharp crack.
 	"lock_broken": {"wave_type": NOISE, "base_freq": 0.6, "freq_ramp": -0.3,
 			"env_sustain": 0.06, "env_decay": 0.3, "env_punch": 0.8, "hpf_freq": 0.15},
+	# Wave entering: low brassy swell with vibrato, like a gong call.
+	"wave_start": {"wave_type": SQUARE, "base_freq": 0.22, "freq_ramp": 0.08, "duty": 0.4,
+			"env_attack": 0.15, "env_sustain": 0.35, "env_decay": 0.45, "env_punch": 0.2,
+			"vib_strength": 0.25, "vib_speed": 0.5, "lpf_freq": 0.7},
+	# Wave cleared: short rising two-step chime.
+	"wave_clear": {"wave_type": SINE, "base_freq": 0.42, "env_sustain": 0.2,
+			"env_decay": 0.4, "env_punch": 0.35, "arp_speed": 0.5, "arp_mod": 0.45,
+			"hpf_freq": 0.05},
 	# --- menus ----------------------------------------------------------------
 	"ui_move": {"wave_type": SQUARE, "base_freq": 0.5, "env_sustain": 0.05,
 			"env_decay": 0.14, "hpf_freq": 0.15},

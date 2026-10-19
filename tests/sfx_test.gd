@@ -14,6 +14,7 @@ const EVENT_SOUNDS: Array[StringName] = [
 	&"ki_guard", &"push_off", &"counter_guard", &"throw", &"throw_break",
 	&"taunt", &"taunt_done", &"ground_bounce",
 	&"downed", &"revive_start", &"revived", &"out", &"enemy_entry", &"lock_broken",
+	&"wave_start", &"wave_clear",
 ]
 
 var _ok := true

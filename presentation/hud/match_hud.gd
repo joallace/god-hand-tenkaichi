@@ -12,7 +12,9 @@ extends CanvasLayer
 ## CoopViewHud), no round pips or round announcements, the run timer is
 ## hidden when infinite, an "ENEMIES n" counter sits under it (director's
 ## enemies_left_changed; live enemy count until that exists) and run_ended
-## announces CLEARED / WIPED OUT.
+## announces CLEARED / WIPED OUT. Waves runs add a "WAVE n / N" counter under
+## it, announce each wave (WAVE n / FINAL WAVE; the first during the intro,
+## before FIGHT!) and WAVE CLEAR! at the start of each breather.
 
 const LAYER := 10
 
@@ -22,6 +24,8 @@ var announcer: Label
 var timer_label: Label
 ## Co-op only: enemies left in the run.
 var enemies_label: Label
+## Co-op Waves only: current wave.
+var wave_label: Label
 var panels: Dictionary = {}  # slot -> Dictionary of widgets
 
 var _announce_tween: Tween
@@ -84,6 +88,13 @@ func _build_coop() -> void:
 			director.entity_removed.connect(_count_live_enemies.unbind(1), CONNECT_DEFERRED)
 		if director.has_signal(&"run_ended"):
 			director.connect(&"run_ended", _on_run_ended)
+	if wave_label == null and director.coop != null and director.coop.is_waves():
+		wave_label = _label(Tuning.hud.enemies_left_font_size, Tuning.hud.text_color)
+		wave_label.name = "Wave"
+		wave_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		root.add_child(wave_label)
+		director.wave_started.connect(_on_wave_started)
+		director.wave_cleared.connect(_on_wave_cleared)
 
 
 func _label(font_size: int, color: Color) -> Label:
@@ -242,6 +253,9 @@ func _layout() -> void:
 	if enemies_label != null:
 		enemies_label.size = Vector2(w * 0.5, t.enemies_left_font_size + 12.0)
 		enemies_label.position = Vector2(w * 0.25, t.top_margin + t.timer_font_size + 16.0)
+		if wave_label != null:
+			wave_label.size = enemies_label.size
+			wave_label.position = enemies_label.position + Vector2(0.0, enemies_label.size.y)
 
 	for slot: int in panels:
 		var p: Dictionary = panels[slot]
@@ -419,6 +433,19 @@ func _count_live_enemies() -> void:
 		if is_instance_valid(f) and not f.is_queued_for_deletion() and f.team != 0 and not f.is_ko():
 			n += 1
 	_on_enemies_left_changed(n)
+
+
+func _on_wave_started(wave: int) -> void:
+	var t := Tuning.hud
+	var total := director.coop.wave_total()
+	wave_label.text = t.text_wave_counter_endless % (wave + 1) if total < 0 else t.text_wave_counter % [wave + 1, total]
+	var final := total > 1 and wave + 1 == total
+	announce(t.text_final_wave if final else t.text_wave % (wave + 1), t.announce_color, t.announce_hold)
+
+
+func _on_wave_cleared(_wave: int) -> void:
+	if not director.coop.is_last_wave():  # the last one: run_ended announces
+		announce(Tuning.hud.text_wave_clear, Tuning.hud.announce_color, Tuning.hud.announce_hold)
 
 
 func _on_run_ended(cleared: bool) -> void:

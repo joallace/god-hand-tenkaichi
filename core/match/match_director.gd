@@ -52,6 +52,10 @@ signal entity_removed(e: SimEntity)
 signal run_ended(cleared: bool)
 ## Co-op: enemies still to beat (queued + standing) changed.
 signal enemies_left_changed(left: int)
+## Co-op Waves: wave `wave` (0-based) starts entering / was fully beaten
+## (the breather follows unless it was the last one; then run_ended).
+signal wave_started(wave: int)
+signal wave_cleared(wave: int)
 
 enum Phase { NONE, INTRO, FIGHT, OUTRO, MATCH_OVER }
 

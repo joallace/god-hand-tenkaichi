@@ -13,8 +13,19 @@ extends RefCounted
 ##
 ## Cleared = queue empty and no enemy standing. Lost = every team-0 fighter at
 ## 0 HP (DOWNED / OUT / KO all have health 0) or the run timer ran out (the
-## director owns the timer). Waves (milestone 4) hook in at
-## `_enemies_for_wave` / `_on_field_cleared`.
+## director owns the timer).
+##
+## Waves (CoopConfig.Structure.WAVES): the queue holds the current wave only.
+## A cleared wave emits director.wave_cleared; the last one (never, when
+## endless) clears the run, any other starts a breather of
+## coop.wave_break_frames: downed / out teammates revive at
+## revive_health_ratio, every team-0 fighter gets wave_heal_ratio health and
+## wave_ki_refill bars of ki, then the next wave enters (wave_started; also
+## sent for the first wave at start()). Each wave's count / level / character
+## come from its WaveConfig, falling back to the CoopConfig; endless waves
+## start at enemy_count and grow by coop.endless_count_growth per wave (up to
+## endless_max_count), one CPU level per endless_waves_per_level waves. Brawl
+## is a single wave without banners.
 
 const HUMAN_TEAM := 0
 const ENEMY_TEAM := 1
@@ -32,6 +43,10 @@ var _refill_wait: int = -1
 var _fading: Dictionary = {}
 ## Current wave index (Brawl: always 0).
 var wave: int = 0
+## Waves fully beaten so far.
+var _waves_cleared: int = 0
+## Breather frames left before the next wave enters; -1 = not in a break.
+var _break_left: int = -1
 var _ended := false
 ## Last value sent with enemies_left_changed (-1 = none yet).
 var _last_left: int = -1
@@ -69,9 +84,19 @@ static func human_transform(i: int, n: int) -> Transform3D:
 ## Run start (after team 0 is placed): fill the field from the first wave.
 func start() -> void:
 	_ended = false
-	wave = 0
+	_waves_cleared = 0
+	_break_left = -1
+	_start_wave(0)
+
+
+## Queue wave `i` and fill the field from it.
+func _start_wave(i: int) -> void:
+	wave = i
+	_break_left = -1
 	_queue = _enemies_for_wave(wave)
 	_refill_wait = -1
+	if is_waves():
+		director.wave_started.emit(wave)
 	var k := 0
 	while _queue > 0 and director.fighters.size() < Tuning.coop.field_cap:
 		_spawn_enemy(k)
@@ -87,6 +112,11 @@ func tick_fight() -> void:
 	if _ended:
 		return
 	_tick_fades()
+	if _break_left >= 0:
+		_break_left -= 1
+		if _break_left <= 0:
+			_start_wave(wave + 1)
+		return
 	_tick_refill()
 	_emit_left()
 	if _queue == 0 and _alive(ENEMY_TEAM) == 0:
@@ -104,17 +134,94 @@ func is_ended() -> bool:
 	return _ended
 
 
+func is_waves() -> bool:
+	return cfg.structure == CoopConfig.Structure.WAVES
+
+
+## Waves in the run: 1 for Brawl, -1 when endless.
+func wave_total() -> int:
+	if not is_waves():
+		return 1
+	if cfg.endless:
+		return -1
+	return maxi(cfg.waves.size(), 1)
+
+
+func waves_cleared() -> int:
+	return _waves_cleared
+
+
+## The current wave is the run's last (never when endless).
+func is_last_wave() -> bool:
+	var total := wave_total()
+	return total >= 0 and wave + 1 >= total
+
+
+## True during the breather between two waves.
+func in_break() -> bool:
+	return _break_left >= 0
+
+
 # --- internals -----------------------------------------------------------------
 
 ## Enemy count of wave `i`. Brawl: the whole run is wave 0.
-func _enemies_for_wave(_i: int) -> int:
+func _enemies_for_wave(i: int) -> int:
+	var w := _wave_config(i)
+	if w != null and w.count > 0:
+		return w.count
+	if is_waves() and cfg.endless:
+		var t := Tuning.coop
+		return mini(cfg.enemy_count + floori(i * t.endless_count_growth), maxi(t.endless_max_count, cfg.enemy_count))
 	return cfg.enemy_count
 
 
-## Every enemy of the current wave is down. Brawl: the run is cleared.
-## (Waves: start the breather / next wave here.)
+## CPU level of wave `i`'s enemies.
+func _level_for_wave(i: int) -> int:
+	var w := _wave_config(i)
+	var level := cfg.enemy_level if cfg.enemy_level >= 0 else Tuning.cpu.default_level
+	if w != null and w.level >= 0:
+		level = w.level
+	elif is_waves() and cfg.endless:
+		level += floori(i / float(maxi(Tuning.coop.endless_waves_per_level, 1)))
+	return Tuning.cpu.clamp_level(level)
+
+
+## Character of wave `i`'s enemies (&"" = random per enemy).
+func _character_for_wave(i: int) -> StringName:
+	var w := _wave_config(i)
+	if w != null and w.character != &"":
+		return w.character
+	return cfg.enemy_character
+
+
+func _wave_config(i: int) -> WaveConfig:
+	if is_waves() and i >= 0 and i < cfg.waves.size():
+		return cfg.waves[i]
+	return null
+
+
+## Every enemy of the current wave is down: the run is cleared after the last
+## wave (Brawl: its only one), otherwise the breather starts.
 func _on_field_cleared() -> void:
-	_finish(true)
+	_waves_cleared += 1
+	if is_waves():
+		director.wave_cleared.emit(wave)
+	if is_last_wave():
+		_finish(true)
+		return
+	_begin_break()
+
+
+## Wave break: revive the team, top everyone up, then wait for the next wave.
+func _begin_break() -> void:
+	var t := Tuning.coop
+	_break_left = maxi(t.wave_break_frames, 1)
+	_refill_wait = -1
+	for f in director.fighters:
+		if f.team != HUMAN_TEAM:
+			continue
+		f.revive_now(t.revive_health_ratio)
+		f.restore(t.wave_heal_ratio, t.wave_ki_refill * Tuning.fighter.ki_bar_size)
 
 
 func _finish(cleared: bool) -> void:
@@ -153,12 +260,11 @@ func _spawn_enemy(k: int) -> void:
 	_queue -= 1
 	var slot := _next_slot
 	_next_slot += 1
-	var character := cfg.enemy_character
+	var character := _character_for_wave(wave)
 	if character == &"":
 		var ids := CharacterRegistry.ids()
 		character = ids[_rng.randi_range(0, ids.size() - 1)]
-	var level := cfg.enemy_level if cfg.enemy_level >= 0 else Tuning.cpu.default_level
-	var f := director.spawn_fighter(slot, character, level, ENEMY_TEAM)
+	var f := director.spawn_fighter(slot, character, _level_for_wave(wave), ENEMY_TEAM)
 	if f == null:
 		return
 	f.reset_for_round(_edge_transform(k))
@@ -208,6 +314,7 @@ func save_state() -> Dictionary:
 	return {
 		"queue": _queue, "next_slot": _next_slot, "refill_wait": _refill_wait,
 		"fading": _fading.duplicate(), "wave": wave, "ended": _ended,
+		"waves_cleared": _waves_cleared, "break_left": _break_left,
 		"last_left": _last_left, "rng": _rng.state,
 	}
 
@@ -218,6 +325,8 @@ func load_state(s: Dictionary) -> void:
 	_refill_wait = s["refill_wait"]
 	_fading = s["fading"].duplicate()
 	wave = s["wave"]
+	_waves_cleared = s["waves_cleared"]
+	_break_left = s["break_left"]
 	_ended = s["ended"]
 	_last_left = s["last_left"]
 	_rng.state = s["rng"]

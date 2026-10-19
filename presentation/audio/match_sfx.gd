@@ -11,7 +11,9 @@ extends Node
 ## is a charge strike), dash, jump, charge (ki loop while in the state).
 ## Director: round start, FIGHT, KO/time-up, last-seconds ticks, match won.
 ## Co-op: downed / revive_start / revived / out / lock_broken play their own
-## sounds, an enemy's &"entry" plays enemy_entry; fighters spawned mid-match
+## sounds, an enemy's &"entry" plays enemy_entry, waves after the first play
+## wave_start, wave clears before the last wave_clear, run_ended plays
+## match_win / time_up; fighters spawned mid-match
 ## (entity_spawned) get the state sounds too, and their loops stop on removal.
 
 var director: MatchDirector
@@ -34,6 +36,9 @@ func setup(p_director: MatchDirector, p_hub: MatchEventHub) -> void:
 	director.round_ended.connect(_on_round_ended)
 	director.match_ended.connect(_on_match_ended)
 	director.timer_changed.connect(_on_timer_changed)
+	director.wave_started.connect(_on_wave_started)
+	director.wave_cleared.connect(_on_wave_cleared)
+	director.run_ended.connect(_on_run_ended)
 
 
 func _exit_tree() -> void:
@@ -138,7 +143,25 @@ func _on_round_ended(_winner_slot: int, reason: StringName) -> void:
 
 
 func _on_match_ended(_winner_slot: int) -> void:
-	Sfx.play(&"match_win")
+	if not director.is_coop():  # run_ended picks the co-op sound
+		Sfx.play(&"match_win")
+
+
+func _on_run_ended(cleared: bool) -> void:
+	Sfx.stop_all_loops()
+	Sfx.play(&"match_win" if cleared else &"time_up")
+
+
+## The first wave is announced by round_start / fight like a versus round.
+func _on_wave_started(wave: int) -> void:
+	if wave > 0:
+		Sfx.play(&"wave_start")
+
+
+## The last wave's clear is covered by run_ended.
+func _on_wave_cleared(_wave: int) -> void:
+	if not director.coop.is_last_wave():
+		Sfx.play(&"wave_clear")
 
 
 func _on_timer_changed(seconds_left: int) -> void:

@@ -57,8 +57,8 @@ extends Resource
 @export_range(0.0, 1.0) var wave_heal_ratio: float = 0.25
 ## Ki (bars) restored on a break.
 @export_range(0.0, 5.0) var wave_ki_refill: float = 1.0
-## Endless: enemies in wave n = base + n * growth (capped by max).
-@export_range(1, 64) var endless_base_count: int = 2
+## Endless: enemies in wave n (0-based) = the setup's enemy count + n * growth,
+## capped by max.
 @export_range(0.0, 8.0) var endless_count_growth: float = 0.5
 @export_range(1, 64) var endless_max_count: int = 12
 ## Endless: CPU level rises one step every this many waves (from enemy_level).

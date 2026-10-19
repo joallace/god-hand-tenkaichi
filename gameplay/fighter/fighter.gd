@@ -33,7 +33,7 @@ extends CombatEntity
 ##            retarget_auto(), is_target_locked() -> bool,
 ##            is_downed() -> bool, is_out() -> bool, revive_progress() -> float,
 ##            bleed_out_ratio() -> float, revive_now(health_ratio: float),
-##            reviving_slot() -> int
+##            reviving_slot() -> int, restore(health_ratio: float, ki_amount: float)
 ##
 ## `event` kinds (payload keys; every payload also has "slot" = emitter slot):
 ##   &"hit"            {attacker_slot, damage, position, heavy, blocked, combo,
@@ -559,6 +559,16 @@ func revive_now(health_ratio: float) -> void:
 	if state != State.DOWNED and state != State.OUT:
 		return
 	_finish_revive(-1, health_ratio)
+
+
+## Top up a standing fighter (co-op wave break): `health_ratio` of max health
+## and `ki_amount` ki, both capped at their max. No-op while at 0 HP.
+func restore(health_ratio: float, ki_amount: float) -> void:
+	if is_ko():
+		return
+	_set_health(minf(health + tuning.max_health * health_ratio, tuning.max_health))
+	ki = minf(ki + ki_amount, ki_max())
+	ki_changed.emit(ki, ki_max())
 
 
 ## Start the ENTERING state (spawned enemy appearing at the ring edge) for

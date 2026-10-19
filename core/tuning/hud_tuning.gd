@@ -138,3 +138,9 @@ extends Resource
 @export var text_enemies_left: String = "ENEMIES  %d"
 @export var text_run_cleared: String = "CLEARED!"
 @export var text_run_failed: String = "WIPED OUT"
+## Waves: announcer on a wave's entry / clear, and the counter under the timer.
+@export var text_wave: String = "WAVE %d"
+@export var text_final_wave: String = "FINAL WAVE"
+@export var text_wave_clear: String = "WAVE CLEAR!"
+@export var text_wave_counter: String = "WAVE  %d / %d"
+@export var text_wave_counter_endless: String = "WAVE  %d"
