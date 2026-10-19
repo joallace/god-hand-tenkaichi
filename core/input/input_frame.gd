@@ -111,5 +111,39 @@ static func from_array(a: PackedInt32Array) -> InputFrame:
 	return f
 
 
+## Bytes per frame in the wire/replay format (SPEC_ONLINE.md §5.2):
+## move_x:i8, move_y:i8, held:u16 LE (PAUSE stripped), dodge:u8,
+## target_request:i8. Edge bits aren't stored: InputSource.poll derives them.
+const WIRE_SIZE := 6
+
+
+## Write this frame's wire bytes into `buf` at `offset` (buf must be big enough).
+func encode_into(buf: PackedByteArray, offset: int) -> void:
+	buf.encode_s8(offset, move_x)
+	buf.encode_s8(offset + 1, move_y)
+	buf.encode_u16(offset + 2, held & ~Btn.PAUSE & 0xFFFF)
+	buf.encode_u8(offset + 4, dodge)
+	buf.encode_s8(offset + 5, target_request)
+
+
+func to_bytes() -> PackedByteArray:
+	var buf := PackedByteArray()
+	buf.resize(WIRE_SIZE)
+	encode_into(buf, 0)
+	return buf
+
+
+## Inverse of encode_into. Out-of-range dodge values decode as NONE.
+static func decode_from(buf: PackedByteArray, offset: int) -> InputFrame:
+	var f := InputFrame.new()
+	f.move_x = clampi(buf.decode_s8(offset), -MOVE_SCALE, MOVE_SCALE)
+	f.move_y = clampi(buf.decode_s8(offset + 1), -MOVE_SCALE, MOVE_SCALE)
+	f.held = buf.decode_u16(offset + 2) & ~Btn.PAUSE
+	var d := buf.decode_u8(offset + 4)
+	f.dodge = (d if d <= Dodge.RIGHT else Dodge.NONE) as Dodge
+	f.target_request = buf.decode_s8(offset + 5)
+	return f
+
+
 static func button_name(b: int) -> String:
 	return str(Btn.find_key(b)).capitalize()

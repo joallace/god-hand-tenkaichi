@@ -6,6 +6,9 @@ extends Resource
 @export_group("Field")
 ## Max fighters on the field at once (humans + ally + enemies); the rest queue.
 @export_range(2, 16) var field_cap: int = 8
+## Online cap on field_cap (rollback re-simulates every fighter; see
+## tools/net_bench).
+@export_range(2, 16) var online_field_cap: int = 6
 ## Frames a queued enemy waits after a field slot frees.
 @export_range(0, 600) var refill_delay_frames: int = 45
 ## Frames a new enemy is intangible and can't attack after appearing.

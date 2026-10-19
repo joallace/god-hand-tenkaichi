@@ -96,6 +96,9 @@ var paused := false:
 		paused = value
 ## Set false to drive `step()` manually (tests, rollback re-simulation).
 var auto_step := true
+## True while a rollback re-simulates ticks already shown (set by the online
+## driver around its catch-up steps). Presentation reads it to mute repeats.
+var resimulating := false
 
 var _last_second_emitted := -2
 
