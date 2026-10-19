@@ -311,9 +311,16 @@ func _emit_left() -> void:
 
 
 func save_state() -> Dictionary:
+	# _fading saved with sorted keys: the snapshot (and StateHash) must not
+	# depend on insertion order.
+	var keys := _fading.keys()
+	keys.sort()
+	var fading := {}
+	for k: int in keys:
+		fading[k] = _fading[k]
 	return {
 		"queue": _queue, "next_slot": _next_slot, "refill_wait": _refill_wait,
-		"fading": _fading.duplicate(), "wave": wave, "ended": _ended,
+		"fading": fading, "wave": wave, "ended": _ended,
 		"waves_cleared": _waves_cleared, "break_left": _break_left,
 		"last_left": _last_left, "rng": _rng.state,
 	}

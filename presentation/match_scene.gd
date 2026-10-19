@@ -89,6 +89,9 @@ func _ready() -> void:
 	if run_stats != null:
 		run_stats.setup(director, hub, config)
 	director.setup(config)
+	var recorder := ReplayRecorder.new()  # auto-keeps user://replays/last_<n>.ghr
+	add_child(recorder)
+	recorder.attach(director)
 
 
 ## P1 = first connected joypad (else keyboard layout A), P2 = second joypad

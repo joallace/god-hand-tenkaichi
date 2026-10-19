@@ -56,8 +56,26 @@ signal enemies_left_changed(left: int)
 ## (the breather follows unless it was the last one; then run_ended).
 signal wave_started(wave: int)
 signal wave_cleared(wave: int)
+## Every step, right after the sources were polled (before fighters tick):
+## the raw polled frames in fighter/source order, `slots[i]` = frames[i]'s
+## slot. Frames are the sources' own objects: read, don't modify. Also fires
+## while `resimulating` (ReplayRecorder overwrites the tick).
+signal inputs_polled(tick: int, slots: PackedInt32Array, frames: Array[InputFrame])
+## End of every step (state is final for `tick`).
+signal tick_completed(tick: int)
+## A sim command switched who drives a config slot (Controller value).
+signal slot_controller_changed(slot: int, controller: int)
 
 enum Phase { NONE, INTRO, FIGHT, OUTRO, MATCH_OVER }
+## Sim commands (SPEC_ONLINE.md §7.4), see add_command(). RESYNC_INPUTS is
+## offline-only: unpausing logs it so held buttons don't register as fresh
+## presses on the next tick (and replays reproduce that).
+enum CommandKind { CPU_TAKEOVER, RECLAIM, JOIN, FORFEIT, RESYNC_INPUTS }
+## Who drives a config slot: its own source (PLAYER: the PlayerSlotConfig's
+## source, or source_factory's) or a takeover CpuInput (CPU).
+enum Controller { PLAYER, CPU }
+## Optional command args (the rest are required).
+const COMMAND_DEFAULTS := {"cpu_level": -1, "team": -1, "peer": 0}
 
 var config: MatchConfig
 var fighters: Array[Fighter] = []
@@ -88,19 +106,38 @@ var last_winner_team: int = -1
 ## When true the sim does not advance (pause menu). Inputs aren't polled.
 ## On unpause, sources resync so buttons still held from the menu (e.g. the
 ## A that pressed "Resume") don't register as fresh presses.
+## (Done through a RESYNC_INPUTS command for the next tick, so the resync is
+## part of the sim and replays reproduce it.)
 var paused := false:
 	set(value):
 		if paused and not value:
-			for s in sources:
-				s.resync(tick)
+			add_command({"tick": tick + 1, "kind": CommandKind.RESYNC_INPUTS})
 		paused = value
 ## Set false to drive `step()` manually (tests, rollback re-simulation).
 var auto_step := true
 ## True while a rollback re-simulates ticks already shown (set by the online
 ## driver around its catch-up steps). Presentation reads it to mute repeats.
 var resimulating := false
+## Optional: PlayerSlotConfig -> InputSource, used instead of
+## PlayerSlotConfig.create_input_source() for config slots driven by their
+## player (setup, fighters rebuilt by load_state, RECLAIM). The online driver
+## plugs history-backed sources in here; replays plug ReplayInput. Set it
+## before setup().
+var source_factory: Callable
+## Per config player (index into config.players, not slot): Controller.
+## Director state, in save_state (rollback across a takeover restores it).
+var slot_controller: PackedInt32Array = PackedInt32Array()
+## Per config player: CPU level of a takeover (meaningful when CPU).
+var takeover_level: PackedInt32Array = PackedInt32Array()
+## Why the match ended: &"ko"/&"time"/&"draw" (last round), &"forfeit", or
+## &"" (not over / co-op).
+var end_reason: StringName = &""
 
 var _last_second_emitted := -2
+## Sim command log (add_command). NOT part of save_state: like the network
+## input log it persists across load_state, so re-stepping re-applies it.
+var _commands: Array[Dictionary] = []
+var _commands_by_tick: Dictionary = {}  # tick -> Array[Dictionary], log order
 
 
 func setup(p_config: MatchConfig) -> void:
@@ -115,8 +152,12 @@ func setup(p_config: MatchConfig) -> void:
 		max_team = maxi(max_team, _config_team(p))
 	wins.resize(max_team + 1)
 	wins.fill(0)
+	slot_controller.resize(config.players.size())
+	slot_controller.fill(Controller.PLAYER)
+	takeover_level.resize(config.players.size())
+	takeover_level.fill(-1)
 	for p in config.players:
-		var src := p.create_input_source()
+		var src := _player_source(p)
 		src.attach(self, p.slot)
 		sources.append(src)
 		var f := EntityFactory.create_fighter(p.slot, p.character_id, _config_team(p))
@@ -136,12 +177,20 @@ func _physics_process(_delta: float) -> void:
 
 func step() -> void:
 	tick += 1
+	_apply_commands(tick)
 	var neutral := InputFrame.new()
+	var slots := PackedInt32Array()
+	slots.resize(fighters.size())
+	var frames: Array[InputFrame] = []
+	frames.resize(fighters.size())
 	for i in fighters.size():
 		var frame := sources[i].poll(tick)
+		slots[i] = fighters[i].slot
+		frames[i] = frame
 		if frame.just_pressed(InputFrame.Btn.PAUSE) and phase == Phase.FIGHT:
 			pause_requested.emit(fighters[i].slot)
-		fighters[i].feed_input(frame if phase == Phase.FIGHT else neutral)
+		fighters[i].feed_input(_strip_pause(frame) if phase == Phase.FIGHT else neutral)
+	inputs_polled.emit(tick, slots, frames)
 
 	if world_freeze > 0:
 		world_freeze -= 1
@@ -166,6 +215,20 @@ func step() -> void:
 		Phase.OUTRO:
 			if phase_frames >= Tuning.match_rules.round_outro_frames:
 				_after_round()
+	tick_completed.emit(tick)
+
+
+## PAUSE isn't sim input (the wire / replay format drops it): fighters get the
+## frame without it, so their state (and the state hash) never sees it.
+static func _strip_pause(frame: InputFrame) -> InputFrame:
+	var p := InputFrame.Btn.PAUSE
+	if (frame.held | frame.pressed | frame.released) & p == 0:
+		return frame
+	var f := frame.duplicate_frame()
+	f.held &= ~p
+	f.pressed &= ~p
+	f.released &= ~p
+	return f
 
 
 func _tick_entity(e: SimEntity) -> void:
@@ -225,6 +288,7 @@ func _end_round(winner_team: int, reason: StringName) -> void:
 	for f in fighters:
 		f.set_control_enabled(false)
 	last_winner_team = winner_team
+	end_reason = reason
 	if winner_team >= 0:
 		wins[winner_team] += 1
 	_set_phase(Phase.OUTRO)
@@ -488,10 +552,192 @@ func _source_for(f: Fighter) -> InputSource:
 	var level: int = f.spawn_init.get("cpu_level", -1)
 	if level >= 0:
 		return CpuInput.new(level)
-	for p in config.players:
-		if p.slot == f.slot:
-			return p.create_input_source()
+	var pi := config_index(f.slot)
+	if pi >= 0:
+		return _controlled_source(pi)
 	return CpuInput.new(-1)
+
+
+## Source for config player `pi` as slot_controller says.
+func _controlled_source(pi: int) -> InputSource:
+	if slot_controller[pi] == Controller.CPU:
+		return CpuInput.new(takeover_level[pi])
+	return _player_source(config.players[pi])
+
+
+func _player_source(p: PlayerSlotConfig) -> InputSource:
+	if source_factory.is_valid():
+		return source_factory.call(p)
+	return p.create_input_source()
+
+
+## Index in config.players of `slot`, or -1 (co-op enemies, unknown slots).
+func config_index(slot: int) -> int:
+	for i in config.players.size():
+		if config.players[i].slot == slot:
+			return i
+	return -1
+
+
+## Controller of a config slot (Controller.PLAYER for non-config slots).
+func controller_for_slot(slot: int) -> int:
+	var pi := config_index(slot)
+	return slot_controller[pi] if pi >= 0 and pi < slot_controller.size() else Controller.PLAYER
+
+
+# --- sim commands (SPEC_ONLINE.md §7.4) -----------------------------------------
+#
+# A command changes something that isn't player input at one tick on every
+# peer: {"tick": int, "kind": CommandKind, ...args}. Args per kind:
+#   CPU_TAKEOVER  slot, cpu_level (-1 = default)   slot's source -> CpuInput
+#   RECLAIM       slot, peer (informational)       slot -> its player source
+#   JOIN          slot, peer, team, character, name   (milestone 4, no-op now)
+#   FORFEIT       team                              versus: that team loses
+#   RESYNC_INPUTS -                                 every source resyncs
+# The log is kept outside save_state (like the network input log), and step()
+# applies every command logged for the tick it is about to simulate, in log
+# order, before polling inputs. A rollback (load_state + re-step) therefore
+# re-applies them; a command for a tick already simulated only takes effect
+# if the caller rolls back to before it (the online driver does).
+
+## Log a command. Validates it (it may come from the network): returns false
+## and logs nothing on a malformed one. Only known args are kept.
+func add_command(cmd: Dictionary) -> bool:
+	var c := sanitize_command(cmd)
+	if c.is_empty():
+		push_warning("MatchDirector.add_command: rejected %s" % [cmd])
+		return false
+	_commands.append(c)
+	var t: int = c["tick"]
+	if not _commands_by_tick.has(t):
+		_commands_by_tick[t] = []
+	(_commands_by_tick[t] as Array).append(c)
+	return true
+
+
+## The command log in log order (copies; plain data, for replays / resync).
+func commands() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for c in _commands:
+		out.append(c.duplicate())
+	return out
+
+
+func clear_commands() -> void:
+	_commands.clear()
+	_commands_by_tick.clear()
+
+
+## A clean copy of `cmd` with only its kind's args (ints / Strings), or {}
+## when it's malformed.
+static func sanitize_command(cmd: Variant) -> Dictionary:
+	if not cmd is Dictionary:
+		return {}
+	var t: Variant = cmd.get("tick")
+	var k: Variant = cmd.get("kind")
+	if not t is int or not k is int or t < 1 or k < 0 or k >= CommandKind.size():
+		return {}
+	var out := {"tick": t, "kind": k}
+	var ints: Array[String] = []
+	var strs: Array[String] = []
+	match k:
+		CommandKind.CPU_TAKEOVER:
+			ints = ["slot", "cpu_level"]
+		CommandKind.RECLAIM:
+			ints = ["slot", "peer"]
+		CommandKind.JOIN:
+			ints = ["slot", "peer", "team"]
+			strs = ["character", "name"]
+		CommandKind.FORFEIT:
+			ints = ["team"]
+	for key in ints:
+		var v: Variant = cmd.get(key, COMMAND_DEFAULTS.get(key))
+		if not v is int:
+			return {}
+		out[key] = v
+	for key in strs:
+		var v: Variant = cmd.get(key, "")
+		if not (v is String or v is StringName):
+			return {}
+		out[key] = String(v)
+	return out
+
+
+func _apply_commands(t: int) -> void:
+	var list: Variant = _commands_by_tick.get(t)
+	if list == null:
+		return
+	for c: Dictionary in list:
+		match c["kind"]:
+			CommandKind.CPU_TAKEOVER:
+				_set_controller(c["slot"], Controller.CPU, c["cpu_level"])
+			CommandKind.RECLAIM:
+				_set_controller(c["slot"], Controller.PLAYER, -1)
+			CommandKind.FORFEIT:
+				_forfeit(c["team"])
+			CommandKind.RESYNC_INPUTS:
+				for s in sources:
+					s.resync(t)
+			CommandKind.JOIN:
+				# Milestone 4 (drop-in): spawn_fighter on team 0 with ENTERING.
+				push_warning("MatchDirector: JOIN command not implemented yet (tick %d)" % t)
+
+
+## Switch config slot `slot` to `controller`. The fighter keeps everything
+## (health, meter...); only its source is replaced by a fresh one.
+func _set_controller(slot: int, controller: int, level: int) -> void:
+	var pi := config_index(slot)
+	if pi < 0:
+		push_warning("MatchDirector: sim command for unknown slot %d" % slot)
+		return
+	if slot_controller[pi] == controller and (controller == Controller.PLAYER or takeover_level[pi] == level):
+		return
+	slot_controller[pi] = controller
+	takeover_level[pi] = level if controller == Controller.CPU else -1
+	var f := fighter_for_slot(slot)
+	if f != null:
+		var src := _controlled_source(pi)
+		src.attach(self, slot)
+		sources[fighters.find(f)] = src
+	slot_controller_changed.emit(slot, controller)
+
+
+## Versus: `team` gives up; the match ends now. Winner among the other teams:
+## most rounds won, then best mean health ratio, then lowest team id (with
+## one other team, simply that team). -1 when no other team is left.
+## No-op in co-op (a dropped player becomes CPU instead) or once over.
+func _forfeit(team: int) -> void:
+	if coop != null or phase == Phase.MATCH_OVER or phase == Phase.NONE or not team in _teams():
+		push_warning("MatchDirector: FORFEIT ignored (team %d, phase %d)" % [team, phase])
+		return
+	var winner := -1
+	var best_wins := -1
+	var best_ratio := -1.0
+	for t in _teams():
+		if t == team:
+			continue
+		var w := wins[t] if t < wins.size() else 0
+		var r := _team_health_ratio(t)
+		if w > best_wins or (w == best_wins and r > best_ratio):
+			winner = t
+			best_wins = w
+			best_ratio = r
+	for f in fighters:
+		f.set_control_enabled(false)
+	last_winner_team = winner
+	end_reason = &"forfeit"
+	_set_phase(Phase.MATCH_OVER)
+	match_ended.emit(team_lead_slot(winner))
+
+
+func _team_health_ratio(team: int) -> float:
+	var sum := 0.0
+	var n := 0
+	for f in fighters:
+		if f.team == team:
+			sum += f.health_ratio()
+			n += 1
+	return sum / n if n > 0 else 0.0
 
 
 ## Drop links to fighters that left `fighters` (freed nodes must not be read).
@@ -544,10 +790,20 @@ func save_state() -> Dictionary:
 		"fighters": fighters.map(func(f: Fighter) -> Dictionary: return {"desc": f.spawn_desc(), "state": f.save_state()}),
 		"sources": sources.map(func(src: InputSource) -> Dictionary: return src.save_state()),
 		"entities": entities.map(func(e: SimEntity) -> Dictionary: return {"desc": e.spawn_desc(), "state": e.save_state()}),
+		"slot_controller": slot_controller.duplicate(), "takeover_level": takeover_level.duplicate(),
+		"last_winner_team": last_winner_team, "end_reason": String(end_reason),
 	}
 
 
+## Restore a save_state() snapshot. The sim command log is kept (it isn't
+## state): stepping on re-applies commands for the ticks ahead.
 func load_state(s: Dictionary) -> void:
+	var old_controller := slot_controller
+	var old_level := takeover_level
+	slot_controller = (s["slot_controller"] as PackedInt32Array).duplicate()
+	takeover_level = (s["takeover_level"] as PackedInt32Array).duplicate()
+	last_winner_team = s["last_winner_team"]
+	end_reason = StringName(s["end_reason"])
 	tick = s["tick"]
 	phase = s["phase"]
 	phase_frames = s["phase_frames"]
@@ -560,7 +816,7 @@ func load_state(s: Dictionary) -> void:
 	if coop != null:
 		coop.load_state(s["coop"])
 	var created: Array[SimEntity] = []
-	_restore_fighters(s["fighters"], s["sources"], created)
+	_restore_fighters(s["fighters"], s["sources"], created, old_controller, old_level)
 	_restore_entities(s["entities"], created)
 	for e in created:
 		entity_spawned.emit(e)
@@ -568,9 +824,12 @@ func load_state(s: Dictionary) -> void:
 
 ## Make `fighters`/`sources` match the snapshot: drop fighters it doesn't
 ## have, rebuild the ones it has that are gone (each with a fresh source),
-## keep the rest (and their source objects), in snapshot order. Arrays are
-## changed in place: presentation holds references to them.
-func _restore_fighters(records: Array, source_states: Array, created: Array[SimEntity]) -> void:
+## keep the rest (and their source objects), in snapshot order. A kept config
+## fighter whose slot_controller differs from before the load (`old_*`) gets a
+## fresh source of the snapshot's kind before the source states load. Arrays
+## are changed in place: presentation holds references to them.
+func _restore_fighters(records: Array, source_states: Array, created: Array[SimEntity],
+		old_controller: PackedInt32Array, old_level: PackedInt32Array) -> void:
 	var wanted := {}
 	for r: Dictionary in records:
 		wanted[r["desc"]["id"]] = true
@@ -586,8 +845,15 @@ func _restore_fighters(records: Array, source_states: Array, created: Array[SimE
 	for r: Dictionary in records:
 		var id: int = r["desc"]["id"]
 		if by_id.has(id):
-			new_fighters.append(by_id[id][0])
-			new_sources.append(by_id[id][1])
+			var kept: Fighter = by_id[id][0]
+			var kept_src: InputSource = by_id[id][1]
+			var pi := config_index(kept.slot) if kept.spawn_init.get("cpu_level", -1) < 0 else -1
+			if pi >= 0 and pi < old_controller.size() and (old_controller[pi] != slot_controller[pi]
+					or old_level[pi] != takeover_level[pi]):
+				kept_src = _controlled_source(pi)
+				kept_src.attach(self, kept.slot)
+			new_fighters.append(kept)
+			new_sources.append(kept_src)
 			continue
 		var f := EntityFactory.create(r["desc"]) as Fighter
 		_apply_mode_flags(f)

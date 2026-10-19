@@ -40,9 +40,13 @@ func reset() -> void:
 
 
 ## Rollback snapshot of the source's own state (edge tracking; subclasses
-## with decision state, like CpuInput, extend it).
+## with decision state, like CpuInput, extend it). PAUSE is left out: it is
+## not sim input (the wire/replay format strips it), so a held pause button
+## must not change the state hash.
 func save_state() -> Dictionary:
-	return {"previous": _previous.to_array()}
+	var prev := _previous.to_array()
+	prev[2] &= ~InputFrame.Btn.PAUSE
+	return {"previous": prev}
 
 
 func load_state(s: Dictionary) -> void:

@@ -522,7 +522,7 @@ func build_config() -> MatchConfig:
 				p.cpu_level = s.cpu_level
 			SlotType.REMOTE:
 				p.input_kind = PlayerSlotConfig.InputKind.NETWORK
-				p.peer_id = s.peer_id
+				p.owner_peer = s.peer_id
 			_:
 				p.input_kind = PlayerSlotConfig.InputKind.LOCAL
 				p.device_kind = s.device_kind
