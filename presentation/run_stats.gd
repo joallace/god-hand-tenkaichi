@@ -15,8 +15,7 @@ extends Node
 ##   perfect_dodges  &"perfect_dodge" events this player emitted
 ## Team (result()["run"]): cleared, fight frames / seconds (sim ticks between
 ## FIGHT starting and run_ended, read from director.tick), waves cleared
-## (CoopRun.waves_cleared() when the director has it, else a count of
-## wave_cleared signals; -1 outside Waves runs).
+## (CoopRun.waves_cleared(); -1 outside Waves runs).
 
 const KOS := "kos"
 const DAMAGE := "damage"
@@ -43,7 +42,6 @@ var fight_frames := 0
 var waves_cleared := -1
 
 var _fight_start_tick := -1
-var _waves_signalled := 0
 var _ko_pending: Dictionary = {}  # victim slot -> true (KO not yet credited)
 var _last_attacker: Dictionary = {}  # victim slot -> attacker slot
 
@@ -61,8 +59,6 @@ func setup(p_director: MatchDirector, p_hub: MatchEventHub, p_config: MatchConfi
 	director.phase_changed.connect(_on_phase_changed)
 	director.run_ended.connect(_on_run_ended)
 	director.entity_removed.connect(_on_entity_removed)
-	if director.has_signal(&"wave_cleared"):
-		director.connect(&"wave_cleared", _on_wave_cleared)
 	reset_players(config)
 
 
@@ -104,9 +100,9 @@ func _frames_so_far() -> int:
 func _waves_now() -> int:
 	if ended:
 		return waves_cleared
-	if director != null and director.coop != null and director.coop.has_method(&"waves_cleared"):
-		return int(director.coop.call(&"waves_cleared"))
-	return _waves_signalled
+	if director != null and director.coop != null:
+		return director.coop.waves_cleared()
+	return 0
 
 
 func _on_phase_changed(phase: MatchDirector.Phase) -> void:
@@ -122,10 +118,6 @@ func _on_run_ended(p_cleared: bool) -> void:
 	cleared = p_cleared
 	ended = true
 	_flush_pending()
-
-
-func _on_wave_cleared(wave: int) -> void:
-	_waves_signalled = maxi(_waves_signalled, wave + 1)
 
 
 ## An enemy leaving with an uncredited KO: its last attacker gets it.
