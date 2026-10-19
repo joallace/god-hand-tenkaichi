@@ -22,6 +22,13 @@ extends CanvasLayer
 ## announces CLEARED / WIPED OUT. Waves runs add a "WAVE n / N" counter under
 ## it, announce each wave (WAVE n / FINAL WAVE; the first during the intro,
 ## before FIGHT!) and WAVE CLEAR! at the start of each breather.
+##
+## Online (the match scene feeds these, SPEC_ONLINE.md §7.1, §10.3, §13):
+## a "⏸ <name>" tag under the panel of every slot whose peer has the pause
+## overlay open (`set_paused_peers`; peers without a panel are listed under
+## the waiting banner), the "Waiting for <name>…" banner (`set_waiting`),
+## short notices ("<name> disconnected", `notice`), and winner texts that use
+## the players' names.
 
 const LAYER := 10
 
@@ -34,8 +41,16 @@ var enemies_label: Label
 ## Co-op Waves only: current wave.
 var wave_label: Label
 var panels: Dictionary = {}  # slot -> Dictionary of widgets
+## Online: "Waiting for <name>…" (hidden when not stalled).
+var waiting_label: Label
+## Online: paused peers that have no panel of their own.
+var pause_list_label: Label
+## Online: brief notices ("<name> disconnected").
+var notice_label: Label
 
 var _announce_tween: Tween
+var _notice_tween: Tween
+var _paused_peers: Array[int] = []
 var _font: SystemFont
 var _shown_seconds := -2
 var _shown_enemies := -1
@@ -70,6 +85,23 @@ func setup(p_director: MatchDirector, hub: MatchEventHub) -> void:
 	announcer.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	announcer.modulate.a = 0.0
 	root.add_child(announcer)
+
+	var t := Tuning.hud
+	waiting_label = _label(t.waiting_font_size, t.waiting_color)
+	waiting_label.name = "Waiting"
+	waiting_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	waiting_label.visible = false
+	root.add_child(waiting_label)
+	pause_list_label = _label(t.pause_tag_font_size, t.pause_tag_color)
+	pause_list_label.name = "PausedPeers"
+	pause_list_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pause_list_label.visible = false
+	root.add_child(pause_list_label)
+	notice_label = _label(t.notice_font_size, t.notice_color)
+	notice_label.name = "Notice"
+	notice_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	notice_label.modulate.a = 0.0
+	root.add_child(notice_label)
 
 	if hub == null:  # standalone (tests): a private hub, confirming at once
 		hub = MatchEventHub.new()
@@ -134,6 +166,7 @@ func _on_fighters_spawned(fighters: Array[Fighter]) -> void:
 		for i in fighters.size():
 			_build_panel(fighters[i], i % 2 == 1)
 	_layout()
+	_refresh_pause_tags()
 
 
 func _build_panel(f: Fighter, right_side: bool) -> void:
@@ -210,6 +243,13 @@ func _build_panel(f: Fighter, right_side: bool) -> void:
 	p["callout"] = callout
 	p["callout_tween"] = null
 
+	var pause_tag := _label(t.pause_tag_font_size, t.pause_tag_color)
+	pause_tag.name = "PauseTag%d" % (f.slot + 1)
+	pause_tag.horizontal_alignment = name_label.horizontal_alignment
+	pause_tag.visible = false
+	root.add_child(pause_tag)
+	p["pause_tag"] = pause_tag
+
 	panels[f.slot] = p
 	f.health_changed.connect(_on_health_changed.bind(f.slot))
 	f.ki_changed.connect(_on_ki_changed.bind(f.slot))
@@ -249,6 +289,12 @@ func _layout() -> void:
 	announcer.size = Vector2(w, t.announce_font_size * 1.6)
 	announcer.position = Vector2(0, h * 0.36 - announcer.size.y * 0.5)
 	announcer.pivot_offset = announcer.size * 0.5
+	waiting_label.size = Vector2(w, t.waiting_font_size + 16.0)
+	waiting_label.position = Vector2(0.0, h * t.waiting_y_ratio)
+	notice_label.size = Vector2(w, t.notice_font_size + 12.0)
+	notice_label.position = waiting_label.position + Vector2(0.0, waiting_label.size.y)
+	pause_list_label.size = Vector2(w, t.pause_tag_font_size + 10.0)
+	pause_list_label.position = notice_label.position + Vector2(0.0, notice_label.size.y)
 	if enemies_label != null:
 		enemies_label.size = Vector2(w * 0.5, t.enemies_left_font_size + 12.0)
 		enemies_label.position = Vector2(w * 0.25, t.top_margin + t.timer_font_size + 16.0)
@@ -288,6 +334,9 @@ func _layout() -> void:
 		callout.size = Vector2(bar_w, t.callout_font_size + 16.0)
 		callout.position = Vector2(x0, combo.position.y + combo.size.y)
 		callout.pivot_offset = Vector2(callout.size.x if right else 0.0, callout.size.y * 0.5)
+		var pause_tag: Label = p["pause_tag"]
+		pause_tag.size = Vector2(bar_w, t.pause_tag_font_size + 8.0)
+		pause_tag.position = Vector2(x0, ki_y + t.ki_bar_height + 2.0)
 
 
 # --- fighter signals -----------------------------------------------------------
@@ -457,14 +506,80 @@ func _on_round_ended(winner_slot: int, reason: StringName) -> void:
 
 func _announce_round_winner(winner_slot: int) -> void:
 	if director.phase == MatchDirector.Phase.OUTRO:
-		announce(Tuning.hud.text_round_winner % (winner_slot + 1), _slot_color(winner_slot), Tuning.hud.announce_hold)
+		var t := Tuning.hud
+		var text := t.text_round_winner_name % director.config.player_tag(winner_slot) if _online() \
+			else t.text_round_winner % (winner_slot + 1)
+		announce(text, _slot_color(winner_slot), t.announce_hold)
 
 
 func _on_match_ended(winner_slot: int) -> void:
 	if _coop():
 		return
 	var t := Tuning.hud
-	announce(t.text_match_winner % (winner_slot + 1), _slot_color(winner_slot), -1.0)
+	var text := t.text_match_winner_name % director.config.player_tag(winner_slot) if _online() \
+		else t.text_match_winner % (winner_slot + 1)
+	announce(text, _slot_color(winner_slot), -1.0)
+
+
+func _online() -> bool:
+	return director != null and director.config != null and director.config.is_online()
+
+
+# --- online ----------------------------------------------------------------------
+
+## "Waiting for <name>…" while `peer_name` is not empty (the match scene
+## passes RollbackDriver.waiting_for() every frame).
+func set_waiting(peer_name: String) -> void:
+	waiting_label.visible = not peer_name.is_empty()
+	if waiting_label.visible:
+		waiting_label.text = Tuning.hud.text_waiting_for % peer_name
+
+
+## Peers (other than this one) with the pause overlay open.
+func set_paused_peers(peers: Array[int]) -> void:
+	_paused_peers = peers.duplicate()
+	_refresh_pause_tags()
+
+
+func _refresh_pause_tags() -> void:
+	if director == null or director.config == null:
+		return
+	var t := Tuning.hud
+	var shown := {}  # peer -> true (has a panel tag)
+	for slot: int in panels:
+		var tag: Label = panels[slot]["pause_tag"]
+		var peer := _owner_of(slot)
+		tag.visible = peer != 0 and peer in _paused_peers
+		if tag.visible:
+			tag.text = t.text_pause_tag % director.config.player_tag(slot)
+			shown[peer] = true
+	var rest: PackedStringArray = []
+	for p in director.config.players:
+		if p.input_kind != PlayerSlotConfig.InputKind.CPU and p.owner_peer in _paused_peers \
+				and not shown.has(p.owner_peer):
+			shown[p.owner_peer] = true
+			rest.append(t.text_pause_tag % director.config.player_tag(p.slot))
+	pause_list_label.visible = not rest.is_empty()
+	pause_list_label.text = "   ".join(rest)
+
+
+func _owner_of(slot: int) -> int:
+	for p in director.config.players:
+		if p.slot == slot and p.input_kind != PlayerSlotConfig.InputKind.CPU:
+			return p.owner_peer
+	return 0
+
+
+## Brief center notice under the waiting banner ("<name> disconnected").
+func notice(text: String) -> void:
+	var t := Tuning.hud
+	if _notice_tween != null and _notice_tween.is_valid():
+		_notice_tween.kill()
+	notice_label.text = text
+	notice_label.modulate.a = 1.0
+	_notice_tween = create_tween()
+	_notice_tween.tween_interval(t.notice_hold)
+	_notice_tween.tween_property(notice_label, "modulate:a", 0.0, t.announce_out)
 
 
 func _on_enemies_left_changed(left: int) -> void:

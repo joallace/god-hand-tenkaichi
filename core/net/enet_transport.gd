@@ -164,6 +164,13 @@ func enet_rtt_ms(peer: int) -> float:
 	return p.get_statistic(ENetPacketPeer.PEER_ROUND_TRIP_TIME) if p else -1.0
 
 
+## Packet loss ENet measures for a link, in percent (-1 if unknown).
+func packet_loss(peer: int) -> float:
+	const PERCENT := 100.0
+	var p: ENetPacketPeer = _peers.get(peer)
+	return p.get_statistic(ENetPacketPeer.PEER_PACKET_LOSS) * PERCENT / ENetPacketPeer.PACKET_LOSS_SCALE if p else -1.0
+
+
 func _map(id: int, peer: ENetPacketPeer) -> void:
 	_peers[id] = peer
 	_ids[peer.get_instance_id()] = id

@@ -508,6 +508,21 @@ mode, port override, recent hosts, debug overlay.
    working), join screen + recent hosts, UPnP, profile names, settings screen,
    pause overlay, forfeit on disconnect, results rematch/lobby, debug net
    overlay. Play-test Linux↔Windows over a real WAN.
+   *Status 2026-10-19: implemented, tested headless over loopback; the real
+   WAN Linux↔Windows play-test (and IPv6 dual-stack on Windows, §17) is
+   still to do. `Net` autoload (session lifetime, pump outside matches,
+   messages back to the main menu), protocol v2 adds `LOBBY_REQ` (guest ->
+   host lobby requests). The lobby's rules live in `LobbyModel` (the old join
+   screen's logic, plus a Game row: Versus / Versus CPU / Co-op locally,
+   Versus only online for now); `OnlineRoom` keeps it host-authoritative
+   (guests send commands, the host broadcasts state), runs the countdown,
+   MATCH_START, pause tags, rematch votes, back-to-lobby, forfeit and co-op
+   leave-run. One local player per machine online
+   (`net.max_local_players_online`, raised in milestone 5). Tests:
+   `lobby_test`, `online_menus_test`, `net_match_ui_test`,
+   `net_results_test`. Known rough edges: hostname lookup in
+   `EnetTransport.join` blocks the frame; names/ports need a keyboard (no
+   on-screen keyboard for pads).*
 3. **Online co-op**: Brawl/Waves for 2, then up to 4 humans; CPU ally
    online; `CPU_TAKEOVER`; online field cap tuned with `net_bench`.
 4. **Drop-in / reconnect** at Waves breathers.

@@ -104,3 +104,19 @@ extends Resource
 @export var results_table_max_height: int = 260
 ## Inner padding of the stats panel.
 @export var results_panel_padding: int = 10
+
+@export_group("Online screens")
+## Settings and join-online screens: gap between the title, rows and footer.
+@export var online_separation: int = 14
+## Width of the text fields (profile name, port, address).
+@export var online_field_width: int = 420
+## Label column width on the settings screen's text-field rows.
+@export var online_label_width: int = 220
+## Recent hosts list: tallest it gets before it scrolls, row height, and the
+## size of each row's delete ("x") button.
+@export var online_recent_max_height: int = 260
+@export var online_recent_row_height: int = 46
+@export var online_delete_button_size: Vector2 = Vector2(56, 46)
+## Status / error line colours.
+@export var color_error: Color = Color(1.0, 0.4, 0.35)
+@export var color_ok: Color = Color(0.35, 1.0, 0.4)

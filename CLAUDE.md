@@ -73,6 +73,13 @@ before autoloads exist. See `tests/README.md`. Always wrap Godot calls in
     `rollback_to`/`confirm_through`), stall/TimeSync, confirmed checkpoint
     hashes, host RESYNC + desync dumps, `issue_command`, disconnect ->
     FORFEIT / CPU_TAKEOVER. Tested end to end in `tests/net_loopback_test`.
+    `Net` autoload (`core/net/net.gd`): `host()`/`join()`/`leave()`, pumps
+    the session outside matches (the match scene's driver pumps it during
+    one), `OnlineSettings` (`user://online.cfg`: name, delay, port, recent
+    hosts, overlay), `UpnpHelper` (threaded mapping), `pending_message` for
+    the main menu. `OnlineRoom`: host-authoritative lobby (`LobbyModel`),
+    phases lobby/match/results, `request()` ops (LOBBY_REQ from guests),
+    countdown -> MATCH_START -> `Game.start_match` on every peer.
   - `tuning/`: one Resource class per category, loaded by the `Tuning` autoload
     from `data/tuning/<key>.tres`.
   - `game.gd`: `Game` autoload, scene flow.
@@ -96,7 +103,10 @@ before autoloads exist. See `tests/README.md`. Always wrap Godot calls in
   - `audio/`: `Sfx` autoload (play by sound name, voice pool, keyed loops,
     menu focus blip) and `MatchSfx` (fighter events/states + director
     signals -> sounds). Mix volumes in `data/tuning/sfx.tres`.
-- `scenes/menus/`, `ui/` — main menu, join screen, controls rebinding, results.
+- `scenes/menus/`, `ui/` — main menu, unified lobby (`Lobby`, local and
+  online; rules/data in `core/match/LobbyModel`), join-online screen (recent
+  hosts), settings, controls rebinding, results (online: rematch votes,
+  lobby, save replay).
 
 ## Rules
 
@@ -163,6 +173,7 @@ ours. Describe mechanics in our own words; never copy decomp code.
 
 ## Known gaps
 
-Online runs headless over loopback (`RollbackDriver`, milestone 1) but has
-no `Net` autoload or online menus yet (plan: SPEC_ONLINE.md §15). The CPU only knows the moveset roles in `CharacterDef`
+Online 1v1 (milestone 2) is implemented and tested headless, but not yet
+play-tested Linux↔Windows over a real WAN; online co-op, drop-in and
+couch + online are milestones 3-5 (SPEC_ONLINE.md §15). The CPU only knows the moveset roles in `CharacterDef`
 (string, heavies, supers), not character-specific tricks.

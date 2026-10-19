@@ -25,9 +25,19 @@ const ROWS := [
 	["Pause", "Start", "Esc"],
 ]
 
+## "Online" section; %d = Tuning.net.default_port.
+const ONLINE_LINES := [
+	"Host: open a room from the lobby (Play > Open online). Others pick Join online and type your address.",
+	"Your UDP port %d must be reachable. UPnP is tried automatically; if it fails, forward the port on your router, or play over LAN or a VPN such as Tailscale or ZeroTier.",
+	"Windows shows a firewall prompt the first time you host: allow it.",
+	"The port, your profile name and input delay are in Settings.",
+]
+
 
 var _scroll: ScrollContainer
 var _grid: GridContainer
+## Scrolled content: the controls grid, then the Online section.
+var _content: VBoxContainer
 var _col: VBoxContainer
 var _panel: PanelContainer
 
@@ -65,7 +75,17 @@ func _ready() -> void:
 		for i in 3:
 			var l := MenuHelpers.label(r[i], &"HintLabel" if i > 0 else &"")
 			_grid.add_child(l)
-	_scroll.add_child(_grid)
+	_content = VBoxContainer.new()
+	_content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_content.add_child(_grid)
+	var online := MenuHelpers.label("Online")
+	online.add_theme_color_override("font_color", u.color_orange)
+	_content.add_child(online)
+	for line: String in ONLINE_LINES:
+		var l := MenuHelpers.label(line % Tuning.net.default_port if line.contains("%d") else line, &"HintLabel")
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_content.add_child(l)
+	_scroll.add_child(_content)
 	var tip := MenuHelpers.label("Land hits to build ki. Read the attack, flick the right stick to slip it, punish!",
 			&"HintLabel", HORIZONTAL_ALIGNMENT_CENTER)
 	_col.add_child(tip)
@@ -74,7 +94,7 @@ func _ready() -> void:
 	_col.add_child(back)
 	add_child(MenuHelpers.centered(_panel))
 	resized.connect(_fit)
-	_grid.minimum_size_changed.connect(_fit)
+	_content.minimum_size_changed.connect(_fit)
 	_fit()
 	back.grab_focus.call_deferred()
 
@@ -89,7 +109,7 @@ func _fit() -> void:
 	var view_w := size.x if size.x > 0.0 else get_viewport_rect().size.x
 	_scroll.custom_minimum_size.y = 0.0
 	var fixed := _panel.get_combined_minimum_size().y - _scroll.get_combined_minimum_size().y
-	var grid_h := _grid.get_combined_minimum_size().y
+	var grid_h := _content.get_combined_minimum_size().y
 	_scroll.custom_minimum_size.y = clampf(grid_h, 0.0, maxf(view_h - 2.0 * u.how_to_margin.y - fixed, 0.0))
 	# Keep the grid's width plus room for the scrollbar, bounded by the screen.
 	var bar_w := _scroll.get_v_scroll_bar().get_combined_minimum_size().x

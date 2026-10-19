@@ -37,17 +37,18 @@ extends RefCounted
 ##   MATCH_START config, seed, start (opaque start info)
 ##   CMD         cmd ({"tick": int, "kind": int, ...})
 ##   DROP        peer, last_tick, reason      BYE   reason
+##   LOBBY_REQ   req (guest -> host: a lobby/room request, see OnlineRoom)
 ##   RESYNC      tick, snapshot               SNAPSHOT tick, snapshot, extra
 
 ## Bump on any wire change; HELLO carries it.
-const PROTOCOL_VERSION := 1
+const PROTOCOL_VERSION := 2
 
 enum Type {
 	# hot, channel 0
 	INPUT = 1, INPUT_ACK = 2, PING = 3, PONG = 4, HASH = 5,
 	# reliable, channel 1
 	HELLO = 16, WELCOME = 17, REJECT = 18, LOBBY_STATE = 19, PEERS = 20,
-	MATCH_START = 21, CMD = 22, DROP = 23, BYE = 24,
+	MATCH_START = 21, CMD = 22, DROP = 23, BYE = 24, LOBBY_REQ = 25,
 	# bulk, channel 2
 	RESYNC = 32, SNAPSHOT = 33,
 }
@@ -101,6 +102,7 @@ const _SCHEMAS := {
 	Type.CMD: {"cmd": TYPE_DICTIONARY},
 	Type.DROP: {"peer": TYPE_INT, "last_tick": TYPE_INT, "reason": TYPE_INT},
 	Type.BYE: {"reason": TYPE_INT},
+	Type.LOBBY_REQ: {"req": TYPE_DICTIONARY},
 	Type.RESYNC: {"tick": TYPE_INT, "snapshot": TYPE_DICTIONARY},
 	Type.SNAPSHOT: {"tick": TYPE_INT, "snapshot": TYPE_DICTIONARY, "extra": TYPE_DICTIONARY},
 }
@@ -244,6 +246,10 @@ static func encode_drop(peer: int, last_tick: int, reason: int) -> PackedByteArr
 
 static func encode_bye(reason: int) -> PackedByteArray:
 	return _encode_dict(Type.BYE, {"reason": reason})
+
+
+static func encode_lobby_req(req: Dictionary) -> PackedByteArray:
+	return _encode_dict(Type.LOBBY_REQ, {"req": req})
 
 
 static func encode_resync(tick: int, snapshot: Dictionary) -> PackedByteArray:

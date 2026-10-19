@@ -96,75 +96,52 @@ func _test_pad_ui_actions() -> void:
 
 
 func _test_main_menu() -> void:
-	var m := spawn(Game.SCENE_MAIN_MENU) as Control
-	await frames(5)
-	var focus := get_viewport().gui_get_focus_owner()
-	check(focus is Button and (focus as Button).text.begins_with("P1 vs P2"), "main menu focuses first button")
-	# Wrap: up from the first enabled button goes to Quit.
-	var ev := InputEventAction.new()
-	ev.action = "ui_up"
-	ev.pressed = true
-	Input.parse_input_event(ev)
-	await frames(2)
-	focus = get_viewport().gui_get_focus_owner()
-	check(focus is Button and (focus as Button).text == "Quit", "main menu focus wraps to Quit")
-	var labels: Array = (m.get("_list") as Node).get_children().map(func(b: Node) -> String: return (b as Button).text if b is Button else "")
-	var coop_at := labels.find("Co-op")
-	check(coop_at > labels.find("P1 vs CPU") and coop_at < labels.find("Controls"), "main menu lists Co-op after the versus entries")
-	m.call("_on_how_to_play")
-	await frames(3)
-	focus = get_viewport().gui_get_focus_owner()
-	check(m.get("_how_to") != null and focus is Button and (focus as Button).text == "Back", "how-to-play panel opens with focus")
-	var cancel := InputEventAction.new()
-	cancel.action = "ui_cancel"
-	cancel.pressed = true
-	Input.parse_input_event(cancel)
-	await frames(3)
-	check(m.get("_how_to") == null and get_viewport().gui_get_focus_owner() is Button, "how-to-play closes, focus restored")
-	m.queue_free()
-	await frames(2)
+	# Main-menu coverage moved to tests/online_menus_test.gd.
+	pass
 
 
 func _test_join_screen() -> void:
-	JoinScreen.pending_mode = MatchConfig.Mode.LOCAL_VERSUS
-	var j := spawn(Game.SCENE_JOIN) as JoinScreen
+	Lobby.pending_mode = MatchConfig.Mode.LOCAL_VERSUS
+	var j := spawn(Game.SCENE_LOBBY) as Lobby
 	j.auto_start = false
 	var requested: Array = []
 	j.match_requested.connect(func(c: MatchConfig) -> void: requested.append(c))
 	await frames(3)
 
 	await pad_tap(0, JOY_BUTTON_START)
-	check(j.slots[0].state == JoinScreen.SlotState.JOINED and j.slots[0].device_id == 0, "pad 0 joins slot P1")
+	check(j.slots[0].state == Lobby.SlotState.JOINED and j.slots[0].device_id == 0, "pad 0 joins slot P1")
 	await pad_tap(0, JOY_BUTTON_START)  # same device: would READY, must not claim slot 2
-	check(j.slots[1].state == JoinScreen.SlotState.EMPTY, "pad 0 cannot claim a second slot")
-	check(j.slots[0].state == JoinScreen.SlotState.READY, "pad 0 START again readies")
+	check(j.slots[1].state == Lobby.SlotState.EMPTY, "pad 0 cannot claim a second slot")
+	check(j.slots[0].state == Lobby.SlotState.READY, "pad 0 START again readies")
 	await pad_tap(0, JOY_BUTTON_B)
-	check(j.slots[0].state == JoinScreen.SlotState.JOINED, "pad 0 B un-readies")
+	check(j.slots[0].state == Lobby.SlotState.JOINED, "pad 0 B un-readies")
 
 	await pad_tap(1, JOY_BUTTON_START)
-	check(j.slots[1].state == JoinScreen.SlotState.JOINED and j.slots[1].device_id == 1
+	check(j.slots[1].state == Lobby.SlotState.JOINED and j.slots[1].device_id == 1
 			and j.slots[1].device_kind == Bindings.Kind.PAD, "pad 1 joins slot P2")
 	check(j.slots[0].device_id != j.slots[1].device_id, "slots have distinct devices")
 
 	# Pad 1 leaves, keyboard takes slot 2 with layout B.
 	await pad_tap(1, JOY_BUTTON_B)
-	check(j.slots[1].state == JoinScreen.SlotState.EMPTY, "pad 1 B leaves")
+	check(j.slots[1].state == Lobby.SlotState.EMPTY, "pad 1 B leaves")
 	await key_tap(KEY_ENTER)
-	check(j.slots[1].state == JoinScreen.SlotState.JOINED and j.slots[1].device_kind == Bindings.Kind.KEYBOARD,
+	check(j.slots[1].state == Lobby.SlotState.JOINED and j.slots[1].device_kind == Bindings.Kind.KEYBOARD,
 			"Enter joins keyboard into P2")
 
-	# Settings: P1 pad moves to Timer row and cycles to infinite.
+	# Settings: P1 pad moves past Game to Rounds, then Timer, cycles to infinite.
+	await pad_tap(0, JOY_BUTTON_DPAD_DOWN)
+	check(j.slots[0].cursor == Lobby.Row.MODE, "down from fighter reaches the Game row")
 	await pad_tap(0, JOY_BUTTON_DPAD_DOWN)
 	await pad_tap(0, JOY_BUTTON_DPAD_RIGHT)
-	check(j.rounds_to_win == mini(Tuning.match_rules.rounds_to_win + 1, 5), "rounds to win changed by P1")
+	check(j.model.rounds_to_win == mini(Tuning.match_rules.rounds_to_win + 1, 5), "rounds to win changed by P1")
 	await pad_tap(0, JOY_BUTTON_DPAD_DOWN)
 	var opts := Tuning.match_rules.round_time_options
 	var inf_idx := opts.find(0)
 	var guard := 0
-	while j.time_index != inf_idx and guard < 10:
+	while j.model.time_index != inf_idx and guard < 10:
 		await pad_tap(0, JOY_BUTTON_DPAD_RIGHT)
 		guard += 1
-	check(j.time_index == inf_idx, "timer can be set to infinite")
+	check(j.model.time_index == inf_idx, "timer can be set to infinite")
 
 	# Ready both: pad A and keyboard P2 LIGHT key (layout B: KP_1).
 	await pad_tap(0, JOY_BUTTON_A)
@@ -184,24 +161,25 @@ func _test_join_screen() -> void:
 
 
 func _test_join_screen_cpu() -> void:
-	JoinScreen.pending_mode = MatchConfig.Mode.VERSUS_CPU
-	var j := spawn(Game.SCENE_JOIN) as JoinScreen
+	Lobby.pending_mode = MatchConfig.Mode.VERSUS_CPU
+	var j := spawn(Game.SCENE_LOBBY) as Lobby
 	j.auto_start = false
 	var requested: Array = []
 	j.match_requested.connect(func(c: MatchConfig) -> void: requested.append(c))
 	await frames(3)
 	var cpu := j.cpu_slot()
-	check(cpu == 1 and j.slots[cpu].state == JoinScreen.SlotState.READY, "CPU slot is pre-joined and ready")
-	check(j.rows().has(JoinScreen.Row.CPU_LEVEL), "CPU mode offers a CPU level row")
+	check(cpu == 1 and j.slots[cpu].state == Lobby.SlotState.READY, "CPU slot is pre-joined and ready")
+	check(j.rows().has(Lobby.Row.CPU_LEVEL), "CPU mode offers a CPU level row")
 	var start_level := j.slots[cpu].cpu_level
-	check(start_level == Tuning.cpu.clamp_level(-1) or JoinScreen._memory.has("cpu_level"), "CPU level starts at the default")
+	check(start_level == Tuning.cpu.clamp_level(-1) or LobbyModel._memory.has("cpu_level"), "CPU level starts at the default")
 
 	await pad_tap(0, JOY_BUTTON_START)
-	check(j.slots[0].state == JoinScreen.SlotState.JOINED, "pad 0 joins the human slot")
+	check(j.slots[0].state == Lobby.SlotState.JOINED, "pad 0 joins the human slot")
 	await pad_tap(0, JOY_BUTTON_DPAD_DOWN)
-	check(j.slots[0].cursor == JoinScreen.Row.CPU_CHARACTER, "down from fighter reaches CPU fighter row")
 	await pad_tap(0, JOY_BUTTON_DPAD_DOWN)
-	check(j.slots[0].cursor == JoinScreen.Row.CPU_LEVEL, "next row is CPU level")
+	check(j.slots[0].cursor == Lobby.Row.CPU_CHARACTER, "down past Game reaches CPU fighter row")
+	await pad_tap(0, JOY_BUTTON_DPAD_DOWN)
+	check(j.slots[0].cursor == Lobby.Row.CPU_LEVEL, "next row is CPU level")
 	await pad_tap(0, JOY_BUTTON_DPAD_LEFT)
 	check(j.slots[cpu].cpu_level == maxi(start_level - 1, 0), "left lowers the CPU level")
 	for i in Tuning.cpu.level_count() + 2:
@@ -221,42 +199,43 @@ func _test_join_screen_cpu() -> void:
 		check(cfg.player_tag(1) == "CPU" and cfg.player_tag(0) == "P1", "player tags name the CPU")
 		var src := cfg.players[1].create_input_source() as CpuInput
 		check(src != null and src.brain.level == Tuning.cpu.level_count() - 1, "CPU input source built at that level")
-	JoinScreen._memory = {}
-	JoinScreen.pending_mode = MatchConfig.Mode.LOCAL_VERSUS
+	LobbyModel._memory = {}
+	Lobby.pending_mode = MatchConfig.Mode.LOCAL_VERSUS
 	j.queue_free()
 	await frames(2)
 
 
 func _test_join_screen_coop() -> void:
-	JoinScreen._coop_memory = {}
-	JoinScreen.pending_mode = MatchConfig.Mode.COOP
-	var j := spawn(Game.SCENE_JOIN) as JoinScreen
+	LobbyModel._coop_memory = {}
+	Lobby.pending_mode = MatchConfig.Mode.COOP
+	var j := spawn(Game.SCENE_LOBBY) as Lobby
 	j.auto_start = false
 	var requested: Array = []
 	j.match_requested.connect(func(c: MatchConfig) -> void: requested.append(c))
 	await frames(3)
 	check(j.is_coop() and j.cpu_slot() < 0, "co-op join screen has two human slots")
-	check(not j.rows().has(JoinScreen.Row.ROUNDS) and j.rows().has(JoinScreen.Row.ENEMY_COUNT), "co-op rows replace rounds")
-	check(not j.rows().has(JoinScreen.Row.WAVES), "Waves row hidden in Brawl")
-	check(not j.rows().has(JoinScreen.Row.ALLY_LEVEL), "ally rows hidden without an ally")
+	check(not j.rows().has(Lobby.Row.ROUNDS) and j.rows().has(Lobby.Row.ENEMY_COUNT), "co-op rows replace rounds")
+	check(not j.rows().has(Lobby.Row.WAVES), "Waves row hidden in Brawl")
+	check(not j.rows().has(Lobby.Row.ALLY_LEVEL), "ally rows hidden without an ally")
 	check(not j.all_ready(), "nobody joined: not ready")
 
 	await pad_tap(0, JOY_BUTTON_START)
 	await pad_tap(0, JOY_BUTTON_DPAD_DOWN)
-	check(j.slots[0].cursor == JoinScreen.Row.COOP_STRUCTURE, "down from fighter reaches Mode")
+	await pad_tap(0, JOY_BUTTON_DPAD_DOWN)
+	check(j.slots[0].cursor == Lobby.Row.COOP_STRUCTURE, "down past Game reaches Run")
 	await pad_tap(0, JOY_BUTTON_DPAD_RIGHT)
-	check(j.coop_structure == CoopConfig.Structure.WAVES and j.rows().has(JoinScreen.Row.WAVES), "Mode -> Waves shows the Waves row")
-	check((j._coop_labels[JoinScreen.Row.WAVES] as Label).visible, "Waves label visible in Waves mode")
-	check((j._coop_labels[JoinScreen.Row.ENEMY_COUNT] as Label).text.contains("per wave"), "enemy count reads per wave")
-	j.slots[0].cursor = JoinScreen.Row.WAVES
-	j.coop_structure = CoopConfig.Structure.BRAWL
-	j._fix_cursors()
-	check(j.slots[0].cursor == JoinScreen.Row.COOP_STRUCTURE, "cursor on a hidden row falls back to Mode")
-	j.slots[0].cursor = JoinScreen.Row.ALLY
-	j._change_row(j.slots[0], 1)
-	check(j.coop_ally and j.rows().has(JoinScreen.Row.ALLY_LEVEL) and j.rows().has(JoinScreen.Row.ALLY_CHARACTER),
+	check(j.model.coop_structure == CoopConfig.Structure.WAVES and j.rows().has(Lobby.Row.WAVES), "Mode -> Waves shows the Waves row")
+	check((j._coop_labels[Lobby.Row.WAVES] as Label).visible, "Waves label visible in Waves mode")
+	check((j._coop_labels[Lobby.Row.ENEMY_COUNT] as Label).text.contains("per wave"), "enemy count reads per wave")
+	j.slots[0].cursor = Lobby.Row.WAVES
+	j.model.coop_structure = CoopConfig.Structure.BRAWL
+	j.model.fix_cursors()
+	check(j.slots[0].cursor == Lobby.Row.COOP_STRUCTURE, "cursor on a hidden row falls back to Mode")
+	j.slots[0].cursor = Lobby.Row.ALLY
+	j.model._change_row(0, 1)
+	check(j.model.coop_ally and j.rows().has(Lobby.Row.ALLY_LEVEL) and j.rows().has(Lobby.Row.ALLY_CHARACTER),
 			"Ally -> CPU shows ally level and fighter rows")
-	j.coop_ally = false
+	j.model.coop_ally = false
 	j._refresh()
 
 	# Solo run: P2 stays empty.
@@ -277,12 +256,12 @@ func _test_join_screen_coop() -> void:
 		check(not cfg.friendly_fire, "friendly fire off by default")
 
 	# Solo + ally, waves, friendly fire (built directly).
-	j.coop_ally = true
-	j.coop_ally_level = 2
-	j.coop_ally_char = 0
-	j.coop_structure = CoopConfig.Structure.WAVES
-	j.coop_waves = 3
-	j.friendly_fire = true
+	j.model.coop_ally = true
+	j.model.coop_ally_level = 2
+	j.model.coop_ally_char = 0
+	j.model.coop_structure = CoopConfig.Structure.WAVES
+	j.model.coop_waves = 3
+	j.model.friendly_fire = true
 	var cfg2 := j.build_config()
 	check(cfg2.players.size() == 2 and cfg2.players[1].input_kind == PlayerSlotConfig.InputKind.CPU
 			and cfg2.players[1].team == 0 and cfg2.players[1].cpu_level == 2 and cfg2.players[1].slot == 1,
@@ -292,37 +271,37 @@ func _test_join_screen_coop() -> void:
 	check(cfg2.coop.structure == CoopConfig.Structure.WAVES and cfg2.coop.waves.size() == 3 and not cfg2.coop.endless,
 			"3 waves")
 	check(cfg2.friendly_fire, "friendly fire on")
-	j.coop_waves = Tuning.coop.max_wave_count + 1
+	j.model.coop_waves = Tuning.coop.max_wave_count + 1
 	var cfg3 := j.build_config()
 	check(cfg3.coop.endless and cfg3.coop.waves.is_empty(), "past the max wave count = endless")
-	j.coop_roster = 1
+	j.model.coop_roster = 1
 	check(j.build_config().coop.enemy_character == MenuHelpers.character_ids()[0], "roster pick sets the enemy character")
-	j.coop_roster = 0
+	j.model.coop_roster = 0
 	check(j.build_config().coop.enemy_character == &"", "roster Random = empty id")
 
 	# Two humans: keyboard joins P2.
-	j.coop_ally = false
+	j.model.coop_ally = false
 	j._started = false
-	j.slots[0].state = JoinScreen.SlotState.JOINED
+	j.slots[0].state = Lobby.SlotState.JOINED
 	await key_tap(KEY_ENTER)
-	check(j.slots[1].state == JoinScreen.SlotState.JOINED, "keyboard joins P2 in co-op")
+	check(j.slots[1].state == Lobby.SlotState.JOINED, "keyboard joins P2 in co-op")
 	var cfg4 := j.build_config()
 	check(cfg4.players.size() == 2 and cfg4.players[1].device_kind == Bindings.Kind.KEYBOARD
 			and cfg4.players[0].team == 0 and cfg4.players[1].team == 0, "two humans on team 0")
 	check(not j.all_ready(), "a joined but unready P2 blocks the start")
 
 	# Memory: a new visit restores the last run setup.
-	j.coop_enemy_count = 7
-	j._remember()
+	j.model.coop_enemy_count = 7
+	j.model.remember()
 	j.queue_free()
 	await frames(2)
-	var j2 := spawn(Game.SCENE_JOIN) as JoinScreen
+	var j2 := spawn(Game.SCENE_LOBBY) as Lobby
 	j2.auto_start = false
 	await frames(3)
-	check(j2.coop_enemy_count == 7, "co-op setup remembered across visits")
+	check(j2.model.coop_enemy_count == 7, "co-op setup remembered across visits")
 	j2.queue_free()
-	JoinScreen._coop_memory = {}
-	JoinScreen.pending_mode = MatchConfig.Mode.LOCAL_VERSUS
+	LobbyModel._coop_memory = {}
+	Lobby.pending_mode = MatchConfig.Mode.LOCAL_VERSUS
 	await frames(2)
 
 

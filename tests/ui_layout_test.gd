@@ -159,11 +159,11 @@ func _check_controls_overlay(tag: String) -> void:
 func _check_join(m: MatchConfig.Mode, tag: String) -> void:
 	var names := {MatchConfig.Mode.LOCAL_VERSUS: "versus", MatchConfig.Mode.VERSUS_CPU: "vs CPU",
 			MatchConfig.Mode.COOP: "co-op"}
-	var what := "join screen %s " % names[m]
-	JoinScreen._memory = {}
-	JoinScreen._coop_memory = {}
-	JoinScreen.pending_mode = m
-	var j := (load(Game.SCENE_JOIN) as PackedScene).instantiate() as JoinScreen
+	var what := "lobby %s " % names[m]
+	LobbyModel._memory = {}
+	LobbyModel._coop_memory = {}
+	Lobby.pending_mode = m
+	var j := (load(Game.SCENE_LOBBY) as PackedScene).instantiate() as Lobby
 	j.auto_start = false
 	_vp.add_child(j)
 	await _assert_fits(j, what + "(nobody joined) " + tag)
@@ -175,22 +175,22 @@ func _check_join(m: MatchConfig.Mode, tag: String) -> void:
 	for s in j.slots:
 		s.char_index = longest
 		s.cpu_level = low_level
-	j.coop_enemy_level = low_level
-	j.coop_ally_level = low_level
-	j.coop_ally_char = longest
+	j.model.coop_enemy_level = low_level
+	j.model.coop_ally_level = low_level
+	j.model.coop_ally_char = longest
 	if m == MatchConfig.Mode.COOP:
 		# Every row shown (Waves + ally rows), both cursors on the same row.
-		j.coop_structure = CoopConfig.Structure.WAVES
-		j.coop_ally = true
-		j.coop_roster = longest + 1
+		j.model.coop_structure = CoopConfig.Structure.WAVES
+		j.model.coop_ally = true
+		j.model.coop_roster = longest + 1
 		for s in j.slots:
-			s.cursor = JoinScreen.Row.ENEMY_COUNT
+			s.cursor = Lobby.Row.ENEMY_COUNT
 	elif m == MatchConfig.Mode.LOCAL_VERSUS:
 		for s in j.slots:
-			s.cursor = JoinScreen.Row.ROUNDS
+			s.cursor = Lobby.Row.ROUNDS
 	j._refresh()
 	for ui: Dictionary in j._ui:
-		if j.slots[j._ui.find(ui)].type == JoinScreen.SlotType.HUMAN:
+		if j.slots[j._ui.find(ui)].type == Lobby.SlotType.HUMAN:
 			(ui["device"] as Label).text = LONG_PAD_NAME
 	await _assert_fits(j, what + "(2 pads joined) " + tag)
 	var cut := truncated(j, LONG_PAD_NAME)
@@ -202,17 +202,17 @@ func _check_join(m: MatchConfig.Mode, tag: String) -> void:
 		check(scroll != null, what + "settings rows are in a ScrollContainer " + tag)
 		if scroll != null:
 			# Walking the cursor to the last row keeps that row in view.
-			j.slots[0].cursor = JoinScreen.Row.CHARACTER
+			j.slots[0].cursor = Lobby.Row.CHARACTER
 			for i in j.rows().size() - 1:
-				j._command(0, JoinScreen.Cmd.DOWN)
+				j._command(0, Lobby.Cmd.DOWN)
 			await frames(3)
-			var last: Label = j._timer_label
+			var last: Label = j._row_labels[Lobby.Row.TIMER]
 			var view := scroll.get_global_rect().grow(TOLERANCE)
-			check(j.slots[0].cursor == JoinScreen.Row.TIMER and view.encloses(last.get_global_rect()),
+			check(j.slots[0].cursor == Lobby.Row.TIMER and view.encloses(last.get_global_rect()),
 					what + "settings list follows the cursor to the last row " + tag)
-	JoinScreen._memory = {}
-	JoinScreen._coop_memory = {}
-	JoinScreen.pending_mode = MatchConfig.Mode.LOCAL_VERSUS
+	LobbyModel._memory = {}
+	LobbyModel._coop_memory = {}
+	Lobby.pending_mode = MatchConfig.Mode.LOCAL_VERSUS
 	j.queue_free()
 	await frames(1)
 

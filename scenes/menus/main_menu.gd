@@ -4,10 +4,14 @@ extends Control
 var _title: Label
 var _list: VBoxContainer
 var _how_to: HowToPlayPanel
+## Net.pending_message shown once ("Host left the session", ...).
+var _message: Label
 var _t := 0.0
 
 
 func _ready() -> void:
+	# Safety: arriving here always means no room is open.
+	Net.leave()
 	MenuHelpers.setup_screen(self)
 	add_child(AnimatedBackground.new())
 
@@ -20,16 +24,20 @@ func _ready() -> void:
 	col.add_child(sub)
 
 	_list = MenuHelpers.vlist([
-		MenuHelpers.button("P1 vs P2 (Local)", _on_local_versus),
-		MenuHelpers.button("P1 vs CPU", _on_versus_cpu),
-		MenuHelpers.button("Co-op", _on_coop),
-		MenuHelpers.button("Online  -  Coming soon", Callable(), true),
-		MenuHelpers.button("How to Play", _on_how_to_play),
+		MenuHelpers.button("Play", _on_play),
+		MenuHelpers.button("Join online", _on_join_online),
 		MenuHelpers.button("Controls", _on_controls),
+		MenuHelpers.button("How to Play", _on_how_to_play),
+		MenuHelpers.button("Settings", _on_settings),
 		MenuHelpers.button("Quit", _on_quit),
 	])
 	_list.name = "Buttons"
 	col.add_child(_list)
+	_message = MenuHelpers.label(Net.pending_message, &"HintLabel", HORIZONTAL_ALIGNMENT_CENTER)
+	_message.add_theme_color_override("font_color", UiTheme.tuning().color_orange_light)
+	_message.visible = not Net.pending_message.is_empty()
+	Net.pending_message = ""
+	col.add_child(_message)
 	col.add_child(MenuHelpers.label("[A]/[Enter] select     [B]/[Esc] back", &"HintLabel", HORIZONTAL_ALIGNMENT_CENTER))
 	add_child(MenuHelpers.centered(col))
 	MenuHelpers.focus_first(_list)
@@ -53,19 +61,16 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 
-func _on_local_versus() -> void:
-	JoinScreen.pending_mode = MatchConfig.Mode.LOCAL_VERSUS
-	Game.goto(Game.SCENE_JOIN)
+func _on_play() -> void:
+	Game.goto(Game.SCENE_LOBBY)
 
 
-func _on_versus_cpu() -> void:
-	JoinScreen.pending_mode = MatchConfig.Mode.VERSUS_CPU
-	Game.goto(Game.SCENE_JOIN)
+func _on_join_online() -> void:
+	Game.goto(Game.SCENE_JOIN_ONLINE)
 
 
-func _on_coop() -> void:
-	JoinScreen.pending_mode = MatchConfig.Mode.COOP
-	Game.goto(Game.SCENE_JOIN)
+func _on_settings() -> void:
+	Game.goto(Game.SCENE_SETTINGS)
 
 
 func _on_controls() -> void:

@@ -2,7 +2,9 @@ extends Node
 ## Autoload "Game": app-level flow and the hand-off between menus and match.
 
 const SCENE_MAIN_MENU := "res://scenes/menus/main_menu.tscn"
-const SCENE_JOIN := "res://scenes/menus/join_screen.tscn"
+const SCENE_LOBBY := "res://scenes/menus/lobby.tscn"
+const SCENE_JOIN_ONLINE := "res://scenes/menus/join_online_screen.tscn"
+const SCENE_SETTINGS := "res://scenes/menus/settings_screen.tscn"
 const SCENE_CONTROLS := "res://scenes/menus/controls_screen.tscn"
 const SCENE_MATCH := "res://scenes/match/match.tscn"
 const SCENE_RESULTS := "res://scenes/menus/results_screen.tscn"

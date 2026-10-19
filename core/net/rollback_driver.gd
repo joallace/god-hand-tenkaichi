@@ -218,7 +218,13 @@ func _step_local() -> void:
 		if f.held & InputFrame.Btn.PAUSE != 0 and prev & InputFrame.Btn.PAUSE == 0:
 			pause_pressed.emit(slot)
 		_local_prev[slot] = f.held
-		session.submit_local_input(slot, t, InputFrame.new() if local_paused else f)
+		# PAUSE never reaches the sim: the wire strips it, so the history
+		# must too (the sources' edge state is in save_state).
+		var sent := InputFrame.new() if local_paused else f.duplicate_frame()
+		sent.held &= ~InputFrame.Btn.PAUSE
+		sent.pressed &= ~InputFrame.Btn.PAUSE
+		sent.released &= ~InputFrame.Btn.PAUSE
+		session.submit_local_input(slot, t, sent)
 	director.step()
 	_snapshots[director.tick] = director.save_state()
 	_snapshots.erase(director.tick - Tuning.net.max_rollback_frames - 2)

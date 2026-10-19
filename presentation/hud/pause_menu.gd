@@ -7,16 +7,27 @@ extends CanvasLayer
 ## binding again (the director doesn't poll inputs while paused, so this menu
 ## polls the bindings itself). The subtitle names who paused; co-op runs add
 ## "Restart Run" (same config, fresh match scene).
+##
+## Online (`setup_online(driver)`, SPEC_ONLINE.md §10.3): the sim never
+## pauses. The menu opens / closes on the driver's `pause_pressed` (a local
+## PAUSE edge), sets `driver.local_paused` (local slots send neutral frames)
+## and tells the room (`{"op": "pause"}`: the "⏸ <name>" tag on the other
+## peers). Items: Resume, Controls, Net Stats (debug overlay, saved in
+## Net.settings), Forfeit (versus) / Leave Run (co-op) and Quit to Menu (leaves the session).
 
 const LAYER := 50
 const UI_THEME_PATH := "res://ui/theme/ui_theme.gd"
 
 var director: MatchDirector
+## Online only: the match's RollbackDriver (null offline).
+var driver: RollbackDriver
 var is_open := false
 
 var _dim: ColorRect
 var _panel: Control
 var _subtitle: Label
+var _box: VBoxContainer
+var _net_stats_button: Button
 var _buttons: Array[Button] = []
 var _controls_overlay: Node
 var _pause_held: Dictionary = {}  # slot -> bool (previous frame)
@@ -57,6 +68,7 @@ func _build() -> void:
 	_panel = center
 
 	var box := VBoxContainer.new()
+	_box = box
 	box.add_theme_constant_override("separation", 14)
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
 	center.add_child(box)
@@ -87,13 +99,39 @@ func _build() -> void:
 ## Co-op runs get "Restart Run" under Resume (the config is only known once
 ## the director has set up, after this menu's setup).
 func _on_fighters_spawned() -> void:
-	if director.config == null or director.config.mode != MatchConfig.Mode.COOP or _buttons.size() < 1:
+	if driver != null or director.config == null or director.config.mode != MatchConfig.Mode.COOP or _buttons.size() < 1:
 		return
 	var box := _buttons[0].get_parent()
 	_add_button(box, "Restart Run", _restart)
 	var b: Button = _buttons.pop_back()
 	_buttons.insert(1, b)
 	box.move_child(b, _buttons[0].get_index() + 1)
+	_wire_focus()
+
+
+## Online: the sim never pauses, so open on the driver's local PAUSE edges
+## instead of the director's pause_requested, and swap in the online items.
+## Call after driver.start() (the config decides Forfeit).
+func setup_online(p_driver: RollbackDriver) -> void:
+	driver = p_driver
+	if director.pause_requested.is_connected(open):
+		director.pause_requested.disconnect(open)
+	driver.pause_pressed.connect(_on_pause_pressed)
+	for b in _buttons:
+		_box.remove_child(b)
+		b.queue_free()
+	_buttons.clear()
+	_add_button(_box, "Resume", resume)
+	if ResourceLoader.exists(Game.SCENE_CONTROLS):
+		_add_button(_box, "Controls", _open_controls)
+	_add_button(_box, "Net Stats", _toggle_net_stats)
+	_net_stats_button = _buttons.back()
+	_refresh_net_stats_text()
+	if director.config != null and director.config.mode != MatchConfig.Mode.COOP:
+		_add_button(_box, "Forfeit", _forfeit)
+	elif director.config != null:
+		_add_button(_box, "Leave Run", _leave_run)
+	_add_button(_box, "Quit to Menu", _quit)
 	_wire_focus()
 
 
@@ -133,12 +171,16 @@ func open(slot: int) -> void:
 	if is_open or director == null:
 		return
 	is_open = true
-	director.paused = true
-	get_tree().paused = true
+	if driver != null:
+		driver.local_paused = true
+		_room_pause(true)
+	else:
+		director.paused = true
+		get_tree().paused = true
 	visible = true
 	Sfx.play(&"pause")
 	var tag := director.config.player_tag(slot) if director.config != null else "P%d" % (slot + 1)
-	_subtitle.text = "%s paused" % tag
+	_subtitle.text = Tuning.hud.text_online_paused % tag if driver != null else "%s paused" % tag
 	# The press that opened us must not immediately resume.
 	_pause_held = _sample_pause_buttons()
 	_buttons[0].grab_focus.call_deferred()
@@ -150,6 +192,10 @@ func resume() -> void:
 	_close_controls()
 	is_open = false
 	visible = false
+	if driver != null:
+		driver.local_paused = false
+		_room_pause(false)
+		return
 	get_tree().paused = false
 	if director != null:
 		director.paused = false
@@ -157,7 +203,51 @@ func resume() -> void:
 
 func _quit() -> void:
 	is_open = false
+	if driver != null:
+		# Leaving is a disconnect: the host forfeits / CPU-takes-over our slots.
+		Net.end_with_message("")
+		return
 	Game.goto(Game.SCENE_MAIN_MENU)
+
+
+# --- online ----------------------------------------------------------------------
+
+## A local PAUSE edge (online): toggles the overlay.
+func _on_pause_pressed(slot: int) -> void:
+	if not is_open:
+		open(slot)
+	elif not _controls_open():
+		resume()
+
+
+func _room_pause(on: bool) -> void:
+	if Net.room != null:
+		Net.room.request({"op": OnlineRoom.OP_PAUSE, "on": on})
+
+
+func _forfeit() -> void:
+	if Net.room != null:
+		Net.room.request({"op": OnlineRoom.OP_FORFEIT})
+	resume()
+
+
+## Co-op: this machine's slots become CPUs (like a disconnect) and the
+## run goes on; we stay to watch.
+func _leave_run() -> void:
+	if Net.room != null:
+		Net.room.request({"op": OnlineRoom.OP_LEAVE_RUN})
+	resume()
+
+
+func _toggle_net_stats() -> void:
+	Net.settings.net_overlay = not Net.settings.net_overlay
+	Net.settings.save()
+	_refresh_net_stats_text()
+
+
+func _refresh_net_stats_text() -> void:
+	if _net_stats_button != null:
+		_net_stats_button.text = "Net Stats: %s" % ("On" if Net.settings.net_overlay else "Off")
 
 
 func _restart() -> void:
@@ -210,6 +300,11 @@ func _controls_open() -> bool:
 # --- input ---------------------------------------------------------------------
 
 func _process(_delta: float) -> void:
+	if driver != null:
+		# Online the driver's pause_pressed toggles (the sim samples PAUSE).
+		if is_open:
+			_refresh_net_stats_text()  # F3 toggles the setting too
+		return
 	if not is_open or _controls_open():
 		return
 	var now := _sample_pause_buttons()

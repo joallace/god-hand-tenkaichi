@@ -144,3 +144,34 @@ extends Resource
 @export var text_wave_clear: String = "WAVE CLEAR!"
 @export var text_wave_counter: String = "WAVE  %d / %d"
 @export var text_wave_counter_endless: String = "WAVE  %d"
+
+@export_group("Online")
+## "⏸ <name>" tag on a player's panel while that peer has the pause overlay open.
+@export var pause_tag_font_size: int = 18
+@export var pause_tag_color: Color = Color(1.0, 1.0, 1.0, 0.9)
+@export var text_pause_tag: String = "⏸ %s"
+## "Waiting for <name>…" while the sim is stalled on a peer.
+@export var waiting_font_size: int = 32
+@export var waiting_color: Color = Color(1.0, 0.92, 0.3)
+## Vertical position of the waiting banner (fraction of the screen height);
+## notices ("<name> disconnected") go right under it.
+@export_range(0.0, 1.0) var waiting_y_ratio: float = 0.22
+@export var text_waiting_for: String = "Waiting for %s…"
+@export var notice_font_size: int = 26
+@export var notice_color: Color = Color(1.0, 0.55, 0.4)
+@export var notice_hold: float = 2.5
+@export var text_disconnected: String = "%s disconnected"
+## Winner announcements online (player names instead of P1 / P2).
+@export var text_round_winner_name: String = "%s WINS"
+@export var text_match_winner_name: String = "%s VICTORY!"
+## Pause overlay subtitle online (the sim keeps running).
+@export var text_online_paused: String = "%s paused · the match goes on"
+
+@export_group("Net overlay (debug)")
+@export var net_overlay_font_size: int = 14
+@export var net_overlay_margin: float = 10.0
+@export var net_overlay_padding: float = 6.0
+@export var net_overlay_color: Color = Color(0.75, 1.0, 0.75)
+@export var net_overlay_bg_color: Color = Color(0.0, 0.0, 0.0, 0.6)
+## Window (s) for the rollbacks-per-second rate.
+@export var net_overlay_rate_window: float = 1.0

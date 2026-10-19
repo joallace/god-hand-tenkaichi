@@ -68,6 +68,8 @@ signal hash_received(peer: int, tick: int, hash_value: int)
 signal resync_received(tick: int, snapshot: Dictionary)
 signal snapshot_received(tick: int, snapshot: Dictionary, extra: Dictionary)
 signal lobby_state_received(lobby: Dictionary)
+## Host: a guest's lobby/room request (OnlineRoom validates it).
+signal lobby_request_received(peer: int, req: Dictionary)
 signal match_start_received(config: Dictionary, seed_value: int, start: Dictionary)
 signal rtt_updated(peer: int, rtt_ms: float)
 
@@ -289,6 +291,11 @@ func set_lobby_state(lobby: Dictionary) -> bool:
 	return _broadcast(Protocol.encode_lobby_state(lobby_state))
 
 
+## Guest: a lobby/room request to the host (OnlineRoom defines the ops).
+func send_lobby_request(req: Dictionary) -> bool:
+	return not is_host() and state == State.CONNECTED and _send(Transport.HOST_PEER, Protocol.encode_lobby_req(req))
+
+
 func start_match(config: Dictionary, seed_value: int, start: Dictionary = {}) -> bool:
 	return is_host() and _broadcast(Protocol.encode_match_start(config, seed_value, start))
 
@@ -470,6 +477,11 @@ func _on_packet(peer: int, channel: int, data: PackedByteArray) -> void:
 			_end(msg["reason"])
 		Protocol.Type.PEERS:
 			_set_names(msg["peers"])
+		Protocol.Type.LOBBY_REQ:
+			if is_host():
+				lobby_request_received.emit(peer, msg["req"])
+			else:
+				dropped_packets += 1
 		Protocol.Type.LOBBY_STATE:
 			lobby_state = msg["lobby"]
 			lobby_state_received.emit(msg["lobby"])

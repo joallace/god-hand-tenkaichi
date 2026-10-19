@@ -16,7 +16,19 @@ extends Node
 ##   │                            each with a FighterCamera sharing World3D
 ##   │                            (+ a CoopViewHud per view in co-op)
 ##   ├─ MatchHud (CanvasLayer 10) global top bar + announcer
-##   └─ PauseMenu (CanvasLayer 50)
+##   ├─ PauseMenu (CanvasLayer 50)
+##   ├─ RollbackDriver            online only: steps the director (§7)
+##   └─ NetOverlay (CanvasLayer 60) online only: debug net stats (F3)
+##
+## Online (Net.room open and the config has owner peers): a RollbackDriver
+## drives the director instead of its own physics tick; the slots this
+## machine owns read their devices through it (keyboard layouts by local
+## player index, so a guest in slot 2 still plays on layout A). A confirmed
+## match end tells the room (results phase); a driver abort (desync, host
+## gone) leaves the session with a message. The pause menu runs in its
+## online form (the sim never pauses), and the HUD shows the other peers'
+## pause tags (room `changed`), "Waiting for <name>…" while the driver
+## stalls and "<name> disconnected" when a peer leaves the room.
 
 var config: MatchConfig
 var world: Node3D
@@ -30,6 +42,9 @@ var vfx: VfxManager
 var sfx: MatchSfx
 var coop_huds: Dictionary = {}  # view slot -> CoopViewHud (co-op only)
 var run_stats: RunStats  # co-op only
+var driver: RollbackDriver  # online only
+var net_overlay: NetOverlay  # online only
+var recorder: ReplayRecorder
 
 var _ending := false
 
@@ -88,10 +103,77 @@ func _ready() -> void:
 	hub.confirmed_event.connect(_on_confirmed_event)
 	if run_stats != null:
 		run_stats.setup(director, hub, config)
-	director.setup(config)
-	var recorder := ReplayRecorder.new()  # auto-keeps user://replays/last_<n>.ghr
+	if is_online_match():
+		_start_online()
+	else:
+		director.setup(config)
+	recorder = ReplayRecorder.new()  # auto-keeps user://replays/last_<n>.ghr
 	add_child(recorder)
 	recorder.attach(director)
+
+
+func _exit_tree() -> void:
+	if driver != null and Net.driver == driver:
+		Net.driver = null
+		if Net.room != null:
+			Net.room.driver = null
+
+
+## An online match: a room is open and the config is shared by peers.
+func is_online_match() -> bool:
+	return Net.room != null and Net.session != null and config.is_online()
+
+
+func _start_online() -> void:
+	driver = RollbackDriver.new()
+	driver.name = "RollbackDriver"
+	add_child(driver)
+	var me := Net.local_peer()
+	var local := {}
+	for p in config.players:
+		if p.input_kind != PlayerSlotConfig.InputKind.CPU and p.owner_peer == me:
+			local[p.slot] = LocalDeviceInput.new(local.size(), p.device_kind, p.device_id)
+	Net.driver = driver
+	Net.room.driver = driver
+	driver.aborted.connect(_on_net_aborted)
+	driver.start(director, Net.session, config, local, Net.input_delay_for_match(), hub)
+	pause_menu.setup_online(driver)
+	net_overlay = NetOverlay.new()
+	add_child(net_overlay)
+	net_overlay.setup(driver)
+	Net.room.changed.connect(_on_room_changed)
+	Net.room.peer_departed.connect(_on_peer_departed)
+	_on_room_changed()
+
+
+func _process(_delta: float) -> void:
+	if driver != null:
+		refresh_net_ui()
+
+
+## Online HUD state that follows the driver every frame (the waiting banner).
+func refresh_net_ui() -> void:
+	hud.set_waiting(driver.waiting_for() if not driver.is_aborted else "")
+
+
+## Pause tags: every peer but this one with the overlay open.
+func _on_room_changed() -> void:
+	if Net.room == null:
+		return
+	var others: Array[int] = []
+	for peer in Net.room.paused_peers:
+		if peer != Net.local_peer():
+			others.append(peer)
+	hud.set_paused_peers(others)
+
+
+func _on_peer_departed(_peer: int, peer_name: String) -> void:
+	if not _ending:
+		hud.notice(Tuning.hud.text_disconnected % peer_name)
+
+
+func _on_net_aborted(reason: StringName) -> void:
+	Net.end_with_message(Net.reason_text(Protocol.Reason.DESYNC if reason == &"desync" else Protocol.Reason.LEFT))
 
 
 ## P1 = first connected joypad (else keyboard layout A), P2 = second joypad
@@ -148,4 +230,9 @@ func _on_match_ended(winner_slot: int) -> void:
 
 
 func _finish(winner_slot: int) -> void:
-	Game.finish_match(winner_slot, director.wins, run_stats.result() if run_stats != null else {})
+	if driver != null and Net.room != null:
+		Net.room.match_finished()
+	var extra: Dictionary = run_stats.result() if run_stats != null else {}
+	extra["replay_path"] = recorder.auto_path
+	extra["end_reason"] = director.end_reason
+	Game.finish_match(winner_slot, director.wins, extra)
