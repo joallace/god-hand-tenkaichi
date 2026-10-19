@@ -8,7 +8,6 @@ extends CombatEntity
 ##   vars:    slot: int, team: int, target: Fighter (may be null),
 ##            health: float, ki: float,
 ##            combo_hits: int, def: CharacterDef, tuning: FighterTuning
-##            (`opponent` is a deprecated alias of `target`)
 ##   signals: health_changed(value: float, max_value: float)
 ##            ki_changed(value: float, max_value: float)
 ##            combo_changed(hits: int)          # hits landed BY this fighter
@@ -29,7 +28,9 @@ extends CombatEntity
 ##            move_opens_string() -> bool, guard_vanish_window() -> int,
 ##            frames_since_guard_press() -> int, dodge_kind() -> DodgeKind,
 ##            lying_frames() -> int, is_guard_crashed() -> bool,
-##            hitstop_left() -> int (SimEntity; frames frozen by hit impact)
+##            hitstop_left() -> int (SimEntity; frames frozen by hit impact),
+##            is_targetable() -> bool, best_target() -> Fighter,
+##            retarget_auto(), is_target_locked() -> bool
 ##
 ## `event` kinds (payload keys; every payload also has "slot" = emitter slot):
 ##   &"hit"            {attacker_slot, damage, position, heavy, blocked, combo,
@@ -118,6 +119,19 @@ extends CombatEntity
 ## Teams: `target` is always on another team (picked by the MatchDirector),
 ## but nothing assumes target.target == self: throws, vanish battles, combos
 ## and teleports track their partner fighter by slot.
+##
+## Targeting (SPEC §3.3, selection math in Targeting): each tick, before the
+## state acts, a TARGET tap cycles to the next enemy by angle (stick left =
+## counter-clockwise) and locks it; the lock holds until that target is KO'd
+## (or changes team), or TARGET is tapped again. Unlocked, the target is
+## re-picked by Targeting.pick_auto when lost and every
+## targeting.retarget_check_frames (not mid-attack, and not while the target
+## is vanished: it's coming back). No change happens mid dodge (or with a
+## dodge flick buffered), with a HEAVY buffered/charging (its stick is
+## latched), in a throw, a teleport or a vanish battle: a TARGET tap waits
+## for the first allowed tick. MatchDirector only fills targets at round
+## start/spawn and replaces KO'd ones, through the same policy
+## (best_target / retarget_auto), so the two never disagree.
 ##
 ## Facing convention: the fighter's -Z (Godot forward) points at the target
 ## while locked on. InputFrame.move +Y = toward target, +X = strafe right.
@@ -222,6 +236,13 @@ var _grab_partner_slot: int = -1
 var _tp_anchor_slot: int = -1
 var _tp_kind: int = TeleportKind.OFFENSE
 var _vanish_battle: VanishBattle
+## Targeting: manual lock from a TARGET tap, frames until the next auto
+## check, and a TARGET tap (with its cycle direction) waiting for a tick that
+## allows a target change.
+var _target_locked: bool = false
+var _retarget_timer: int = 0
+var _target_press_pending: bool = false
+var _target_press_dir: int = 1
 var _buffer: PackedInt32Array = PackedInt32Array()
 var _dodge_buf_dir: int = InputFrame.Dodge.NONE
 var _dodge_buf_frames: int = 0
@@ -286,6 +307,9 @@ func feed_input(frame: InputFrame) -> void:
 	if frame.dodge != InputFrame.Dodge.NONE:
 		_dodge_buf_dir = frame.dodge
 		_dodge_buf_frames = keep
+	if frame.just_pressed(InputFrame.Btn.TARGET):
+		_target_press_pending = true
+		_target_press_dir = Targeting.cycle_dir(frame.move_x)
 
 
 func sim_tick(_tick: int) -> void:
@@ -293,6 +317,7 @@ func sim_tick(_tick: int) -> void:
 	_driven = false
 	_floating = false
 	_tick_timers()
+	_tick_targeting()
 	match state:
 		State.IDLE, State.WALK: _tick_neutral()
 		State.DASH: _tick_dash()
@@ -363,6 +388,10 @@ func reset_for_round(xform: Transform3D) -> void:
 	_last_victim_slot = -1
 	_grab_partner_slot = -1
 	_tp_anchor_slot = -1
+	_target_locked = false
+	_retarget_timer = 0
+	_target_press_pending = false
+	_target_press_dir = 1
 	_vanish_battle = null
 	_last_contact_id = -1
 	_clear_buffer()
@@ -427,6 +456,36 @@ func is_invulnerable() -> bool:
 
 func is_vanished() -> bool:
 	return state == State.TELEPORT
+
+
+## Can be picked as a new target (KO'd and vanished fighters can't).
+func is_targetable() -> bool:
+	return not is_ko() and not is_vanished()
+
+
+## True while a TARGET tap's manual lock holds the current target.
+func is_target_locked() -> bool:
+	return _target_locked
+
+
+## The enemy Targeting.pick_auto would choose from scratch (null if none).
+func best_target() -> Fighter:
+	if director == null:
+		return null
+	return _fighter(Targeting.pick_auto(global_position, _fwd(), _target_candidates(), -1))
+
+
+## Auto re-pick now (drops a manual lock, restarts the check timer). Keeps
+## the current target when no enemy is targetable.
+func retarget_auto() -> void:
+	_target_locked = false
+	_retarget_timer = Tuning.targeting.retarget_check_frames
+	if director == null:
+		return
+	var keep := -1 if _target_lost() else target.slot
+	var pick := _fighter(Targeting.pick_auto(global_position, _fwd(), _target_candidates(), keep))
+	if pick != null:
+		target = pick
 
 
 func is_airborne() -> bool:
@@ -1850,6 +1909,51 @@ func _face_toward(f: Fighter, max_step: float) -> void:
 
 
 ## Fighter in `p_slot` of this match, or null (-1, or no director).
+## Target upkeep, before the state acts (it faces and tracks `target`).
+func _tick_targeting() -> void:
+	if _retarget_timer > 0:
+		_retarget_timer -= 1
+	if director == null or is_ko() or not _can_retarget():
+		return
+	if _target_press_pending:
+		_target_press_pending = false
+		var cur := target.slot if target != null else -1
+		var pick := _fighter(Targeting.cycle(global_position, _fwd(), _target_candidates(), cur, _target_press_dir))
+		if pick != null:
+			target = pick
+			_target_locked = true
+		return
+	if _target_lost():
+		retarget_auto()
+	elif not _target_locked and _retarget_timer == 0 and state != State.ATTACK and not target.is_vanished():
+		retarget_auto()
+
+
+func _target_lost() -> bool:
+	return target == null or target.is_ko() or target.team == team
+
+
+## Stick space (+Y = toward target) must not turn under a dodge flick or a
+## latched HEAVY, nor may a move bound to its partner change hands.
+func _can_retarget() -> bool:
+	match state:
+		State.DODGE, State.TELEPORT, State.VANISH_WAIT, State.THROW, State.THROWN:
+			return false
+	return not in_vanish_battle() and _dodge_buf_frames == 0 and not _buffered(InputFrame.Btn.HEAVY) \
+		and not (_charging and _charge_btn == InputFrame.Btn.HEAVY)
+
+
+## Other-team fighters as Targeting candidates.
+func _target_candidates() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for f in director.fighters:
+		if f.team == team:
+			continue
+		out.append({"slot": f.slot, "pos": f.global_position, "targetable": f.is_targetable(),
+			"attacking_me": f.target == self and f.attack_phase() >= 0})
+	return out
+
+
 func _fighter(p_slot: int) -> Fighter:
 	if p_slot < 0 or director == null:
 		return null
@@ -2003,6 +2107,8 @@ func save_state() -> Dictionary:
 		"team": team, "target": target.slot if target else -1,
 		"last_attacker": _last_attacker_slot, "last_victim": _last_victim_slot,
 		"grab_partner": _grab_partner_slot, "tp_anchor": _tp_anchor_slot,
+		"target_locked": _target_locked, "retarget_timer": _retarget_timer,
+		"target_press_pending": _target_press_pending, "target_press_dir": _target_press_dir,
 	})
 	return s
 
@@ -2079,6 +2185,10 @@ func load_state(s: Dictionary) -> void:
 	_last_victim_slot = s["last_victim"]
 	_grab_partner_slot = s["grab_partner"]
 	_tp_anchor_slot = s["tp_anchor"]
+	_target_locked = s["target_locked"]
+	_retarget_timer = s["retarget_timer"]
+	_target_press_pending = s["target_press_pending"]
+	_target_press_dir = s["target_press_dir"]
 	health_changed.emit(health, tuning.max_health)
 	ki_changed.emit(ki, ki_max())
 	combo_changed.emit(combo_hits)

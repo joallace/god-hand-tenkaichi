@@ -1,7 +1,8 @@
 extends Node
 ## Headless tests for the team model: team assignment, default targets, spawn
 ## layout, friendly fire, team-aware round end, partner tracking in throws
-## and target save/load. Run as a scene:
+## target save/load, and Fighter targeting (TARGET cycle, manual lock, auto
+## re-pick, deferral). Run as a scene:
 ##   godot --headless res://tests/teams_test.tscn
 
 const B := InputFrame.Btn
@@ -14,7 +15,9 @@ func _ready() -> void:
 	var tests: Array[Callable] = [
 		_test_1v1_spawn_unchanged, _test_2v2_setup, _test_friendly_fire,
 		_test_team_round_end, _test_time_out_mean_health, _test_throw_partner,
-		_test_target_save_load,
+		_test_target_save_load, _test_target_cycle_and_lock, _test_lock_drops_on_ko,
+		_test_auto_prefers_front_and_attacker, _test_no_switch_mid_dodge,
+		_test_targeting_vars_save_load,
 	]
 	for t in tests:
 		t.call()
@@ -205,3 +208,91 @@ func _test_target_save_load() -> void:
 	f[0].target = f[2]
 	d.load_state(s)
 	_check(f[0].target == null, "null target round-trips")
+
+
+# --- Fighter targeting (1v2: slot 0 vs slots 1 and 2) ---------------------------
+
+## P1 at the origin facing -Z, enemies front-left (slot 1) and front-right
+## (slot 2), mirror images, so auto picks break ties to slot 1.
+func _new_1v2() -> MatchDirector:
+	var d := _new_match([0, 1, 1])
+	_place(d, [Vector3.ZERO, Vector3(-2, 0, -4), Vector3(2, 0, -4)])
+	return d
+
+
+func _test_target_cycle_and_lock() -> void:
+	var d := _new_1v2()
+	var f := d.fighters
+	_check(f[0].target == f[1] and not f[0].is_target_locked(), "1v2 default target is the lower slot, unlocked")
+	_src(d, 0).press(0, B.TARGET).press(4, B.TARGET).stick(4, 5, Vector2(-1, 0))
+	_run(d, 1)
+	_check(f[0].target == f[2] and f[0].is_target_locked(), "TARGET (stick neutral) cycles clockwise and locks")
+	_run(d, 4)
+	_check(f[0].target == f[1] and f[0].is_target_locked(), "TARGET + stick left cycles counter-clockwise")
+	# Make slot 2 the obvious auto pick (dead ahead, close); the lock holds.
+	f[2].global_position = f[0].global_position + f[0]._fwd() * 1.5
+	f[1].global_position = f[0].global_position - f[0]._fwd() * 6.0
+	_run(d, Tuning.targeting.retarget_check_frames * 3)
+	_check(f[0].target == f[1] and f[0].is_target_locked(), "manual lock persists through auto checks")
+
+
+func _test_lock_drops_on_ko() -> void:
+	var d := _new_1v2()
+	var f := d.fighters
+	_src(d, 0).press(0, B.TARGET)
+	_run(d, 1)
+	_check(f[0].target == f[2] and f[0].is_target_locked(), "locked on slot 2")
+	_ko(f[2])
+	_run(d, 2)
+	_check(f[0].target == f[1] and not f[0].is_target_locked(), "lock drops and auto re-picks when the target is KO'd")
+
+
+func _test_auto_prefers_front_and_attacker() -> void:
+	var d := _new_match([0, 1, 1])
+	var f := d.fighters
+	_place(d, [Vector3.ZERO, Vector3(0, 0, 4), Vector3(0, 0, -4)])
+	f[0].target = null
+	_run(d, 1)
+	_check(f[0].target == f[2], "auto pick prefers the enemy in front over the one behind")
+	_place(d, [Vector3.ZERO, Vector3(-2, 0, -4), Vector3(2, 0, -4)])
+	f[2].target = f[0]
+	_src(d, 2).press(d.tick + 1 - _src(d, 2).start_tick, B.LIGHT)
+	_run(d, 1)
+	f[0]._set_yaw(0.0)  # mirror-symmetric again
+	_check(f[2].attack_phase() >= 0 and f[0].best_target() == f[2],
+		"auto pick prefers the enemy attacking me (state %s)" % f[2].current_state_name())
+
+
+func _test_no_switch_mid_dodge() -> void:
+	var d := _new_1v2()
+	var f := d.fighters
+	_src(d, 0).flick(0, InputFrame.Dodge.LEFT).press(2, B.TARGET)
+	_run(d, 3)
+	var dodging := f[0].state == Fighter.State.DODGE
+	_check(dodging and f[0].target == f[1], "no target change mid dodge (state %s)" % f[0].current_state_name())
+	var n := 0
+	while f[0].state == Fighter.State.DODGE and n < 120:
+		_run(d, 1)
+		n += 1
+	_run(d, 1)
+	_check(f[0].target == f[2] and f[0].is_target_locked(), "deferred TARGET tap applies after the dodge")
+
+
+func _test_targeting_vars_save_load() -> void:
+	var d := _new_1v2()
+	var f := d.fighters
+	_src(d, 0).flick(0, InputFrame.Dodge.LEFT).press(2, B.TARGET)
+	_run(d, 3)
+	var before: Dictionary = f[0].save_state()
+	_check(before["target_press_pending"], "a deferred TARGET tap is pending mid dodge")
+	var s := d.save_state()
+	f[0]._target_press_pending = false
+	f[0]._target_locked = true
+	f[0]._retarget_timer = 99
+	f[0]._target_press_dir = -1
+	d.load_state(s)
+	var after: Dictionary = f[0].save_state()
+	var ok := true
+	for k in ["target_locked", "retarget_timer", "target_press_pending", "target_press_dir", "target"]:
+		ok = ok and before[k] == after[k]
+	_check(ok, "targeting vars round-trip through save/load")

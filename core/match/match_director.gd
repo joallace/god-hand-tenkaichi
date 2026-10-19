@@ -21,8 +21,10 @@ extends Node3D
 ## standing; on time-out the team with the best mean health ratio wins.
 ## `wins` is indexed by TEAM; round_ended/match_ended still carry a winner
 ## slot (the lowest slot of the winning team, -1 = draw) and
-## `last_winner_team` holds the team. Each fighter's `target` is picked by
-## pick_default_target() (nearest standing enemy).
+## `last_winner_team` holds the team. The director sets each fighter's
+## `target` at round start / spawn (pick_default_target) and replaces KO'd
+## ones (_update_targets); manual locks and periodic re-picks are the
+## fighter's own targeting (see Fighter header). Both use Targeting.
 ##
 ## Presentation (cameras, HUD, VFX) only observes signals and node transforms.
 
@@ -246,30 +248,22 @@ func _reap_entities() -> void:
 
 # --- Teams ---------------------------------------------------------------------
 
-## Default target policy: the nearest standing fighter of another team (ties:
-## lowest slot), or null if there is none. One place to swap the policy.
+## Default target for `f`: what its own auto policy (Fighter.best_target,
+## Targeting.pick_auto) picks from scratch, or null if no enemy is
+## targetable. Used at round start and spawn; one place to swap the policy.
 func pick_default_target(f: Fighter) -> Fighter:
-	var best: Fighter = null
-	var best_d := INF
-	for o in fighters:
-		if o.team == f.team or o.is_ko():
-			continue
-		var d := f.global_position.distance_squared_to(o.global_position)
-		if d < best_d:
-			best = o
-			best_d = d
-	return best
+	return f.best_target()
 
 
-## Re-pick for every standing fighter whose target is gone or KO'd (keeps the
-## old one when no enemy stands, e.g. the round is ending).
+## Re-pick (Fighter.retarget_auto, which also drops a manual lock) for every
+## standing fighter whose target is gone, KO'd or a teammate; keeps the old
+## one when no enemy is targetable (e.g. the round is ending). Everything
+## else (manual locks, periodic re-picks) is the fighter's own targeting.
 func _update_targets() -> void:
 	for f in fighters:
 		if f.is_ko() or (f.target != null and not f.target.is_ko() and f.target.team != f.team):
 			continue
-		var t := pick_default_target(f)
-		if t != null:
-			f.target = t
+		f.retarget_auto()
 
 
 ## Team ids present, ascending.
