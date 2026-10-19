@@ -19,11 +19,21 @@ func _init() -> void:
 	process_physics_priority = -100
 
 
+## `p_fighters` is the director's live array (it changes in place when
+## fighters join or leave); fighters added later are hooked by watch_fighter.
 func watch(p_fighters: Array[Fighter]) -> void:
 	fighters = p_fighters
 	for f in fighters:
-		_last_pos[f] = f.global_position
-		f.event.connect(_on_event.bind(f))
+		watch_fighter(f)
+
+
+## Hook one fighter's events (a fighter spawned mid-match or rebuilt by a
+## load). Freed fighters disconnect on their own.
+func watch_fighter(f: Fighter) -> void:
+	if _last_pos.has(f):
+		return
+	_last_pos[f] = f.global_position
+	f.event.connect(_on_event.bind(f))
 
 
 func last_position(f: Fighter) -> Vector3:

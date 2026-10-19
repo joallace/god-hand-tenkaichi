@@ -19,7 +19,20 @@ func launch(p_caster: Fighter, p_move: MoveData, from: Vector3, toward: Vector3)
 		dir = -p_caster.global_basis.z
 	_vel = dir.normalized() * move.travel_speed
 	_last_contact_id = -1
+	spawn_init = {"caster": p_caster.sim_id, "move": EntityFactory.move_ref(p_move)}
 	_build_visual()
+
+
+func spawn_type() -> StringName:
+	return EntityFactory.KI_BLAST
+
+
+## Factory rebuild: caster and move from spawn_init; load_state does the rest.
+func resolve_links(p_director: MatchDirector) -> void:
+	caster = p_director.entity_by_id(spawn_init["caster"]) as Fighter
+	move = EntityFactory.load_move(spawn_init["move"])
+	if _mesh == null:
+		_build_visual()
 
 
 func sim_tick(_tick: int) -> void:

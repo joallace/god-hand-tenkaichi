@@ -26,7 +26,12 @@ before autoloads exist. See `tests/README.md`. Always wrap Godot calls in
   - `match/`: `MatchConfig` + `PlayerSlotConfig` (built by menus),
     `MatchDirector` (fixed 60 Hz tick loop, rounds, timer incl. infinite,
     hitstop, save/load state).
-  - `sim/SimEntity`: base for everything ticked by the director.
+  - `sim/SimEntity`: base for everything ticked by the director (stable
+    `sim_id`, `spawn_desc()`). `sim/EntityFactory` rebuilds entities from
+    those descriptors: `MatchDirector.load_state` frees/recreates projectiles
+    and fighters (`spawn_fighter`/`remove_fighter`) to match the snapshot.
+    A new spawnable type needs a factory case, `spawn_type()`, `spawn_init`
+    and, if it links to other entities, `resolve_links()`.
   - `tuning/`: one Resource class per category, loaded by the `Tuning` autoload
     from `data/tuning/<key>.tres`.
   - `game.gd`: `Game` autoload, scene flow.
@@ -75,6 +80,5 @@ ours. Describe mechanics in our own words; never copy decomp code.
 
 ## Known gaps
 
-Online is a stub. `MatchDirector.load_state` doesn't yet rebuild spawned
-projectiles/beams. The CPU only knows the moveset roles in `CharacterDef`
+Online is a stub. The CPU only knows the moveset roles in `CharacterDef`
 (string, heavies, supers), not character-specific tricks.

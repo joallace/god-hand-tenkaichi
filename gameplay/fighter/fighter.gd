@@ -1884,6 +1884,10 @@ func _clear_buffer() -> void:
 # Rollback
 # =============================================================================
 
+func spawn_type() -> StringName:
+	return EntityFactory.FIGHTER
+
+
 func save_state() -> Dictionary:
 	var s := super.save_state()
 	s.merge({
