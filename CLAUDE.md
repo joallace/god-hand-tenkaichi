@@ -37,9 +37,11 @@ before autoloads exist. See `tests/README.md`. Always wrap Godot calls in
     Hitstop is per entity (`request_hitstop(participants, frames)`); only
     ultimate / counter guard / push-stop use `request_world_freeze`.
     Co-op (Mode.COOP, `MatchConfig.coop`): `CoopRun` (enemy queue, field
-    cap, clear/wipe) inside the director, `EncounterDirector` attack tokens +
-    grab lock (CpuBrain asks before attacking), DOWNED/OUT/REVIVE and
-    ENTERING fighter states. Plan and milestones: SPEC.md.
+    cap, clear/wipe, waves + breather + endless curve; director signals
+    `wave_started`/`wave_cleared`) inside the director, `EncounterDirector`
+    attack tokens + grab lock (CpuBrain asks before attacking; the CPU ally
+    revives downed teammates), DOWNED/OUT/REVIVE and ENTERING fighter
+    states. Plan and milestones: SPEC.md.
   - `tuning/`: one Resource class per category, loaded by the `Tuning` autoload
     from `data/tuning/<key>.tres`.
   - `game.gd`: `Game` autoload, scene flow.
@@ -52,7 +54,8 @@ before autoloads exist. See `tests/README.md`. Always wrap Godot calls in
     Difficulty levels and every behavior knob live in `data/tuning/cpu.tres`
     (`Vector2` = weakest..strongest level, lerped per level).
 - `presentation/` — match scene, arena, split-screen `ViewLayout`,
-  `FighterCamera`, HUD, VFX, pause menu. Observes signals only.
+  `FighterCamera`, HUD, VFX, pause menu. Observes signals only. `RunStats`
+  tallies co-op per-player stats from events for the results screen.
   - `audio/`: `Sfx` autoload (play by sound name, voice pool, keyed loops,
     menu focus blip) and `MatchSfx` (fighter events/states + director
     signals -> sounds). Mix volumes in `data/tuning/sfx.tres`.
@@ -79,6 +82,13 @@ before autoloads exist. See `tests/README.md`. Always wrap Godot calls in
 - Gameplay never polls `Input`; it reads `InputFrame`s. New modes = new
   `InputSource` + `MatchConfig` setup, not fighter changes.
 - Presentation never writes gameplay state.
+
+## Tools
+
+`tools/coop_sim.tscn`: headless CPU-only co-op batches (offscreen rule off vs
+on; clear rate, hits from outside the view cone, token leaks). Run with
+`godot --headless res://tools/coop_sim.tscn -- runs=12 enemies=4
+coop.melee_tokens_per_player=1` (any `coop.<prop>=<n>` overrides tuning).
 
 ## Design references
 

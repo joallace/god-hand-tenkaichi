@@ -873,7 +873,7 @@ func _refresh_coop_rows() -> void:
 	var waves := coop_structure == CoopConfig.Structure.WAVES
 	var values := {
 		Row.COOP_STRUCTURE: ["Mode", "Waves" if waves else "Brawl"],
-		Row.ENEMY_COUNT: ["Enemies per wave" if waves else "Enemies", str(coop_enemy_count)],
+		Row.ENEMY_COUNT: [("First wave" if coop_endless() else "Enemies per wave") if waves else "Enemies", str(coop_enemy_count)],
 		Row.WAVES: ["Waves", "Endless" if coop_endless() else str(coop_waves)],
 		Row.ENEMY_LEVEL: ["Enemy level", Tuning.cpu.level_name(coop_enemy_level)],
 		Row.ENEMY_ROSTER: ["Enemy roster",

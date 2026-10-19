@@ -1,7 +1,8 @@
 # Co-op mode & generic teams — spec
 
 Status: agreed in interview, 2026-10-18. Milestones 1–3 implemented
-(branch worktree-coop-spec); waves (4) and polish (5) remain. Numbers
+(branch worktree-coop-spec); waves (4) and polish (5) implemented on branch
+coop-waves-polish (2026-10-19). See §15 for the offscreen-rule experiment. Numbers
 marked *(tunable)* are starting picks that will live in tuning Resources,
 not decisions.
 
@@ -243,7 +244,13 @@ frees its field slot for the queue. Enemies never revive each other.
   announcer "WAVE N" banner. Downed and out players revive at
   `revive_health_ratio`, and everyone gets `wave_heal_ratio` HP and
   `wave_ki_refill` ki *(tunable)*. Then the next wave enters (§6.1).
-- Endless: wave n's count/level follow a curve in `coop.tres`.
+- Endless: wave n's count/level follow a curve in `coop.tres`. Wave 1 has
+  the setup's enemy count, and each later wave adds `endless_count_growth`
+  (capped at `endless_max_count`). The CPU level goes up one step every
+  `endless_waves_per_level` waves. A `WaveConfig` can override a wave's
+  count, level and character.
+- Revived players also get the wave heal. Brawl is a single wave with no
+  wave banners or signals.
 
 ### 6.3 Pause
 
@@ -381,3 +388,29 @@ weights (circle/guard/charge/taunt).
 - **Future n-vs-n online:** tokens off, the revive rules apply to every
   team, and the factory is a prerequisite for rollback. Nothing here should
   assume "team 0 = humans" outside co-op setup code.
+
+## 15. Offscreen-rule experiment (milestone 5)
+
+`tools/coop_sim.tscn` runs CPU-only Brawl batches (12 seeds each). Team 0 is
+CPU stand-ins, so the numbers describe the AI, not human play.
+
+| Setup (team 0 lvl / enemies x lvl) | rule | cleared | mean run | hits from outside cone |
+|---|---|---|---|---|
+| 1 at 3 / 4 x 3 | off / on | 0 / 0 | 17.0 s / 21.1 s | 35% / 21% |
+| 2 at 3 / 6 x 3 | off / on | 0 / 0 | 21.0 s / 27.6 s | 43% / 26% |
+| 1 at 3 / 2 x 3 | off / on | 0 / 0 | 24.1 s / 29.8 s | 38% / 15% |
+| 1 at 7 / 4 x 0 | off / on | 0 / 1 | 28.9 s / 52.6 s | 51% / 32% |
+| 2 at 7 / 6 x 1 | off / on | 0 / 3 | 28.7 s / 59.5 s | 60% / 29% |
+| 1 at 3 / 1 x 3 (control) | off / on | 8 / 4 | 38.6 s / 42.4 s | 8% / 1% |
+
+- The rule roughly halves the hits from behind and makes runs 20–100%
+  longer. Damage taken per run is unchanged: the team falls either way.
+- Tokens hold: only 2–18% of hits on team 0 land without a token
+  (projectiles in flight and attacks already under way when the token
+  lapsed). Going to 1 melee and 0 ranged tokens barely changes the outcome.
+- What decides runs is total enemy health against the stand-ins' damage
+  output. Team-0 CPUs spread damage across enemies (about 550–1000 damage
+  per run, no KOs against 4 enemies), so crowds win on attrition. A
+  human-skill playtest still has to set the defaults.
+- The rule stays off by default, as agreed. It is a single flag
+  (`coop.offscreen_attack_rule`).
