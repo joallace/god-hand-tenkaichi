@@ -23,6 +23,8 @@ enum Btn {
 	PAUSE    = 1 << 9,
 	THROW    = 1 << 10,
 	TAUNT    = 1 << 11,
+	## Cycle / lock the target (see Targeting).
+	TARGET   = 1 << 12,
 }
 
 ## Dodge flick directions (right stick), already in fighter space.

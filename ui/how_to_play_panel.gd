@@ -19,6 +19,7 @@ const ROWS := [
 	["Special (Fwd: Super 2, Back: Ultimate)", "LT + Y", "U + I"],
 	["Throw (break: guard)", "RB", "O"],
 	["Taunt (gains ki)", "RT", "Y"],
+	["Target / cycle lock", "LB", "Q"],
 	["Dash", "L3", "Shift"],
 	["Pause", "Start", "Esc"],
 ]

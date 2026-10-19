@@ -14,7 +14,8 @@ extends Node
 ## Defaults follow Budokai Tenkaichi: GUARD also teleports/vanishes when timed,
 ## CHARGE + HEAVY is the special, HEAVY at range is a ki blast (see Fighter).
 ## BLAST / SPECIAL / TELEPORT are optional dedicated shortcuts, unbound ({})
-## by default. THROW (RB) grabs through guard; TAUNT (RT) taunts for ki.
+## by default. THROW (RB) grabs through guard; TAUNT (RT) taunts for ki;
+## TARGET (LB) cycles / locks the target among several enemies.
 
 signal changed(slot: int)
 
@@ -28,7 +29,7 @@ enum Kind { PAD, KEYBOARD }
 ## Button actions (names match InputFrame.Btn keys).
 const BUTTON_ACTIONS: Array[String] = [
 	"LIGHT", "HEAVY", "BLAST", "JUMP", "GUARD", "CHARGE", "SPECIAL", "TELEPORT", "DASH", "PAUSE",
-	"THROW", "TAUNT",
+	"THROW", "TAUNT", "TARGET",
 ]
 ## Keyboard-only directional actions.
 const KEYBOARD_DIR_ACTIONS: Array[String] = [
@@ -49,6 +50,7 @@ const DEFAULT_PAD := {
 	"PAUSE": {"t": "btn", "i": JOY_BUTTON_START},
 	"THROW": {"t": "btn", "i": JOY_BUTTON_RIGHT_SHOULDER},
 	"TAUNT": {"t": "axis", "i": JOY_AXIS_TRIGGER_RIGHT, "s": 1},
+	"TARGET": {"t": "btn", "i": JOY_BUTTON_LEFT_SHOULDER},
 }
 
 const DEFAULT_KEYBOARD: Array[Dictionary] = [
@@ -63,6 +65,7 @@ const DEFAULT_KEYBOARD: Array[Dictionary] = [
 		"SPECIAL": {}, "TELEPORT": {},
 		"DASH": {"t": "key", "i": KEY_SHIFT}, "PAUSE": {"t": "key", "i": KEY_ESCAPE},
 		"THROW": {"t": "key", "i": KEY_O}, "TAUNT": {"t": "key", "i": KEY_Y},
+		"TARGET": {"t": "key", "i": KEY_Q},
 	},
 	{ # Slot 1 / layout B: arrows + numpad
 		"MOVE_FORWARD": {"t": "key", "i": KEY_UP}, "MOVE_BACK": {"t": "key", "i": KEY_DOWN},
@@ -75,6 +78,7 @@ const DEFAULT_KEYBOARD: Array[Dictionary] = [
 		"SPECIAL": {}, "TELEPORT": {},
 		"DASH": {"t": "key", "i": KEY_KP_ENTER}, "PAUSE": {"t": "key", "i": KEY_BACKSPACE},
 		"THROW": {"t": "key", "i": KEY_KP_9}, "TAUNT": {"t": "key", "i": KEY_KP_ADD},
+		"TARGET": {"t": "key", "i": KEY_KP_SUBTRACT},
 	},
 ]
 
@@ -145,6 +149,8 @@ func load_from_disk() -> void:
 		return
 	if cfg.get_value("meta", "version", 1) < SAVE_VERSION:
 		return  # saved against old defaults; start fresh
+	# Saved keys overlay the defaults, so actions added after the file was
+	# written (e.g. TARGET) keep their default binding.
 	for slot in SLOT_COUNT:
 		for kind in [Kind.PAD, Kind.KEYBOARD]:
 			var section := "slot%d_%s" % [slot, Kind.find_key(kind)]
