@@ -10,16 +10,24 @@ extends Node3D
 var director: MatchDirector
 ## Set to true to have the director remove this entity after the tick.
 var sim_dead := false
+## Frames this entity stays frozen by hit impact (MatchDirector.request_hitstop).
+## While > 0 the director counts it down instead of calling sim_tick.
+var hitstop: int = 0
 
 
 func sim_tick(_tick: int) -> void:
 	pass
 
 
+func hitstop_left() -> int:
+	return hitstop
+
+
 func save_state() -> Dictionary:
-	return {"pos": global_position, "rot": global_basis}
+	return {"pos": global_position, "rot": global_basis, "hitstop": hitstop}
 
 
 func load_state(s: Dictionary) -> void:
 	global_position = s["pos"]
 	global_basis = s["rot"]
+	hitstop = s["hitstop"]

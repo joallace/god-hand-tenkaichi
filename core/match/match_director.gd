@@ -6,9 +6,15 @@ extends Node3D
 ## Per tick:
 ##   1. poll every InputSource once (always, even in hitstop/intro)
 ##   2. feed frames to fighters (they buffer them)
-##   3. unless in hitstop: sim_tick fighters (slot order), then other entities
+##   3. unless the world is frozen: sim_tick fighters (slot order), then other
+##      entities; an entity in its own hitstop counts it down instead
 ##   4. CombatSystem.resolve() - hitbox vs hurtbox, applies hits
 ##   5. round timer / KO checks
+##
+## Hitstop is per entity: a contact freezes only the attacker, the victim and
+## the hitting entity (request_hitstop); everyone else keeps simulating. A few
+## effects (ultimate, counter guard, push-stop) freeze the whole world instead
+## (request_world_freeze), which also pauses the round timer.
 ##
 ## Presentation (cameras, HUD, VFX) only observes signals and node transforms.
 
@@ -35,7 +41,8 @@ var phase_frames: int = 0
 var round_number: int = 0
 var round_frames_left: int = 0
 var wins: PackedInt32Array = PackedInt32Array()
-var hitstop: int = 0
+## Frames the whole sim stays frozen (ultimate, counter guard, push-stop).
+var world_freeze: int = 0
 ## When true the sim does not advance (pause menu). Inputs aren't polled.
 ## On unpause, sources resync so buttons still held from the menu (e.g. the
 ## A that pressed "Resume") don't register as fresh presses.
@@ -87,13 +94,13 @@ func step() -> void:
 			pause_requested.emit(fighters[i].slot)
 		fighters[i].feed_input(frame if phase == Phase.FIGHT else neutral)
 
-	if hitstop > 0:
-		hitstop -= 1
+	if world_freeze > 0:
+		world_freeze -= 1
 	else:
 		for f in fighters:
-			f.sim_tick(tick)
+			_tick_entity(f)
 		for e in entities.duplicate():
-			e.sim_tick(tick)
+			_tick_entity(e)
 		combat.resolve(tick)
 		_reap_entities()
 
@@ -111,8 +118,15 @@ func step() -> void:
 				_after_round()
 
 
+func _tick_entity(e: SimEntity) -> void:
+	if e.hitstop > 0:
+		e.hitstop -= 1
+	else:
+		e.sim_tick(tick)
+
+
 func _tick_fight() -> void:
-	if not config.is_infinite_time() and hitstop == 0:
+	if not config.is_infinite_time() and world_freeze == 0:
 		round_frames_left -= 1
 		_emit_timer()
 	var ko: Array[Fighter] = fighters.filter(func(f: Fighter) -> bool: return f.is_ko())
@@ -130,7 +144,7 @@ func _tick_fight() -> void:
 
 func _start_round() -> void:
 	round_number += 1
-	hitstop = 0
+	world_freeze = 0
 	for e in entities:
 		e.queue_free()
 	entities.clear()
@@ -181,8 +195,16 @@ func _emit_timer() -> void:
 
 # --- API for entities --------------------------------------------------------
 
-func request_hitstop(frames: int) -> void:
-	hitstop = maxi(hitstop, frames)
+## Freeze only `participants` (Fighters / SimEntities) for `frames` ticks.
+func request_hitstop(participants: Array, frames: int) -> void:
+	for e: SimEntity in participants:
+		if e != null:
+			e.hitstop = maxi(e.hitstop, frames)
+
+
+## Freeze the whole simulation (and the round timer) for `frames` ticks.
+func request_world_freeze(frames: int) -> void:
+	world_freeze = maxi(world_freeze, frames)
 
 
 func spawn_entity(e: SimEntity) -> void:
@@ -211,7 +233,7 @@ func save_state() -> Dictionary:
 	return {
 		"tick": tick, "phase": phase, "phase_frames": phase_frames,
 		"round_number": round_number, "round_frames_left": round_frames_left,
-		"wins": wins.duplicate(), "hitstop": hitstop,
+		"wins": wins.duplicate(), "world_freeze": world_freeze,
 		"fighters": fighters.map(func(f: Fighter) -> Dictionary: return f.save_state()),
 		"sources": sources.map(func(src: InputSource) -> Dictionary: return src.save_state()),
 	}
@@ -224,7 +246,7 @@ func load_state(s: Dictionary) -> void:
 	round_number = s["round_number"]
 	round_frames_left = s["round_frames_left"]
 	wins = s["wins"].duplicate()
-	hitstop = s["hitstop"]
+	world_freeze = s["world_freeze"]
 	for i in fighters.size():
 		fighters[i].load_state(s["fighters"][i])
 	for i in sources.size():

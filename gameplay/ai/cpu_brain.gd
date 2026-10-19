@@ -22,9 +22,10 @@ extends RefCounted
 ## Decisions become timed button holds in `_plan` that `_emit()` turns into
 ## this tick's frame.
 ##
-## Clock: `_clock` counts simulated ticks only. During hitstop nothing
-## simulates, so the brain freezes too (keeps holding long presses, lets taps
-## go) and its timings stay in step with the fighters' frame counters.
+## Clock: `_clock` counts its own fighter's simulated ticks only. While that
+## fighter is in hitstop (or the world is frozen) it doesn't simulate, so the
+## brain freezes too (keeps holding long presses, lets taps go) and its
+## timings stay in step with the fighter's frame counters.
 ##
 ## Determinism: seeded RandomNumberGenerator; every decision variable
 ## round-trips through save_state()/load_state().
@@ -135,7 +136,7 @@ func reset() -> void:
 func think() -> InputFrame:
 	if not _resolve() or director.phase != MatchDirector.Phase.FIGHT:
 		return _idle_frame()
-	if director.hitstop > 0:
+	if me.hitstop_left() > 0 or director.world_freeze > 0:
 		return _frozen_frame()
 	_clock += 1
 	_perceive()

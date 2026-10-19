@@ -26,7 +26,8 @@ extends CombatEntity
 ##            charge_ratio() -> float, is_charging_strike() -> bool,
 ##            move_opens_string() -> bool, guard_vanish_window() -> int,
 ##            frames_since_guard_press() -> int, dodge_kind() -> DodgeKind,
-##            lying_frames() -> int, is_guard_crashed() -> bool
+##            lying_frames() -> int, is_guard_crashed() -> bool,
+##            hitstop_left() -> int (SimEntity; frames frozen by hit impact)
 ##
 ## `event` kinds (payload keys; every payload also has "slot" = emitter slot):
 ##   &"hit"            {attacker_slot, damage, position, heavy, blocked, combo,
@@ -193,6 +194,10 @@ var _move_opens_string: bool = true
 var _combo_moves_taken: Array[StringName] = []
 var _combo_relaunches: int = 0
 var _combo_last_melee: int = -1
+## Clean hits taken in the current combo from any attacker (drives damage
+## scaling, so teammates juggling one victim scale together). Unlike the
+## anti-loop segment it isn't reset by a teleport.
+var _combo_hits_taken: int = 0
 var _teleports_in_combo: int = 0
 var _tp_kind: int = TeleportKind.OFFENSE
 var _vanish_battle: VanishBattle
@@ -298,6 +303,8 @@ func reset_for_round(xform: Transform3D) -> void:
 	health = tuning.max_health
 	ki = tuning.ki_start
 	combo_hits = 0
+	hitstop = 0
+	_combo_hits_taken = 0
 	_vel = Vector3.ZERO
 	_move = null
 	_move_serial = 0
@@ -1442,7 +1449,7 @@ func _try_special() -> bool:
 	if kind == &"ultimate":
 		event.emit(&"ultimate_start", {"slot": slot, "freeze_frames": t.ultimate_freeze_frames})
 		if director:
-			director.request_hitstop(t.ultimate_freeze_frames)
+			director.request_world_freeze(t.ultimate_freeze_frames)
 	return true
 
 
@@ -1512,7 +1519,7 @@ func _try_counter_guard(hb: Hitbox) -> bool:
 	event.emit(&"counter_guard", {"slot": slot, "attacker_slot": hb.attacker.slot, "position": global_position})
 	hb.attacker._recoil(tuning.counter_guard_recoil_frames, Vector3.ZERO)
 	if director:
-		director.request_hitstop(tuning.counter_guard_freeze_frames)
+		director.request_world_freeze(tuning.counter_guard_freeze_frames)
 	_start_move_id(def.counter)
 	return true
 
@@ -1536,7 +1543,7 @@ func _take_blocked(hb: Hitbox, res: int) -> void:
 			if hb.is_melee and hb.attacker != null and not crash:
 				hb.attacker._recoil(tuning.push_off_recoil_frames, hb.forward * -tuning.push_off_recoil_speed)
 			if stop and director:
-				director.request_hitstop(tuning.push_stop_freeze_frames)
+				director.request_world_freeze(tuning.push_stop_freeze_frames)
 			event.emit(&"push_off", {"slot": slot, "attacker_slot": hb.attacker.slot if hb.attacker else -1,
 				"position": global_position, "stop": stop})
 	if crash:
@@ -1564,13 +1571,13 @@ func _take_hit(hb: Hitbox) -> void:
 	var in_combo := state == State.HITSTUN or state == State.KNOCKDOWN or state == State.GUARD_BREAK
 	if not in_combo:
 		_clear_combo_segment()
+		_combo_hits_taken = 0
 		if attacker != null:
 			attacker._set_combo(0)
 			attacker._teleports_in_combo = 0
-	var scale := 1.0
-	if attacker != null:
-		var scaled_hits := maxi(attacker.combo_hits - tuning.combo_scaling_start_hit + 1, 0)
-		scale = maxf(1.0 - tuning.combo_scaling_step * scaled_hits, tuning.combo_scaling_min)
+	var scaled_hits := maxi(_combo_hits_taken - tuning.combo_scaling_start_hit + 1, 0)
+	var scale := maxf(1.0 - tuning.combo_scaling_step * scaled_hits, tuning.combo_scaling_min)
+	_combo_hits_taken += 1
 	var dmg := m.damage * hb.damage_mult * scale
 	if state == State.TAUNT:
 		dmg *= tuning.taunt_counter_damage_mult
@@ -1905,6 +1912,7 @@ func save_state() -> Dictionary:
 		"since_guard_press": _since_guard_press, "guard_press_armed": _guard_press_armed,
 		"move_opens_string": _move_opens_string, "combo_moves_taken": _combo_moves_taken.duplicate(),
 		"combo_relaunches": _combo_relaunches, "combo_last_melee": _combo_last_melee,
+		"combo_hits_taken": _combo_hits_taken,
 		"dodge_kind": _dodge_kind, "dodge_chain": _dodge_chain, "dodge_queued_btn": _dodge_queued_btn,
 		"guard_pose": _guard_pose, "guard_pose_want": _guard_pose_want,
 		"guard_pose_frames": _guard_pose_frames, "guard_crashed": _guard_crashed,
@@ -1967,6 +1975,7 @@ func load_state(s: Dictionary) -> void:
 	_combo_moves_taken = (s["combo_moves_taken"] as Array[StringName]).duplicate()
 	_combo_relaunches = s["combo_relaunches"]
 	_combo_last_melee = s["combo_last_melee"]
+	_combo_hits_taken = s["combo_hits_taken"]
 	_dodge_kind = s["dodge_kind"]
 	_dodge_chain = s["dodge_chain"]
 	_dodge_queued_btn = s["dodge_queued_btn"]
