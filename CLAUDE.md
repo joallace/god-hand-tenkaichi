@@ -36,7 +36,10 @@ before autoloads exist. See `tests/README.md`. Always wrap Godot calls in
     one) and a `target` (there is no `opponent`); `wins` is indexed by team.
     Hitstop is per entity (`request_hitstop(participants, frames)`); only
     ultimate / counter guard / push-stop use `request_world_freeze`.
-    Co-op plan and milestones: SPEC.md.
+    Co-op (Mode.COOP, `MatchConfig.coop`): `CoopRun` (enemy queue, field
+    cap, clear/wipe) inside the director, `EncounterDirector` attack tokens +
+    grab lock (CpuBrain asks before attacking), DOWNED/OUT/REVIVE and
+    ENTERING fighter states. Plan and milestones: SPEC.md.
   - `tuning/`: one Resource class per category, loaded by the `Tuning` autoload
     from `data/tuning/<key>.tres`.
   - `game.gd`: `Game` autoload, scene flow.

@@ -1,6 +1,7 @@
 # Co-op mode & generic teams — spec
 
-Status: agreed in interview, 2026-10-18. Nothing implemented yet. Numbers
+Status: agreed in interview, 2026-10-18. Milestones 1–3 implemented
+(branch worktree-coop-spec); waves (4) and polish (5) remain. Numbers
 marked *(tunable)* are starting picks that will live in tuning Resources,
 not decisions.
 
