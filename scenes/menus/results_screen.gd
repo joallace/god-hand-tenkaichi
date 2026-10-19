@@ -2,6 +2,9 @@ class_name ResultsScreen
 extends Control
 ## Post-match screen. Reads Game.last_result:
 ##   {"winner_slot": int (-1 = draw), "wins": PackedInt32Array, "config": MatchConfig}
+## Co-op runs (config.mode COOP) show STAGE CLEAR / WIPED OUT: the run is
+## cleared when the winner slot is one of config.players (team 0; enemies
+## aren't listed there), or when last_result has "cleared": true.
 
 var _headline: Label
 var _tally: Label
@@ -24,15 +27,18 @@ func _ready() -> void:
 	col.add_theme_constant_override("separation", 30)
 
 	_headline = MenuHelpers.title(headline_text(res))
-	if winner >= 0:
+	if is_coop(res):
+		_headline.add_theme_color_override("font_color", u.color_ready if coop_cleared(res) else u.color_text_dim)
+	elif winner >= 0:
 		_headline.add_theme_color_override("font_color", u.color_p1 if winner == 0 else u.color_p2)
 	col.add_child(_headline)
 
-	_tally = MenuHelpers.label(tally_text(wins, cfg), &"HeaderLabel", HORIZONTAL_ALIGNMENT_CENTER)
+	_tally = MenuHelpers.label(coop_summary_text(cfg) if is_coop(res) else tally_text(wins, cfg),
+			&"HeaderLabel", HORIZONTAL_ALIGNMENT_CENTER)
 	_tally.add_theme_color_override("font_color", u.color_text)
 	col.add_child(_tally)
 
-	_rematch_btn = MenuHelpers.button("Rematch", _on_rematch, cfg == null)
+	_rematch_btn = MenuHelpers.button("Retry" if is_coop(res) else "Rematch", _on_rematch, cfg == null)
 	_list = MenuHelpers.vlist([
 		_rematch_btn,
 		MenuHelpers.button("Change Setup", _on_change_setup),
@@ -46,6 +52,8 @@ func _ready() -> void:
 static func headline_text(res: Dictionary) -> String:
 	if res.is_empty():
 		return "NO CONTEST"
+	if is_coop(res):
+		return "STAGE CLEAR!" if coop_cleared(res) else "WIPED OUT"
 	var winner: int = int(res.get("winner_slot", -1))
 	if winner < 0:
 		return "DRAW!"
@@ -53,6 +61,40 @@ static func headline_text(res: Dictionary) -> String:
 	if cfg != null and cfg.player_tag(winner) == "CPU":
 		return "CPU WINS!"
 	return "PLAYER %d WINS!" % (winner + 1)
+
+
+static func is_coop(res: Dictionary) -> bool:
+	var cfg := res.get("config") as MatchConfig
+	return cfg != null and cfg.mode == MatchConfig.Mode.COOP
+
+
+static func coop_cleared(res: Dictionary) -> bool:
+	if res.has("cleared"):
+		return bool(res["cleared"])
+	var winner: int = int(res.get("winner_slot", -1))
+	var cfg := res.get("config") as MatchConfig
+	if winner < 0 or cfg == null:
+		return false
+	for p in cfg.players:
+		if p.slot == winner:
+			return true
+	return false
+
+
+## "P1 (Brawler)  &  CPU (Brawler)" plus the run shape.
+static func coop_summary_text(cfg: MatchConfig) -> String:
+	if cfg == null:
+		return ""
+	var names: PackedStringArray = []
+	for p in cfg.players:
+		names.append("%s (%s)" % [cfg.player_tag(p.slot), MenuHelpers.character_name(p.character_id)])
+	var run := ""
+	if cfg.coop != null:
+		if cfg.coop.structure == CoopConfig.Structure.WAVES:
+			run = "Endless waves" if cfg.coop.endless else "%d waves" % cfg.coop.waves.size()
+		else:
+			run = "Brawl: %d enemies" % cfg.coop.enemy_count
+	return "  &  ".join(names) + ("\n" + run if run != "" else "")
 
 
 static func tally_text(wins: PackedInt32Array, cfg: MatchConfig) -> String:
@@ -87,7 +129,8 @@ func _unhandled_input(event: InputEvent) -> void:
 func _on_rematch() -> void:
 	var cfg: MatchConfig = Game.last_result.get("config") as MatchConfig
 	if cfg != null:
-		Game.start_match(cfg)
+		Game.current_config = cfg
+		Game.restart_match()
 
 
 func _on_change_setup() -> void:

@@ -23,6 +23,14 @@ extends Control
 ##   VERSUS_CPU: slot_types = [HUMAN, CPU]. CPU slots are pre-joined & ready
 ##     (see _configure_for_mode); the human gets two extra rows, "CPU fighter"
 ##     and "CPU level" (Tuning.cpu.level_names), to set the CPU up.
+##   COOP: slot_types = [HUMAN, HUMAN], both optional: the run starts once at
+##     least one human joined and every joined human is ready (solo is fine).
+##     Rows after Character set up the run (SPEC.md §9): Mode (Brawl/Waves),
+##     Enemies, Waves (Waves only), Enemy level, Enemy roster, Ally (+ ally
+##     level/fighter when CPU), Friendly fire, Time limit. Like the versus
+##     rules, any joined player edits the shared rows. build_config() puts the
+##     humans (and the CPU ally) on team 0 and fills MatchConfig.coop; enemies
+##     are created by the director, not listed in players.
 ##   ONLINE (future): slot_types = [HUMAN, REMOTE]. A lobby/network layer should call
 ##     set_remote_slot(slot, peer_id, character_id, ready) as messages arrive;
 ##     only HUMAN slots accept local devices. _build_config() already maps
@@ -34,12 +42,18 @@ signal match_requested(config: MatchConfig)
 enum SlotType { HUMAN, CPU, REMOTE }
 enum SlotState { EMPTY, JOINED, READY }
 enum Cmd { UP, DOWN, LEFT, RIGHT, CONFIRM, BACK }
-enum Row { CHARACTER, CPU_CHARACTER, CPU_LEVEL, ROUNDS, TIMER }
+enum Row {
+	CHARACTER, CPU_CHARACTER, CPU_LEVEL, ROUNDS, TIMER,
+	COOP_STRUCTURE, ENEMY_COUNT, WAVES, ENEMY_LEVEL, ENEMY_ROSTER,
+	ALLY, ALLY_LEVEL, ALLY_CHARACTER, FRIENDLY_FIRE,
+}
 
 ## Set before Game.goto(Game.SCENE_JOIN) to choose which mode this screen sets up.
 static var pending_mode: MatchConfig.Mode = MatchConfig.Mode.LOCAL_VERSUS
 ## Settings/characters remembered across visits (Change Setup from results).
 static var _memory: Dictionary = {}
+## Co-op run setup remembered across visits (separate from versus).
+static var _coop_memory: Dictionary = {}
 
 class Slot:
 	var type: int = SlotType.HUMAN
@@ -60,6 +74,19 @@ var time_index: int = 0
 ## Tests set this false to inspect match_requested without changing scene.
 var auto_start: bool = true
 
+# Co-op run setup (COOP mode only).
+var coop_structure: int = Tuning.coop.default_structure
+var coop_enemy_count: int = Tuning.coop.default_enemy_count
+## 1..max_wave_count, or max_wave_count + 1 = endless.
+var coop_waves: int = Tuning.coop.default_wave_count
+var coop_enemy_level: int = Tuning.cpu.clamp_level(-1)
+## 0 = random, else 1 + index into MenuHelpers.character_ids().
+var coop_roster: int = 0
+var coop_ally: bool = false
+var coop_ally_level: int = Tuning.cpu.clamp_level(-1)
+var coop_ally_char: int = 0
+var friendly_fire: bool = false
+
 var _time_options: PackedInt32Array
 var _countdown := 0.0
 var _started := false
@@ -74,6 +101,7 @@ var _timer_label: Label
 var _cpu_level_label: Label
 var _cpu_blurb_label: Label
 var _status_label: Label
+var _coop_labels: Dictionary = {}  # Row -> Label
 
 
 func _ready() -> void:
@@ -85,6 +113,8 @@ func _ready() -> void:
 	rounds_to_win = clampi(rules.rounds_to_win, 1, 5)
 	time_index = maxi(_time_options.find(rules.round_time_seconds), 0)
 	mode = pending_mode
+	if is_coop() and _time_options.find(0) >= 0:
+		time_index = _time_options.find(0)  # co-op runs default to no time limit
 	_configure_for_mode()
 	_restore_memory()
 	_build_ui()
@@ -353,6 +383,15 @@ func _command(idx: int, cmd: int) -> void:
 
 ## Rows a joined player can pick, top to bottom, for this mode.
 func rows() -> Array[int]:
+	if is_coop():
+		var r: Array[int] = [Row.CHARACTER, Row.COOP_STRUCTURE, Row.ENEMY_COUNT]
+		if coop_structure == CoopConfig.Structure.WAVES:
+			r.append(Row.WAVES)
+		r.append_array([Row.ENEMY_LEVEL, Row.ENEMY_ROSTER, Row.ALLY])
+		if coop_ally:
+			r.append_array([Row.ALLY_LEVEL, Row.ALLY_CHARACTER])
+		r.append_array([Row.FRIENDLY_FIRE, Row.TIMER])
+		return r
 	if cpu_slot() >= 0:
 		return [Row.CHARACTER, Row.CPU_CHARACTER, Row.CPU_LEVEL, Row.ROUNDS, Row.TIMER]
 	return [Row.CHARACTER, Row.ROUNDS, Row.TIMER]
@@ -385,13 +424,58 @@ func _change_row(s: Slot, dir: int) -> void:
 			rounds_to_win = clampi(rounds_to_win + dir, 1, 5)
 		Row.TIMER:
 			time_index = posmod(time_index + dir, _time_options.size())
+		Row.COOP_STRUCTURE:
+			coop_structure = posmod(coop_structure + dir, CoopConfig.Structure.size())
+		Row.ENEMY_COUNT:
+			coop_enemy_count = clampi(coop_enemy_count + dir, 1, Tuning.coop.max_enemy_count)
+		Row.WAVES:
+			coop_waves = posmod(coop_waves - 1 + dir, Tuning.coop.max_wave_count + 1) + 1
+		Row.ENEMY_LEVEL:
+			coop_enemy_level = clampi(coop_enemy_level + dir, 0, Tuning.cpu.level_count() - 1)
+		Row.ENEMY_ROSTER:
+			coop_roster = posmod(coop_roster + dir, n + 1)
+		Row.ALLY:
+			coop_ally = not coop_ally
+		Row.ALLY_LEVEL:
+			coop_ally_level = clampi(coop_ally_level + dir, 0, Tuning.cpu.level_count() - 1)
+		Row.ALLY_CHARACTER:
+			coop_ally_char = posmod(coop_ally_char + dir, maxi(n, 1))
+		Row.FRIENDLY_FIRE:
+			friendly_fire = not friendly_fire
+	_fix_cursors()
+
+
+## Rows hidden by a change (Waves in Brawl, ally rows without an ally) send
+## any cursor on them back to the row that controls them.
+func _fix_cursors() -> void:
+	var r := rows()
+	for s in slots:
+		if s.cursor in r:
+			continue
+		match s.cursor:
+			Row.WAVES:
+				s.cursor = Row.COOP_STRUCTURE
+			Row.ALLY_LEVEL, Row.ALLY_CHARACTER:
+				s.cursor = Row.ALLY
+			_:
+				s.cursor = Row.CHARACTER
 
 
 func all_ready() -> bool:
+	if is_coop():
+		return not nobody_joined() and slots.all(func(s: Slot) -> bool: return s.state != SlotState.JOINED)
 	for s in slots:
 		if s.state != SlotState.READY:
 			return false
 	return not slots.is_empty()
+
+
+func is_coop() -> bool:
+	return mode == MatchConfig.Mode.COOP
+
+
+func coop_endless() -> bool:
+	return coop_waves > Tuning.coop.max_wave_count
 
 
 func _process(delta: float) -> void:
@@ -414,6 +498,8 @@ func _process(delta: float) -> void:
 
 
 func build_config() -> MatchConfig:
+	if is_coop():
+		return build_coop_config()
 	var cfg := MatchConfig.from_defaults(mode)
 	cfg.rounds_to_win = rounds_to_win
 	cfg.round_time_seconds = _time_options[time_index]
@@ -439,6 +525,49 @@ func build_config() -> MatchConfig:
 	return cfg
 
 
+## COOP: joined humans (in slot order, renumbered from 0) and the optional
+## CPU ally on team 0; the run itself in cfg.coop.
+func build_coop_config() -> MatchConfig:
+	var cfg := MatchConfig.from_defaults(MatchConfig.Mode.COOP)
+	cfg.round_time_seconds = _time_options[time_index]
+	cfg.rng_seed = randi()
+	cfg.friendly_fire = friendly_fire
+	var ids := MenuHelpers.character_ids()
+	for s in slots:
+		if s.type != SlotType.HUMAN or s.state == SlotState.EMPTY:
+			continue
+		var p := PlayerSlotConfig.new()
+		p.slot = cfg.players.size()
+		p.team = 0
+		p.character_id = ids[clampi(s.char_index, 0, ids.size() - 1)]
+		p.input_kind = PlayerSlotConfig.InputKind.LOCAL
+		p.device_kind = s.device_kind
+		p.device_id = s.device_id
+		cfg.players.append(p)
+	var c := CoopConfig.new()
+	c.structure = coop_structure
+	c.enemy_count = coop_enemy_count
+	c.endless = coop_structure == CoopConfig.Structure.WAVES and coop_endless()
+	if coop_structure == CoopConfig.Structure.WAVES and not c.endless:
+		for i in coop_waves:
+			c.waves.append(WaveConfig.new())  # count 0 = c.enemy_count
+	c.enemy_level = coop_enemy_level
+	c.enemy_character = ids[coop_roster - 1] if coop_roster > 0 and coop_roster <= ids.size() else &""
+	c.ally_enabled = coop_ally
+	c.ally_level = coop_ally_level
+	c.ally_character = ids[clampi(coop_ally_char, 0, ids.size() - 1)]
+	if coop_ally:
+		var a := PlayerSlotConfig.new()
+		a.slot = cfg.players.size()
+		a.team = 0
+		a.character_id = c.ally_character
+		a.input_kind = PlayerSlotConfig.InputKind.CPU
+		a.cpu_level = coop_ally_level
+		cfg.players.append(a)
+	cfg.coop = c
+	return cfg
+
+
 func _start() -> void:
 	_started = true
 	_remember()
@@ -456,6 +585,9 @@ func _back_to_menu() -> void:
 
 
 func _remember() -> void:
+	if is_coop():
+		_remember_coop()
+		return
 	var chars: Array[int] = []
 	for s in slots:
 		chars.append(s.char_index)
@@ -465,7 +597,44 @@ func _remember() -> void:
 		_memory["cpu_level"] = slots[cpu].cpu_level
 
 
+func _remember_coop() -> void:
+	var chars: Array[int] = []
+	for s in slots:
+		chars.append(s.char_index)
+	_coop_memory = {
+		"chars": chars, "time": _time_options[time_index], "structure": coop_structure,
+		"enemies": coop_enemy_count, "waves": coop_waves, "enemy_level": coop_enemy_level,
+		"roster": coop_roster, "ally": coop_ally, "ally_level": coop_ally_level,
+		"ally_char": coop_ally_char, "friendly_fire": friendly_fire,
+	}
+
+
+func _restore_coop_memory() -> void:
+	var m := _coop_memory
+	if m.is_empty():
+		return
+	var t := _time_options.find(int(m.get("time", -999)))
+	if t >= 0:
+		time_index = t
+	var n := MenuHelpers.character_ids().size()
+	var chars: Array = m.get("chars", [])
+	for i in mini(chars.size(), slots.size()):
+		slots[i].char_index = clampi(int(chars[i]), 0, n - 1)
+	coop_structure = clampi(int(m.get("structure", coop_structure)), 0, CoopConfig.Structure.size() - 1)
+	coop_enemy_count = clampi(int(m.get("enemies", coop_enemy_count)), 1, Tuning.coop.max_enemy_count)
+	coop_waves = clampi(int(m.get("waves", coop_waves)), 1, Tuning.coop.max_wave_count + 1)
+	coop_enemy_level = Tuning.cpu.clamp_level(int(m.get("enemy_level", coop_enemy_level)))
+	coop_roster = clampi(int(m.get("roster", coop_roster)), 0, n)
+	coop_ally = bool(m.get("ally", coop_ally))
+	coop_ally_level = Tuning.cpu.clamp_level(int(m.get("ally_level", coop_ally_level)))
+	coop_ally_char = clampi(int(m.get("ally_char", coop_ally_char)), 0, n - 1)
+	friendly_fire = bool(m.get("friendly_fire", friendly_fire))
+
+
 func _restore_memory() -> void:
+	if is_coop():
+		_restore_coop_memory()
+		return
 	if _memory.is_empty():
 		return
 	rounds_to_win = int(_memory.get("rounds", rounds_to_win))
@@ -549,7 +718,7 @@ func _build_settings_panel() -> Control:
 	var col := VBoxContainer.new()
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
 	panel.add_child(col)
-	col.add_child(MenuHelpers.title("MATCH RULES", &"HeaderLabel"))
+	col.add_child(MenuHelpers.title("CO-OP RUN" if is_coop() else "MATCH RULES", &"HeaderLabel"))
 	_cpu_level_label = MenuHelpers.label("", &"", HORIZONTAL_ALIGNMENT_CENTER)
 	_cpu_blurb_label = MenuHelpers.label("", &"HintLabel", HORIZONTAL_ALIGNMENT_CENTER)
 	_cpu_blurb_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -561,6 +730,17 @@ func _build_settings_panel() -> Control:
 		col.add_child(l)
 	_cpu_level_label.visible = cpu_slot() >= 0
 	_cpu_blurb_label.visible = cpu_slot() >= 0
+	if is_coop():
+		_rounds_label.visible = false  # one run, no rounds
+		col.remove_child(_timer_label)
+		for r in [Row.COOP_STRUCTURE, Row.ENEMY_COUNT, Row.WAVES, Row.ENEMY_LEVEL, Row.ENEMY_ROSTER,
+				Row.ALLY, Row.ALLY_LEVEL, Row.ALLY_CHARACTER, Row.FRIENDLY_FIRE]:
+			var l := MenuHelpers.label("", &"", HORIZONTAL_ALIGNMENT_CENTER)
+			l.add_theme_font_size_override("font_size", UiTheme.tuning().font_body)
+			_coop_labels[r] = l
+			col.add_child(l)
+		_timer_label.add_theme_font_size_override("font_size", UiTheme.tuning().font_body)
+		col.add_child(_timer_label)
 	col.add_child(MenuHelpers.label("Any joined player:\nup/down to pick a row,\nleft/right to change it",
 			&"HintLabel", HORIZONTAL_ALIGNMENT_CENTER))
 	return panel
@@ -605,7 +785,7 @@ func _refresh() -> void:
 				device.text = MenuHelpers.device_label(s.device_kind, s.device_id, i) if s.state != SlotState.EMPTY else "-"
 		match s.state:
 			SlotState.EMPTY:
-				state.text = "PRESS START\nOR ENTER"
+				state.text = "PRESS START\nOR ENTER" + ("\n(optional)" if is_coop() and i > 0 else "")
 				state.add_theme_color_override("font_color", u.color_text)
 				hint.text = ""
 			SlotState.JOINED:
@@ -632,9 +812,36 @@ func _refresh() -> void:
 		_cpu_blurb_label.text = Tuning.cpu.level_blurb(lvl)
 	_rounds_label.text = "%sRounds to win  <  %d  >" % [_cursor_tags(Row.ROUNDS), rounds_to_win]
 	_rounds_label.add_theme_color_override("font_color", _row_color(Row.ROUNDS))
-	_timer_label.text = "%sTimer  <  %s  >" % [_cursor_tags(Row.TIMER), MenuHelpers.round_time_label(_time_options[time_index])]
+	var timer_name := "Time limit" if is_coop() else "Timer"
+	_timer_label.text = "%s%s  <  %s  >" % [_cursor_tags(Row.TIMER), timer_name, MenuHelpers.round_time_label(_time_options[time_index])]
 	_timer_label.add_theme_color_override("font_color", _row_color(Row.TIMER))
+	if is_coop():
+		_refresh_coop_rows()
 	_refresh_status()
+
+
+## Text of every co-op row, hidden when not in rows().
+func _refresh_coop_rows() -> void:
+	var ids := MenuHelpers.character_ids()
+	var waves := coop_structure == CoopConfig.Structure.WAVES
+	var values := {
+		Row.COOP_STRUCTURE: ["Mode", "Waves" if waves else "Brawl"],
+		Row.ENEMY_COUNT: ["Enemies per wave" if waves else "Enemies", str(coop_enemy_count)],
+		Row.WAVES: ["Waves", "Endless" if coop_endless() else str(coop_waves)],
+		Row.ENEMY_LEVEL: ["Enemy level", Tuning.cpu.level_name(coop_enemy_level)],
+		Row.ENEMY_ROSTER: ["Enemy roster",
+				"Random" if coop_roster == 0 else MenuHelpers.character_name(ids[clampi(coop_roster - 1, 0, ids.size() - 1)])],
+		Row.ALLY: ["Ally", "CPU" if coop_ally else "None"],
+		Row.ALLY_LEVEL: ["Ally level", Tuning.cpu.level_name(coop_ally_level)],
+		Row.ALLY_CHARACTER: ["Ally fighter", MenuHelpers.character_name(ids[clampi(coop_ally_char, 0, ids.size() - 1)])],
+		Row.FRIENDLY_FIRE: ["Friendly fire", "On" if friendly_fire else "Off"],
+	}
+	var shown := rows()
+	for r: int in _coop_labels:
+		var l: Label = _coop_labels[r]
+		l.visible = r in shown
+		l.text = "%s%s  <  %s  >" % [_cursor_tags(r), values[r][0], values[r][1]]
+		l.add_theme_color_override("font_color", _row_color(r))
 
 
 func _confirm_key_name(i: int) -> String:

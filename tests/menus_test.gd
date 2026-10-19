@@ -14,9 +14,12 @@ func _ready() -> void:
 	await _test_main_menu()
 	await _test_join_screen()
 	await _test_join_screen_cpu()
+	await _test_join_screen_coop()
 	await _test_controls_screen()
 	await _test_controls_overlay()
 	await _test_results_screen()
+	await _test_results_screen_coop()
+	_test_restart_match()
 	_restore_cfg()
 	print("MENUS %s (%d failures)" % ["OK" if _fails == 0 else "FAIL", _fails])
 	get_tree().quit(0 if _fails == 0 else 1)
@@ -105,6 +108,9 @@ func _test_main_menu() -> void:
 	await frames(2)
 	focus = get_viewport().gui_get_focus_owner()
 	check(focus is Button and (focus as Button).text == "Quit", "main menu focus wraps to Quit")
+	var labels: Array = (m.get("_list") as Node).get_children().map(func(b: Node) -> String: return (b as Button).text if b is Button else "")
+	var coop_at := labels.find("Co-op")
+	check(coop_at > labels.find("P1 vs CPU") and coop_at < labels.find("Controls"), "main menu lists Co-op after the versus entries")
 	m.call("_on_how_to_play")
 	await frames(3)
 	focus = get_viewport().gui_get_focus_owner()
@@ -221,6 +227,105 @@ func _test_join_screen_cpu() -> void:
 	await frames(2)
 
 
+func _test_join_screen_coop() -> void:
+	JoinScreen._coop_memory = {}
+	JoinScreen.pending_mode = MatchConfig.Mode.COOP
+	var j := spawn(Game.SCENE_JOIN) as JoinScreen
+	j.auto_start = false
+	var requested: Array = []
+	j.match_requested.connect(func(c: MatchConfig) -> void: requested.append(c))
+	await frames(3)
+	check(j.is_coop() and j.cpu_slot() < 0, "co-op join screen has two human slots")
+	check(not j.rows().has(JoinScreen.Row.ROUNDS) and j.rows().has(JoinScreen.Row.ENEMY_COUNT), "co-op rows replace rounds")
+	check(not j.rows().has(JoinScreen.Row.WAVES), "Waves row hidden in Brawl")
+	check(not j.rows().has(JoinScreen.Row.ALLY_LEVEL), "ally rows hidden without an ally")
+	check(not j.all_ready(), "nobody joined: not ready")
+
+	await pad_tap(0, JOY_BUTTON_START)
+	await pad_tap(0, JOY_BUTTON_DPAD_DOWN)
+	check(j.slots[0].cursor == JoinScreen.Row.COOP_STRUCTURE, "down from fighter reaches Mode")
+	await pad_tap(0, JOY_BUTTON_DPAD_RIGHT)
+	check(j.coop_structure == CoopConfig.Structure.WAVES and j.rows().has(JoinScreen.Row.WAVES), "Mode -> Waves shows the Waves row")
+	check((j._coop_labels[JoinScreen.Row.WAVES] as Label).visible, "Waves label visible in Waves mode")
+	check((j._coop_labels[JoinScreen.Row.ENEMY_COUNT] as Label).text.contains("per wave"), "enemy count reads per wave")
+	j.slots[0].cursor = JoinScreen.Row.WAVES
+	j.coop_structure = CoopConfig.Structure.BRAWL
+	j._fix_cursors()
+	check(j.slots[0].cursor == JoinScreen.Row.COOP_STRUCTURE, "cursor on a hidden row falls back to Mode")
+	j.slots[0].cursor = JoinScreen.Row.ALLY
+	j._change_row(j.slots[0], 1)
+	check(j.coop_ally and j.rows().has(JoinScreen.Row.ALLY_LEVEL) and j.rows().has(JoinScreen.Row.ALLY_CHARACTER),
+			"Ally -> CPU shows ally level and fighter rows")
+	j.coop_ally = false
+	j._refresh()
+
+	# Solo run: P2 stays empty.
+	await pad_tap(0, JOY_BUTTON_A)
+	check(j.all_ready(), "solo human ready is enough")
+	await seconds(UiTheme.tuning().join_start_delay + 0.3)
+	check(requested.size() == 1, "co-op run requested after countdown")
+	if requested.size() == 1:
+		var cfg: MatchConfig = requested[0]
+		check(cfg.mode == MatchConfig.Mode.COOP and cfg.players.size() == 1, "solo config: mode COOP, one player")
+		check(cfg.players[0].team == 0 and cfg.players[0].slot == 0
+				and cfg.players[0].input_kind == PlayerSlotConfig.InputKind.LOCAL and cfg.players[0].device_id == 0,
+				"solo player is pad 0 on team 0")
+		check(cfg.coop != null and cfg.coop.structure == CoopConfig.Structure.BRAWL
+				and cfg.coop.enemy_count == Tuning.coop.default_enemy_count and not cfg.coop.ally_enabled,
+				"coop fields from defaults")
+		check(cfg.is_infinite_time() == (Tuning.match_rules.round_time_options.find(0) >= 0), "co-op defaults to no time limit")
+		check(not cfg.friendly_fire, "friendly fire off by default")
+
+	# Solo + ally, waves, friendly fire (built directly).
+	j.coop_ally = true
+	j.coop_ally_level = 2
+	j.coop_ally_char = 0
+	j.coop_structure = CoopConfig.Structure.WAVES
+	j.coop_waves = 3
+	j.friendly_fire = true
+	var cfg2 := j.build_config()
+	check(cfg2.players.size() == 2 and cfg2.players[1].input_kind == PlayerSlotConfig.InputKind.CPU
+			and cfg2.players[1].team == 0 and cfg2.players[1].cpu_level == 2 and cfg2.players[1].slot == 1,
+			"ally is a CPU slot on team 0 at its level")
+	check(cfg2.player_tag(1) == "CPU", "ally tagged CPU")
+	check(cfg2.coop.ally_enabled and cfg2.coop.ally_level == 2, "coop records the ally")
+	check(cfg2.coop.structure == CoopConfig.Structure.WAVES and cfg2.coop.waves.size() == 3 and not cfg2.coop.endless,
+			"3 waves")
+	check(cfg2.friendly_fire, "friendly fire on")
+	j.coop_waves = Tuning.coop.max_wave_count + 1
+	var cfg3 := j.build_config()
+	check(cfg3.coop.endless and cfg3.coop.waves.is_empty(), "past the max wave count = endless")
+	j.coop_roster = 1
+	check(j.build_config().coop.enemy_character == MenuHelpers.character_ids()[0], "roster pick sets the enemy character")
+	j.coop_roster = 0
+	check(j.build_config().coop.enemy_character == &"", "roster Random = empty id")
+
+	# Two humans: keyboard joins P2.
+	j.coop_ally = false
+	j._started = false
+	j.slots[0].state = JoinScreen.SlotState.JOINED
+	await key_tap(KEY_ENTER)
+	check(j.slots[1].state == JoinScreen.SlotState.JOINED, "keyboard joins P2 in co-op")
+	var cfg4 := j.build_config()
+	check(cfg4.players.size() == 2 and cfg4.players[1].device_kind == Bindings.Kind.KEYBOARD
+			and cfg4.players[0].team == 0 and cfg4.players[1].team == 0, "two humans on team 0")
+	check(not j.all_ready(), "a joined but unready P2 blocks the start")
+
+	# Memory: a new visit restores the last run setup.
+	j.coop_enemy_count = 7
+	j._remember()
+	j.queue_free()
+	await frames(2)
+	var j2 := spawn(Game.SCENE_JOIN) as JoinScreen
+	j2.auto_start = false
+	await frames(3)
+	check(j2.coop_enemy_count == 7, "co-op setup remembered across visits")
+	j2.queue_free()
+	JoinScreen._coop_memory = {}
+	JoinScreen.pending_mode = MatchConfig.Mode.LOCAL_VERSUS
+	await frames(2)
+
+
 func _test_controls_screen() -> void:
 	for s in Bindings.SLOT_COUNT:
 		Bindings.reset_defaults(s)
@@ -322,6 +427,36 @@ func _test_results_screen() -> void:
 	r.queue_free()
 	Game.last_result = {}
 	await frames(2)
+
+
+func _test_results_screen_coop() -> void:
+	var cfg := MatchConfig.from_defaults(MatchConfig.Mode.COOP)
+	var p := PlayerSlotConfig.new()
+	p.slot = 0
+	p.team = 0
+	cfg.players.append(p)
+	cfg.coop = CoopConfig.new()
+	Game.last_result = {"winner_slot": 0, "wins": PackedInt32Array([1, 0]), "config": cfg}
+	var r := spawn(Game.SCENE_RESULTS) as ResultsScreen
+	await frames(3)
+	check(r._headline.text == "STAGE CLEAR!", "co-op results: cleared headline")
+	check(r._tally.text.contains("Brawl"), "co-op results summarize the run")
+	check(r._rematch_btn.text == "Retry", "co-op results offer Retry")
+	r.queue_free()
+	await frames(2)
+	check(ResultsScreen.headline_text({"winner_slot": -1, "config": cfg}) == "WIPED OUT", "wipe headline")
+	check(ResultsScreen.headline_text({"winner_slot": 5, "config": cfg}) == "WIPED OUT", "an enemy slot winning = wiped")
+	check(ResultsScreen.headline_text({"winner_slot": -1, "config": cfg, "cleared": true}) == "STAGE CLEAR!",
+			"explicit cleared flag wins")
+	Game.last_result = {}
+
+
+func _test_restart_match() -> void:
+	var prev := Game.current_config
+	Game.current_config = null
+	Game.restart_match()  # no config: must not change scene or crash
+	check(Game.current_config == null, "restart_match without a config is a no-op")
+	Game.current_config = prev
 
 
 # --- controls.cfg safety ---------------------------------------------------------------
