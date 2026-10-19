@@ -5,19 +5,27 @@ extends Node
 ## touches gameplay state. Sounds are non-positional: with split screen there
 ## is no single listener, so both players hear everything equally.
 ##
+## Streams (MatchEventHub, SPEC_ONLINE.md §9):
+##   immediate — fighter events, state entries (attack swing whoosh unless the
+##     move spawns a projectile or is a charge strike, dash, jump) and FIGHT:
+##     deduplicated and muted while a rollback re-simulates.
+##   confirmed — round start, KO/time-up, match won, co-op wave start / clear
+##     and run end: they go with banners, so a rolled-back KO stays silent.
+##   state — the ki charge loop (start sound + loop while in &"charge") starts
+##     / stops on state entries and is reconciled with each fighter's current
+##     state every frame, and last-seconds timer ticks follow the round timer,
+##     so both are right after any resim.
 ## Fighter events: see Fighter's header. Blocked hits sound by guard result
 ## (ki guard buzz; push-offs are voiced by their own push_off event).
-## State changes: attack (swing whoosh unless the move spawns a projectile or
-## is a charge strike), dash, jump, charge (ki loop while in the state).
-## Director: round start, FIGHT, KO/time-up, last-seconds ticks, match won.
 ## Co-op: downed / revive_start / revived / out / lock_broken play their own
 ## sounds, an enemy's &"entry" plays enemy_entry, waves after the first play
 ## wave_start, wave clears before the last wave_clear, run_ended plays
-## match_win / time_up; fighters spawned mid-match
-## (entity_spawned) get the state sounds too, and their loops stop on removal.
+## match_win / time_up; loops of fighters leaving the match stop.
 
 var director: MatchDirector
 var hub: MatchEventHub
+
+var _last_seconds := -2
 
 
 func _init() -> void:
@@ -27,37 +35,81 @@ func _init() -> void:
 func setup(p_director: MatchDirector, p_hub: MatchEventHub) -> void:
 	director = p_director
 	hub = p_hub
+	hub.bind_director(director)
 	hub.fighter_event.connect(_on_fighter_event)
-	director.fighters_spawned.connect(_on_fighters_spawned)
-	director.entity_spawned.connect(_on_entity_spawned)
+	hub.fighter_state.connect(_on_state_changed)
+	hub.director_event.connect(_on_director_event)
+	hub.confirmed_event.connect(_on_confirmed_event)
 	director.entity_removed.connect(_on_entity_removed)
-	director.round_started.connect(_on_round_started)
-	director.phase_changed.connect(_on_phase_changed)
-	director.round_ended.connect(_on_round_ended)
-	director.match_ended.connect(_on_match_ended)
-	director.timer_changed.connect(_on_timer_changed)
-	director.wave_started.connect(_on_wave_started)
-	director.wave_cleared.connect(_on_wave_cleared)
-	director.run_ended.connect(_on_run_ended)
 
 
 func _exit_tree() -> void:
 	Sfx.stop_all_loops()
 
 
-func _on_fighters_spawned(fighters: Array[Fighter]) -> void:
-	for f in fighters:
-		_watch(f)
+func _process(_delta: float) -> void:
+	if director == null:
+		return
+	_sync_charge_loops()
+	_sync_timer()
 
 
-func _watch(f: Fighter) -> void:
-	if not f.state_changed.is_connected(_on_state_changed):
-		f.state_changed.connect(_on_state_changed.bind(f))
+## Ki charge loop = "fighter is in &"charge" now": state entries are muted
+## during a resim, so the loop is also checked against the state each frame.
+func _sync_charge_loops() -> void:
+	for f in director.fighters:
+		if is_instance_valid(f):
+			_set_charge_loop(f, f.current_state_name() == &"charge")
 
 
-func _on_entity_spawned(e: SimEntity) -> void:
-	if e is Fighter:
-		_watch(e)
+func _set_charge_loop(f: Fighter, charging: bool) -> void:
+	if charging and not Sfx.is_looping(f):
+		Sfx.play(&"ki_charge_start")
+		Sfx.start_loop(f, &"ki_charge_loop")
+	elif not charging and Sfx.is_looping(f):
+		Sfx.stop_loop(f)
+
+
+## Last-seconds ticks follow the round timer's whole seconds.
+func _sync_timer() -> void:
+	var cfg := director.config
+	if cfg == null:
+		return
+	var s := -1 if cfg.is_infinite_time() else ceili(maxi(director.round_frames_left, 0) / float(Tuning.match_rules.tick_rate))
+	if s == _last_seconds:
+		return
+	_last_seconds = s
+	var warn := Tuning.sfx.timer_warning_seconds
+	if director.phase == MatchDirector.Phase.FIGHT and s > 0 and s <= warn:
+		Sfx.play(&"timer_tick")
+
+
+func _on_director_event(kind: StringName, data: Dictionary) -> void:
+	if kind == &"phase_changed" and data["phase"] == MatchDirector.Phase.FIGHT:
+		Sfx.play(&"fight")
+
+
+func _on_confirmed_event(_tick: int, kind: StringName, data: Dictionary) -> void:
+	match kind:
+		&"round_started":
+			Sfx.stop_all_loops()
+			Sfx.play(&"round_start")
+		&"round_ended":
+			Sfx.stop_all_loops()
+			if data["reason"] != &"ko":  # KO already played its own sound via the fighter event
+				Sfx.play(&"time_up")
+		&"match_ended":
+			if not director.is_coop():  # run_ended picks the co-op sound
+				Sfx.play(&"match_win")
+		&"run_ended":
+			Sfx.stop_all_loops()
+			Sfx.play(&"match_win" if data["cleared"] else &"time_up")
+		&"wave_started":
+			if int(data["wave"]) > 0:  # the first: round_start / fight like a versus round
+				Sfx.play(&"wave_start")
+		&"wave_cleared":
+			if not data["last"]:  # the last one's clear is covered by run_ended
+				Sfx.play(&"wave_clear")
 
 
 func _on_entity_removed(e: SimEntity) -> void:
@@ -107,13 +159,8 @@ func _on_fighter_event(_f: Fighter, kind: StringName, data: Dictionary) -> void:
 			Sfx.play_varied(kind)
 
 
-func _on_state_changed(state_name: StringName, f: Fighter) -> void:
-	if state_name == &"charge":
-		if not Sfx.is_looping(f):
-			Sfx.play(&"ki_charge_start")
-			Sfx.start_loop(f, &"ki_charge_loop")
-		return
-	Sfx.stop_loop(f)
+func _on_state_changed(f: Fighter, state_name: StringName) -> void:
+	_set_charge_loop(f, state_name == &"charge")
 	match state_name:
 		&"attack":
 			var m := f.current_move()
@@ -124,47 +171,3 @@ func _on_state_changed(state_name: StringName, f: Fighter) -> void:
 			Sfx.play_varied(&"dash")
 		&"jump":
 			Sfx.play_varied(&"jump")
-
-
-func _on_round_started(_round_number: int) -> void:
-	Sfx.stop_all_loops()
-	Sfx.play(&"round_start")
-
-
-func _on_phase_changed(phase: MatchDirector.Phase) -> void:
-	if phase == MatchDirector.Phase.FIGHT:
-		Sfx.play(&"fight")
-
-
-func _on_round_ended(_winner_slot: int, reason: StringName) -> void:
-	Sfx.stop_all_loops()
-	if reason != &"ko":  # KO already played its own sound via the fighter event
-		Sfx.play(&"time_up")
-
-
-func _on_match_ended(_winner_slot: int) -> void:
-	if not director.is_coop():  # run_ended picks the co-op sound
-		Sfx.play(&"match_win")
-
-
-func _on_run_ended(cleared: bool) -> void:
-	Sfx.stop_all_loops()
-	Sfx.play(&"match_win" if cleared else &"time_up")
-
-
-## The first wave is announced by round_start / fight like a versus round.
-func _on_wave_started(wave: int) -> void:
-	if wave > 0:
-		Sfx.play(&"wave_start")
-
-
-## The last wave's clear is covered by run_ended.
-func _on_wave_cleared(_wave: int) -> void:
-	if not director.coop.is_last_wave():
-		Sfx.play(&"wave_clear")
-
-
-func _on_timer_changed(seconds_left: int) -> void:
-	var warn := Tuning.sfx.timer_warning_seconds
-	if director.phase == MatchDirector.Phase.FIGHT and seconds_left > 0 and seconds_left <= warn:
-		Sfx.play(&"timer_tick")

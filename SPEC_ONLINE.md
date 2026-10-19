@@ -191,7 +191,9 @@ Rules:
 1. Pump the transport. Store arriving remote frames in `InputHistory`
    (confirmed). If a confirmed frame differs from what was predicted for a
    tick ≤ current, mark `rollback_to = min(rollback_to, tick)`.
-2. If `rollback_to` is set: `load_state(snapshot[rollback_to - 1])`, set
+2. If `rollback_to` is set: `hub.rollback_to(rollback_to)` (drops unconfirmed
+   presentation events, ignores the signals the load fires),
+   `load_state(snapshot[rollback_to - 1])`, set
    `director.resimulating = true`, step up to the current tick, then clear the flag.
 3. Sample local devices once per local slot; write the frame for tick
    `current + input_delay`; send `INPUT`. The local `PAUSE` edge is consumed
@@ -203,7 +205,7 @@ Rules:
 5. `save_state()` into a ring buffer of `max_rollback_frames + 2` entries
    (only unconfirmed ticks need one).
 6. Advance `confirmed_tick` (all slots confirmed); emit confirmed events
-   (§9); every `checksum_interval` *(tunable, 30)* confirmed ticks send `HASH`.
+   (§9, `hub.confirm_through(confirmed_tick)`); every `checksum_interval` *(tunable, 30)* confirmed ticks send `HASH`.
 
 Catch-up: when a frame hitch leaves the peer behind (e.g. a window drag on
 Windows), run up to `max_catchup_ticks` *(tunable, 4)* steps in one frame.

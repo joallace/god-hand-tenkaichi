@@ -54,8 +54,14 @@ before autoloads exist. See `tests/README.md`. Always wrap Godot calls in
     Difficulty levels and every behavior knob live in `data/tuning/cpu.tres`
     (`Vector2` = weakest..strongest level, lerped per level).
 - `presentation/` — match scene, arena, split-screen `ViewLayout`,
-  `FighterCamera`, HUD, VFX, pause menu. Observes signals only. `RunStats`
-  tallies co-op per-player stats from events for the results screen.
+  `FighterCamera`, HUD, VFX, pause menu. Observes signals only, through
+  `MatchEventHub` (SPEC_ONLINE.md §9): the immediate stream (`fighter_event`,
+  `fighter_state`, `director_event`; keyed by tick/sim_id/kind, muted during
+  a rollback resim) drives VFX, SFX, shakes, flashes; the confirmed stream
+  (`confirmed_event`; instant offline, `rollback_to`/`confirm_through`
+  online) drives match flow, banners, results and `RunStats` (co-op
+  per-player stats). Timer, enemies left, bars and the ki loop read state;
+  only structural director signals (spawn/remove) are connected directly.
   - `audio/`: `Sfx` autoload (play by sound name, voice pool, keyed loops,
     menu focus blip) and `MatchSfx` (fighter events/states + director
     signals -> sounds). Mix volumes in `data/tuning/sfx.tres`.
