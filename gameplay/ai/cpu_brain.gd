@@ -27,15 +27,28 @@ extends RefCounted
 ## brain freezes too (keeps holding long presses, lets taps go) and its
 ## timings stay in step with the fighter's frame counters.
 ##
+## Crowds (co-op / teams): with several enemies the brain picks its target
+## by a sticky score (distance, who hit it last, free attack tokens, low
+## health) and steers its fighter there with InputFrame.target_request. It
+## also defends against the nearest other enemy attacking it. In co-op an
+## enemy needs an EncounterDirector token on its (team-0) target before it
+## starts an attack (melee: strings, heavies, throws, dash attacks, punishes;
+## ranged: blasts, beams, supers); without one it hovers at mid range,
+## circling, guarding, charging ki or taunting. With one enemy and tokens off
+## (versus) none of this draws from the RNG, so 1v1 decisions are unchanged.
+##
 ## Determinism: seeded RandomNumberGenerator; every decision variable
 ## round-trips through save_state()/load_state().
 
 const S := Fighter.State
 const B := InputFrame.Btn
 const D := InputFrame.Dodge
+const K := EncounterDirector.Kind
 ## `_plan` entry: [start_clock, end_clock (exclusive), button (0 = stick
 ## only), stick_y, stick_x] (stick in InputFrame.MOVE_SCALE units).
 const NO_STICK := 1 << 16
+## Buttons that start an attack from neutral (co-op: need a token).
+const ATTACK_BUTTONS := B.LIGHT | B.HEAVY | B.THROW | B.BLAST | B.SPECIAL
 const CAN_ACT: Array[int] = [S.IDLE, S.WALK, S.GUARD, S.DASH, S.CHARGE]
 const CAN_DODGE: Array[int] = [S.IDLE, S.WALK, S.GUARD, S.DASH]
 ## Entering these drops every plan: whatever was queued no longer applies.
@@ -55,6 +68,8 @@ const SAVED: Array[StringName] = [
 	&"_threat_serial", &"_my_serial", &"_my_state", &"_my_frame", &"_reflex_done", &"_rise_done",
 	&"_string_left", &"_chase", &"_followup", &"_counter_until", &"_contact_serial",
 	&"_contact_blocked", &"_punish_key", &"_last_held", &"_last_move", &"_mash_next",
+	&"_want_slot", &"_want_since", &"_last_hit_by", &"_side_slot", &"_side_serial",
+	&"_side_known_at", &"_side_answered_slot", &"_side_answered_serial", &"_had_token",
 ]
 
 var level: int
@@ -107,6 +122,20 @@ var _last_held: int = 0
 var _last_move: Vector2 = Vector2.ZERO
 ## Next mash press while guard crashed / staggered (-1 = not mashing).
 var _mash_next: int = -1
+## Crowds: target slot requested (-1 = none yet) and since when; who hit me
+## last.
+var _want_slot: int = -1
+var _want_since: int = 0
+var _last_hit_by: int = -1
+## Crowds: another enemy attacking me (slot, move serial), when that is
+## noticed, and the last such attack already answered.
+var _side_slot: int = -1
+var _side_serial: int = -1
+var _side_known_at: int = 0
+var _side_answered_slot: int = -1
+var _side_answered_serial: int = -1
+## Co-op: held an attack token last tick (a new grant wakes the neutral game).
+var _had_token: bool = false
 
 
 func _init(p_level: int = -1, seed_value: int = 0) -> void:
@@ -142,9 +171,13 @@ func think() -> InputFrame:
 		return _frozen_frame()
 	_clock += 1
 	_perceive()
+	_perceive_side()
 	_track_my_state()
+	_wake_on_token()
 	_decide()
-	return _emit()
+	var f := _emit()
+	f.target_request = _choose_target()
+	return f
 
 
 # =============================================================================
@@ -214,6 +247,8 @@ func _track_my_state() -> void:
 func _on_my_event(kind: StringName, data: Dictionary) -> void:
 	if kind == &"perfect_dodge" and data.get("slot", -1) == slot:
 		_counter_until = _clock + me.tuning.perfect_dodge_counter_frames
+	elif kind == &"hit" and data.get("slot", -1) == slot:
+		_last_hit_by = data.get("attacker_slot", -1)
 
 
 func _on_opp_event(kind: StringName, data: Dictionary) -> void:
@@ -341,7 +376,7 @@ func _dodge_counter() -> void:
 	if _reflex_done or _clock >= _counter_until:
 		return
 	_reflex_done = true
-	if not _roll(cfg.punish_chance):
+	if not _may_attack(K.MELEE) or not _roll(cfg.punish_chance):
 		return
 	var at := mini(_clock + _reaction(), _counter_until - 1)
 	if opp.state == S.GUARD_BREAK:
@@ -352,40 +387,59 @@ func _dodge_counter() -> void:
 
 # --- 2. Defense ---------------------------------------------------------------
 
-## Answer a newly noticed opponent attack. True while a defense is underway.
+## Answer a newly noticed attack: the target's first, else another enemy's
+## (crowds). True while a defense is underway.
 func _defend() -> bool:
 	if _opp_state == S.ATTACK and _seen() and _threat_serial != _opp_serial:
 		_threat_serial = _opp_serial
-		var m := opp.current_move()
-		if m != null:
-			match m.spawn_kind:
-				&"ki_blast":
-					_defend_blast(m)
-				&"beam":
-					_defend_beam(m)
-				_:
-					if opp.attack_phase() <= 1 and _dist() <= _reach(m) + cfg.reach_margin:
-						if m.is_throw:
-							_defend_throw(m)
-						else:
-							_defend_melee(m)
+		_answer(opp, false)
+	elif _side_slot >= 0 and _clock >= _side_known_at and not _defending() \
+			and (_side_answered_slot != _side_slot or _side_answered_serial != _side_serial):
+		_side_answered_slot = _side_slot
+		_side_answered_serial = _side_serial
+		var a := director.fighter_for_slot(_side_slot)
+		if a != null and a.state == S.ATTACK and a.current_move_serial() == _side_serial:
+			_answer(a, true)
+	return _defending()
+
+
+func _defending() -> bool:
 	return _dodge_at >= _clock or _holding(B.GUARD)
 
 
-func _defend_melee(m: MoveData) -> void:
+## Pick the defense against attacker `a`'s current move (`side`: `a` isn't
+## the target, so it may be behind, where guards fail).
+func _answer(a: Fighter, side: bool) -> void:
+	var m := a.current_move()
+	if m == null:
+		return
+	match m.spawn_kind:
+		&"ki_blast":
+			_defend_blast(m, a)
+		&"beam":
+			_defend_beam(m, a)
+		_:
+			if a.attack_phase() <= 1 and _dist_to(a) <= _reach(m) + cfg.reach_margin:
+				if m.is_throw:
+					_defend_throw(m, a)
+				else:
+					_defend_melee(m, a, side)
+
+
+func _defend_melee(m: MoveData, a: Fighter, side: bool = false) -> void:
 	if not _roll(cfg.defend_chance):
 		return
 	var t := me.tuning
-	var hit_in := m.startup - opp.state_frame() - 1  # ticks until its first active frame
+	var hit_in := m.startup - a.state_frame() - 1  # ticks until its first active frame
 	var can_dodge := me.state in CAN_DODGE or me.state == S.CHARGE
 	var pose := _guard_pose_for(m)
 	var res := m.guard_result(pose)
-	var can_guard := res != MoveData.GuardResult.UNBLOCKABLE
+	var can_guard := res != MoveData.GuardResult.UNBLOCKABLE and not (side and _is_behind(a))
 	# A ki guard with too little ki left crashes the guard: rather dodge.
 	var crashes := res == MoveData.GuardResult.KI_GUARD and me.ki <= m.guard_ki_cost
 	var stick := _pose_stick(pose)
 	var window := me.guard_vanish_window()
-	var opener := opp.move_opens_string()
+	var opener := a.move_opens_string()
 	# Only a string opener can be vanished, and only with a clean (unmashed) press.
 	var can_vanish := opener and me.ki >= VanishBattle.cost_from(t, t.guard_vanish_cost_bars, 0)
 	var dodge := can_dodge and (not can_guard or crashes or _roll(cfg.dodge_preference))
@@ -418,11 +472,11 @@ func _defend_melee(m: MoveData) -> void:
 
 ## Guards don't stop a grab: pre-break it with a clean GUARD press just
 ## before it connects, or dodge it; otherwise it's up to _throw_reflex.
-func _defend_throw(m: MoveData) -> void:
+func _defend_throw(m: MoveData, a: Fighter) -> void:
 	if not _roll(cfg.defend_chance):
 		return
 	var t := me.tuning
-	var hit_in := m.startup - opp.state_frame() - 1
+	var hit_in := m.startup - a.state_frame() - 1
 	_clear_plan()
 	if hit_in >= 1 and _roll(cfg.throw_break_chance):
 		var lead := rng.randi_range(0, mini(t.throw_break_frames - 1, hit_in - 1))
@@ -434,11 +488,11 @@ func _defend_throw(m: MoveData) -> void:
 		_dodge(D.BACK, _clock + hit_in)
 
 
-func _defend_blast(m: MoveData) -> void:
+func _defend_blast(m: MoveData, a: Fighter) -> void:
 	if m.spawn_move == null or not _roll(cfg.projectile_defend_chance):
 		return
 	var speed := maxf(m.spawn_move.travel_speed / Tuning.match_rules.tick_rate, 0.01)
-	var hit_in := m.spawn_frame - opp.state_frame() - 1 + ceili(maxf(_dist() - m.spawn_move.hitbox_offset.z, 0.0) / speed)
+	var hit_in := m.spawn_frame - a.state_frame() - 1 + ceili(maxf(_dist_to(a) - m.spawn_move.hitbox_offset.z, 0.0) / speed)
 	if hit_in > cfg.blast_look_ahead_frames + m.spawn_frame:
 		return  # too far to bother; it may not even reach
 	_clear_plan()
@@ -450,10 +504,10 @@ func _defend_blast(m: MoveData) -> void:
 
 
 ## Beams out-damage a guard; sway off the line as it fires and keep strafing.
-func _defend_beam(m: MoveData) -> void:
+func _defend_beam(m: MoveData, a: Fighter) -> void:
 	if not _roll(cfg.projectile_defend_chance):
 		return
-	var fire_in := m.spawn_frame - opp.state_frame() - 1
+	var fire_in := m.spawn_frame - a.state_frame() - 1
 	_clear_plan()
 	if not (me.state in CAN_DODGE or me.state == S.CHARGE) or not _roll(cfg.smart_dodge_chance):
 		_hold(B.GUARD, _clock, maxi(fire_in, 0) + m.spawn_move.active, _pose_stick(_guard_pose_for(m.spawn_move)))
@@ -622,6 +676,8 @@ func _punish() -> bool:
 	var dash_reach := _reach(me.def.move(me.def.dash_attack)) + me.tuning.dash_speed * me.tuning.dash_frames / Tuning.match_rules.tick_rate
 	if not in_reach and (not recovering or d > dash_reach):
 		return false
+	if not _may_attack(K.MELEE):
+		return false  # asked for a token; retry while the opening lasts
 	_punish_key = _opp_known_at
 	if not _roll(cfg.punish_chance):
 		return false
@@ -638,9 +694,9 @@ func _punish() -> bool:
 
 func _neutral() -> void:
 	var d := _dist()
-	var t := me.tuning
-	var bar := t.ki_bar_size
 	_release(B.GUARD)
+	if _limited() and _tokened_neutral(d):
+		return
 	if _taunt_safe(d) and me.ki < me.ki_max() and _roll(cfg.taunt_chance):
 		_tap(B.TAUNT, _clock)
 		return
@@ -652,6 +708,19 @@ func _neutral() -> void:
 		else:
 			_walk_for(Vector2(_strafe_sign(), -1.0 if not _near_wall() else 0.0))
 		return
+	var pick := _pick(_neutral_options(d))
+	var kind := _option_token(pick)
+	if kind >= 0 and not _may_attack(kind):
+		_tokenless(d)
+		return
+	_do_option(pick, d)
+
+
+## Far-range neutral options and their weights (insertion order matters:
+## _pick walks it in order).
+func _neutral_options(d: float) -> Dictionary:
+	var t := me.tuning
+	var bar := t.ki_bar_size
 	var options := {
 		&"approach": _p(cfg.aggression),
 		&"wait": 1.0 - _p(cfg.aggression),
@@ -667,7 +736,23 @@ func _neutral() -> void:
 		options[&"ultimate"] = _p(cfg.special_chance) * cfg.ultimate_weight
 	if me.ki >= t.super1_cost_bars * bar and d <= _reach(me.def.move(me.def.super1)):
 		options[&"rush"] = _p(cfg.special_chance) * cfg.rush_weight
-	match _pick(options):
+	return options
+
+
+## The attack token a neutral option needs (-1 = none).
+func _option_token(option: StringName) -> int:
+	match option:
+		&"approach":
+			return K.MELEE
+		&"blast", &"beam", &"ultimate", &"rush":
+			return K.RANGED
+	return -1
+
+
+func _do_option(option: StringName, d: float) -> void:
+	var t := me.tuning
+	var bar := t.ki_bar_size
+	match option:
 		&"approach":
 			if d > cfg.dash_distance:
 				_tap(B.DASH, _clock)
@@ -691,6 +776,9 @@ func _neutral() -> void:
 
 
 func _close_attack() -> void:
+	if not _may_attack(K.MELEE):
+		_tokenless(_dist())
+		return
 	var t := me.tuning
 	if _opp_seen_state in GUARDING and _roll(cfg.throw_chance):
 		_throw()
@@ -717,6 +805,9 @@ func _close_attack() -> void:
 
 ## Grab (stick back = throw behind), stepping in first if out of grab reach.
 func _throw() -> void:
+	if director.encounter != null and not director.encounter.request_grab(me, opp):
+		_start_string(_clock)  # someone else has them in a grab
+		return
 	var t := me.tuning
 	var gap := _dist() - _reach(me.def.move(me.def.throw))
 	var at := _clock
@@ -798,6 +889,162 @@ func _walk_for(v: Vector2) -> void:
 	_walk_until = _next_think
 
 
+# --- 5. Crowds (co-op / teams) --------------------------------------------------
+
+## Attack tokens apply to this brain: co-op, me an enemy, my target on team 0.
+func _limited() -> bool:
+	var enc := director.encounter
+	return enc != null and enc.enabled and me.team != EncounterDirector.PROTECTED_TEAM \
+		and opp != null and opp.team == EncounterDirector.PROTECTED_TEAM
+
+
+## May I start a `kind` attack on my target now? Always (and without touching
+## the RNG) when tokens don't apply; otherwise asks the EncounterDirector
+## (the request queues and is granted on a later tick).
+func _may_attack(kind: int) -> bool:
+	if not _limited():
+		return true
+	return director.encounter.request_token(me, opp, kind)
+
+
+## Neutral with a token in hand: go use it (melee: close in and attack;
+## ranged: one of the ranged options). False = no usable token.
+func _tokened_neutral(d: float) -> bool:
+	var enc := director.encounter
+	if enc.holds_token(me, K.MELEE):
+		if d <= _reach(_jab()):
+			_close_attack()
+		elif d > cfg.dash_distance:
+			_tap(B.DASH, _clock)
+		elif d <= _dash_attack_range() and rng.randf() < _p(cfg.mixup_chance):
+			_dash_attack(d)
+		else:
+			_walk_for(Vector2(_strafe_sign() * rng.randf_range(0.0, cfg.approach_strafe), 1.0))
+		return true
+	if enc.holds_token(me, K.RANGED):
+		var ranged := {}
+		var options := _neutral_options(d)
+		for k: StringName in options:
+			if _option_token(k) == K.RANGED:
+				ranged[k] = options[k]
+		if not ranged.is_empty():
+			_do_option(_pick(ranged), d)
+			return true
+	return false
+
+
+## No token: hover at mid range, circling, guarding, charging ki or taunting.
+func _tokenless(d: float) -> void:
+	if d < cfg.tokenless_min_distance:
+		_walk_for(Vector2(_strafe_sign(), -1.0 if not _near_wall() else 0.0))
+		return
+	if d > cfg.tokenless_max_distance:
+		_walk_for(Vector2(_strafe_sign() * rng.randf_range(0.0, cfg.approach_strafe), 1.0))
+		return
+	var r := rng.randf()
+	var guard := cfg.tokenless_guard_share
+	var charge := guard + cfg.tokenless_charge_share
+	if r < guard:
+		_hold(B.GUARD, _clock, roundi(_p(cfg.think_interval)) + cfg.guard_tail_frames)
+	elif r < charge and me.ki < me.ki_max() and d >= cfg.charge_abort_distance:
+		_hold(B.CHARGE, _clock, maxi(roundi(_p(cfg.think_interval)), 1))
+	elif r < charge + cfg.tokenless_taunt_share and _taunt_safe(d) and me.ki < me.ki_max():
+		_tap(B.TAUNT, _clock)
+	else:
+		_walk_for(Vector2(_strafe_sign(), 0.0))
+
+
+## A token just arrived: think now instead of at the next neutral beat (and
+## stop a tokenless ki charge).
+func _wake_on_token() -> void:
+	if not _limited():
+		_had_token = false
+		return
+	var enc := director.encounter
+	var has := enc.holds_token(me, K.MELEE) or enc.holds_token(me, K.RANGED)
+	if has and not _had_token and me.state in CAN_ACT:
+		_release(B.CHARGE)
+		_next_think = mini(_next_think, _clock)
+	_had_token = has
+
+
+## Standing enemies of mine (other teams), in slot order.
+func _enemies() -> Array[Fighter]:
+	var out: Array[Fighter] = []
+	for f in director.fighters:
+		if f != me and f.team != me.team and f.is_targetable():
+			out.append(f)
+	return out
+
+
+## Target to request this tick (-1 = no request: one enemy or none). The
+## choice is kept for target_min_hold_frames before it is re-scored.
+func _choose_target() -> int:
+	var cands := _enemies()
+	if cands.size() < 2:
+		return -1
+	var cur := me.target
+	if cur != null and cur.slot == _want_slot and cur in cands \
+			and _clock < _want_since + cfg.target_min_hold_frames:
+		return _want_slot
+	var best: Fighter = null
+	var best_score := -INF
+	for c in cands:
+		var sc := _target_score(c)
+		if sc > best_score:
+			best = c
+			best_score = sc
+	if best.slot != _want_slot:
+		_want_slot = best.slot
+		_want_since = _clock
+	return _want_slot
+
+
+func _target_score(c: Fighter) -> float:
+	var sc := -_dist_to(c) * cfg.target_distance_weight
+	if c.slot == _last_hit_by:
+		sc += cfg.target_last_hit_bonus
+	var enc := director.encounter
+	if enc != null and (enc.free_tokens(c, K.MELEE) > 0 or me.slot in enc.holders(c, K.MELEE)):
+		sc += cfg.target_free_token_bonus
+	sc += (1.0 - c.health_ratio()) * cfg.target_low_health_weight
+	return sc
+
+
+## Track another enemy (not my target) attacking me; noticed after the
+## reaction delay like the target's moves.
+func _perceive_side() -> void:
+	var a := _side_attacker()
+	var s := a.slot if a != null else -1
+	var serial := a.current_move_serial() if a != null else -1
+	if s != _side_slot or serial != _side_serial:
+		_side_slot = s
+		_side_serial = serial
+		_side_known_at = _clock + _reaction() if s >= 0 else 0
+
+
+## Nearest enemy other than the target that is attacking me within
+## side_threat_range (ties: lower slot).
+func _side_attacker() -> Fighter:
+	var best: Fighter = null
+	var best_d := cfg.side_threat_range
+	for f in director.fighters:
+		if f == me or f == opp or f.team == me.team or f.state != S.ATTACK or f.target != me:
+			continue
+		var d := _dist_to(f)
+		if d <= best_d:
+			best = f
+			best_d = d
+	return best
+
+
+## `a` stands behind me (more than 90 degrees off my facing): guards fail.
+func _is_behind(a: Fighter) -> bool:
+	var to := a.global_position - me.global_position
+	to.y = 0.0
+	return (-me.global_basis.z).dot(to) < 0.0
+
+
 # =============================================================================
 # Plan / output
 # =============================================================================
@@ -860,6 +1107,7 @@ func _emit() -> InputFrame:
 		if p[1] > _clock + 1:
 			keep.append(p)
 	_plan = keep
+	_gate_attack_presses(f)
 	f.set_move(mv)
 	if _dodge_at >= 0 and _dodge_at <= _clock:
 		f.dodge = _dodge_dir as InputFrame.Dodge
@@ -867,6 +1115,24 @@ func _emit() -> InputFrame:
 	_last_held = f.held
 	_last_move = mv
 	return f
+
+
+## Co-op safety net: a fresh attack press from neutral while holding no
+## token (one granted earlier may have expired before the planned press) is
+## dropped and a token requested again. Presses while defending (counter
+## guard from a held guard) are left alone.
+func _gate_attack_presses(f: InputFrame) -> void:
+	var fresh := f.held & ~_last_held & ATTACK_BUTTONS
+	if fresh == 0 or not _limited() or me.state not in CAN_ACT or me.state == S.GUARD:
+		return
+	var enc := director.encounter
+	if enc.holds_token(me, K.MELEE) or enc.holds_token(me, K.RANGED):
+		return
+	enc.request_token(me, opp, K.MELEE)
+	f.held &= ~fresh
+	for b: int in [B.LIGHT, B.HEAVY, B.THROW, B.BLAST, B.SPECIAL]:
+		if fresh & b:
+			_release(b)
 
 
 ## Hitstop: keep long holds (no fresh edges), let go of taps, no dodges.
@@ -935,7 +1201,11 @@ func _jab() -> MoveData:
 
 
 func _dist() -> float:
-	var d := opp.global_position - me.global_position
+	return _dist_to(opp)
+
+
+func _dist_to(f: Fighter) -> float:
+	var d := f.global_position - me.global_position
 	d.y = 0.0
 	return d.length()
 

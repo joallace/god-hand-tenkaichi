@@ -142,7 +142,9 @@ extends CombatEntity
 ## is vanished: it's coming back). No change happens mid dodge (or with a
 ## dodge flick buffered), with a HEAVY buffered/charging (its stick is
 ## latched), in a throw, a teleport or a vanish battle: a TARGET tap waits
-## for the first allowed tick. MatchDirector only fills targets at round
+## for the first allowed tick. InputFrame.target_request (a slot, how
+## CpuBrain steers) locks that fighter like a TARGET tap, if it's a
+## targetable enemy, with the same deferral. MatchDirector only fills targets at round
 ## start/spawn and replaces KO'd ones, through the same policy
 ## (best_target / retarget_auto), so the two never disagree.
 ##
@@ -280,6 +282,9 @@ var _down_frames: int = 0
 var _reviver_slot: int = -1
 var _revive_done: int = 0
 var _revive_target_slot: int = -1
+## InputFrame.target_request waiting to be applied (-1 = none): a lock on a
+## named fighter (how CpuBrain steers its target).
+var _target_request: int = -1
 var _buffer: PackedInt32Array = PackedInt32Array()
 var _dodge_buf_dir: int = InputFrame.Dodge.NONE
 var _dodge_buf_frames: int = 0
@@ -347,6 +352,8 @@ func feed_input(frame: InputFrame) -> void:
 	if frame.just_pressed(InputFrame.Btn.TARGET):
 		_target_press_pending = true
 		_target_press_dir = Targeting.cycle_dir(frame.move_x)
+	if frame.target_request >= 0 and (target == null or frame.target_request != target.slot or not _target_locked):
+		_target_request = frame.target_request
 
 
 func sim_tick(_tick: int) -> void:
@@ -436,6 +443,7 @@ func reset_for_round(xform: Transform3D) -> void:
 	_reviver_slot = -1
 	_revive_done = 0
 	_revive_target_slot = -1
+	_target_request = -1
 	_vanish_battle = null
 	clear_contacts()
 	_clear_buffer()
@@ -2186,6 +2194,13 @@ func _tick_targeting() -> void:
 		_retarget_timer -= 1
 	if director == null or is_ko() or not _can_retarget():
 		return
+	if _target_request >= 0:
+		var want := _fighter(_target_request)
+		_target_request = -1
+		if want != null and want.team != team and want.is_targetable():
+			target = want
+			_target_locked = true
+			return
 	if _target_press_pending:
 		_target_press_pending = false
 		var cur := target.slot if target != null else -1
@@ -2382,6 +2397,7 @@ func save_state() -> Dictionary:
 		"target_press_pending": _target_press_pending, "target_press_dir": _target_press_dir,
 		"down_frames": _down_frames, "reviver": _reviver_slot, "revive_done": _revive_done,
 		"revive_target": _revive_target_slot,
+		"target_request": _target_request,
 	})
 	save_contacts(s)
 	return s
@@ -2462,6 +2478,7 @@ func load_state(s: Dictionary) -> void:
 	_target_locked = s["target_locked"]
 	_retarget_timer = s["retarget_timer"]
 	_target_press_pending = s["target_press_pending"]
+	_target_request = s["target_request"]
 	_target_press_dir = s["target_press_dir"]
 	_down_frames = s["down_frames"]
 	_reviver_slot = s["reviver"]

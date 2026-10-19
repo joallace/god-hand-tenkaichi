@@ -162,6 +162,30 @@ extends Resource
 ## A dash attack is pressed when the gap left is this share of its reach.
 @export_range(0.0, 1.0) var dash_attack_reach_share: float = 0.7
 
+@export_group("Crowds (co-op, all levels)")
+## Target choice among several enemies (score = higher is better):
+## minimum frames a chosen target is kept before re-scoring.
+@export_range(0, 1200) var target_min_hold_frames: int = 90
+## Score lost per meter to the candidate.
+@export_range(0.0, 10.0) var target_distance_weight: float = 0.25
+## Score bonus for whoever hit this CPU last.
+@export_range(0.0, 10.0) var target_last_hit_bonus: float = 1.0
+## Score bonus when a melee token on the candidate is free (spreads enemies).
+@export_range(0.0, 10.0) var target_free_token_bonus: float = 1.5
+## Score bonus per missing health ratio of the candidate (finish the weak).
+@export_range(0.0, 10.0) var target_low_health_weight: float = 1.0
+## Without an attack token: hover between these distances (m) from the target.
+@export_range(0.0, 30.0) var tokenless_min_distance: float = 3.5
+@export_range(0.0, 30.0) var tokenless_max_distance: float = 6.0
+## Without a token, share of decisions spent guarding / charging ki / taunting
+## (the rest circle).
+@export_range(0.0, 1.0) var tokenless_guard_share: float = 0.2
+@export_range(0.0, 1.0) var tokenless_charge_share: float = 0.25
+@export_range(0.0, 1.0) var tokenless_taunt_share: float = 0.05
+## Enemies other than the target attacking this CPU within this range (m)
+## are defended against too.
+@export_range(0.0, 50.0) var side_threat_range: float = 8.0
+
 
 func level_count() -> int:
 	return maxi(level_names.size(), 1)

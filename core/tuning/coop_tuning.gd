@@ -28,6 +28,12 @@ extends Resource
 @export_range(0, 8) var ranged_tokens_per_player: int = 1
 ## A token returns to the pool after this many frames even if unused.
 @export_range(1, 1200) var token_timeout_frames: int = 180
+## A granted token whose holder hasn't started the attack within this many
+## frames goes back to the pool.
+@export_range(1, 600) var token_unused_frames: int = 90
+## A token request that isn't renewed within this many frames is dropped
+## (its wait time starts over).
+@export_range(1, 600) var token_request_frames: int = 60
 ## Experimental: enemies outside the target's (sim-computed) view cone can't
 ## start an attack.
 @export var offscreen_attack_rule: bool = false
