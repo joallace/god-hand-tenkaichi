@@ -61,7 +61,12 @@ extends CombatEntity
 ##                     dir &"neutral"|&"forward"|&"back"|&"left"|&"right")
 ##   &"teleport"       {target_slot, position}        (offensive vanish start)
 ##   &"vanish"         {exchange, escape: true, position} (vanish escape/battle)
-##   &"vanish_battle_end" {exchanges, winner_slot}
+##   &"vanish_battle_end" {exchanges, winner_slot}  (winner -1 = broken off)
+##   &"lock_broken"    {partner_slot, by_slot, kind: &"throw"|&"vanish_battle"}
+##                     (a third party hit this fighter mid-throw / mid vanish
+##                     battle; both are freed. Emitted by the hit fighter)
+##   &"entry"          {position}                     (spawned enemy appearing;
+##                                                     ENTERING starts)
 ##   &"reappear"       {position}                     (end of any vanish)
 ##   &"ki_blast"       {position}
 ##   &"super_start"    {kind: &"rush"|&"beam"|&"ultimate"}
@@ -372,6 +377,7 @@ func sim_tick(_tick: int) -> void:
 		State.TAUNT: _tick_taunt()
 		State.COUNTER: _tick_counter()
 		State.RECOIL: _tick_recoil()
+		State.ENTERING: _tick_entering()
 	_apply_motion()
 	_age_buffer()
 
@@ -480,7 +486,7 @@ func is_invulnerable() -> bool:
 	if _invuln_frames > 0:
 		return true
 	match state:
-		State.TELEPORT, State.KO, State.DOWNED, State.OUT:
+		State.TELEPORT, State.KO, State.DOWNED, State.OUT, State.ENTERING:
 			return true
 		State.DODGE:
 			if _dodge_kind == DodgeKind.AIR_TECH:
@@ -498,7 +504,7 @@ func is_vanished() -> bool:
 
 ## Can be picked as a new target (KO'd and vanished fighters can't).
 func is_targetable() -> bool:
-	return not is_ko() and not is_vanished()
+	return not is_ko() and not is_vanished() and not is_entering()
 
 
 ## Co-op (STUBS, filled in by milestone 3): at 0 HP a team-0 fighter in a
@@ -547,9 +553,22 @@ func revive_now(health_ratio: float) -> void:
 	_finish_revive(-1, health_ratio)
 
 
-## Start the ENTERING state (spawned enemy appearing at the ring edge).
-func begin_entry(_frames: int) -> void:
-	pass
+## Start the ENTERING state (spawned enemy appearing at the ring edge) for
+## `frames`: intangible, untargetable, no body push, can't act (presses made
+## meanwhile are dropped); turns toward its target, then IDLE.
+func begin_entry(frames: int) -> void:
+	_enter(State.ENTERING)
+	_state_len = frames
+	_vel = Vector3.ZERO
+	event.emit(&"entry", {"slot": slot, "position": global_position})
+
+
+func _tick_entering() -> void:
+	_set_ground_velocity(Vector3.ZERO)
+	_face_target(_turn_step())
+	if _state_frame >= _state_len:
+		_clear_buffer()
+		_enter(State.IDLE)
 
 
 ## True while a TARGET tap's manual lock holds the current target.
@@ -730,7 +749,7 @@ func on_hitbox_contact(hb: Hitbox, _victim: Fighter, outcome: Contact) -> void:
 ## fighter can't be touched at all. Invulnerability is checked later in
 ## receive_hit() so that perfect dodges can still be detected.
 func get_hurtbox() -> Array:
-	if state == State.TELEPORT or _is_down():
+	if state == State.TELEPORT or _is_down() or state == State.ENTERING:
 		return []
 	if state == State.KNOCKDOWN and _land_frame >= 0:
 		return []
@@ -761,6 +780,7 @@ func receive_hit(hb: Hitbox) -> Contact:
 		return Contact.NONE
 	if hb.is_throw:
 		return Contact.THROW if _try_grabbed(hb) else Contact.NONE
+	_break_lock_by(hb.attacker)
 	if state == State.THROW:
 		_release_throw()
 	if _try_counter_guard(hb):
@@ -1336,6 +1356,43 @@ func _release_throw() -> void:
 		victim._enter(State.IDLE)
 
 
+## A hit from `by`, who is neither this fighter nor its lock partner, frees
+## both fighters of a throw or vanish battle (SPEC.md §4.5). This fighter
+## then takes the hit normally; the partner returns to neutral.
+func _break_lock_by(by: Fighter) -> void:
+	if by == null or by == self:
+		return
+	var kind := &""
+	var partner: Fighter = null
+	if state == State.THROWN:
+		partner = _fighter(_grab_partner_slot)
+		if partner != null and partner._grabbed_victim() == self:
+			kind = &"throw"
+	elif state == State.THROW:
+		partner = _grabbed_victim()
+		if partner != null:
+			kind = &"throw"
+	elif in_vanish_battle():
+		partner = _vanish_partner()
+		kind = &"vanish_battle"
+	if kind == &"" or partner == null or by == partner:
+		return
+	event.emit(&"lock_broken", {"slot": slot, "partner_slot": partner.slot, "by_slot": by.slot, "kind": kind})
+	if kind == &"vanish_battle":
+		# A partner mid-vanish reappears as usual; one waiting to respond sees
+		# the battle over and returns to neutral (_tick_vanish_wait).
+		_end_vanish_battle(-1)
+		return
+	_grab_partner_slot = -1
+	partner._grab_partner_slot = -1
+	if state == State.THROW:
+		partner._enter(State.IDLE)  # the victim slips free
+		partner._invuln_frames = maxi(partner._invuln_frames, tuning.lock_break_invuln_frames)
+	else:
+		partner._enter(State.IDLE)  # the thrower lets go
+	_enter(State.IDLE)  # leave the lock before the hit applies
+
+
 ## The fighter this thrower holds, or null.
 func _grabbed_victim() -> Fighter:
 	var victim := _fighter(_grab_partner_slot)
@@ -1347,6 +1404,10 @@ func _grabbed_victim() -> Fighter:
 func _tick_throw() -> void:
 	_set_ground_velocity(Vector3.ZERO)
 	var f := _state_frame
+	if f < tuning.throw_break_frames and _grabbed_victim() == null:
+		_grab_partner_slot = -1
+		_enter(State.IDLE)  # victim was knocked out of the grab
+		return
 	if f == tuning.throw_break_frames and _grabbed_victim() != null:
 		_execute_throw()
 	if f >= tuning.throw_break_frames + tuning.throw_recovery_frames:
