@@ -7,7 +7,11 @@ extends RefCounted
 ##      using the pre-resolution state (simultaneous hits trade)
 ##   3. apply contacts in that same deterministic order: the victim decides
 ##      the outcome (perfect dodge / invuln / block / hit), the source is told,
-##      and hitstop is requested.
+##      and hitstop is requested for the attacker, the victim and the hitting
+##      entity only (bystanders keep simulating).
+## Runs every tick the world isn't frozen. A source in its own hitstop makes
+## no new contacts (it's mid-impact); a frozen victim can still be hit by a
+## source that isn't frozen.
 ## Stateless: one-hit-per-activation is tracked by each CombatEntity.
 
 var director: MatchDirector
@@ -32,6 +36,8 @@ func resolve(_tick: int) -> void:
 
 	var contacts: Array = []  # [Hitbox, Fighter]
 	for src in sources:
+		if src.hitstop > 0:
+			continue
 		for hb in src.get_active_hitboxes():
 			if src.has_contacted(hb.hit_id):
 				continue
@@ -53,7 +59,7 @@ func resolve(_tick: int) -> void:
 		if outcome == CombatEntity.Contact.NONE:
 			continue
 		hb.source.on_hitbox_contact(hb, victim, outcome)
-		director.request_hitstop(_hitstop_for(hb, victim, outcome))
+		director.request_hitstop([hb.attacker, victim, hb.source], _hitstop_for(hb, victim, outcome))
 
 
 func _hitstop_for(hb: Hitbox, victim: Fighter, outcome: CombatEntity.Contact) -> int:

@@ -535,7 +535,7 @@ func _test_ultimate() -> void:
 	p1.ki = p1.ki_max()
 	_src(d, 0).stick(0, 1, Vector2(0, -1)).press(0, B.SPECIAL)
 	_run(d, 2)
-	_check(_event_count(&"ultimate_start", 0) == 1 and d.hitstop > 0, "ultimate emits ultimate_start and freezes")
+	_check(_event_count(&"ultimate_start", 0) == 1 and d.world_freeze > 0, "ultimate emits ultimate_start and freezes")
 	_check(is_zero_approx(p1.ki), "ultimate consumes the full gauge")
 	_run(d, 200)
 	_check(p2.health < p2.tuning.max_health - 100.0, "ultimate beam deals big damage (hp %.1f)" % p2.health)
