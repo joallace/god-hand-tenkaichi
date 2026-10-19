@@ -20,6 +20,8 @@ extends Resource
 @export_range(30, 3600) var disconnect_timeout_frames: int = 180
 ## Frames between PINGs on each link.
 @export_range(1, 600) var ping_interval_frames: int = 30
+## Round-trip samples averaged per link.
+@export_range(1, 120) var rtt_samples: int = 8
 
 @export_group("Rollback")
 ## Furthest the sim may run ahead of the oldest unconfirmed remote input.
