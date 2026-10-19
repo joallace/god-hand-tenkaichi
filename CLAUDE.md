@@ -99,5 +99,5 @@ ours. Describe mechanics in our own words; never copy decomp code.
 
 ## Known gaps
 
-Online is a stub. The CPU only knows the moveset roles in `CharacterDef`
+Online is a stub (plan: SPEC_ONLINE.md). The CPU only knows the moveset roles in `CharacterDef`
 (string, heavies, supers), not character-specific tricks.
