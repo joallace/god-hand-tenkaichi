@@ -77,8 +77,8 @@ static func planned_field_size(config: MatchConfig) -> int:
 ## human_spawn_radius, facing outward (enemies come from the ring edge).
 static func human_transform(i: int, n: int) -> Transform3D:
 	var a := TAU * i / maxi(n, 1)
-	var radial := Vector3(sin(a), 0.0, cos(a))
-	return Transform3D(Basis.looking_at(radial), radial * Tuning.coop.human_spawn_radius)
+	var radial := Vector3(DetMath.sin(a), 0.0, DetMath.cos(a))
+	return Transform3D(DetMath.looking_at(radial), radial * Tuning.coop.human_spawn_radius)
 
 
 ## Run start (after team 0 is placed): fill the field from the first wave.
@@ -288,11 +288,11 @@ func _edge_transform(k: int) -> Transform3D:
 		if flat.length() > 0.001:
 			away = flat.normalized()
 	var t := Tuning.coop
-	var step := deg_to_rad(t.spawn_spread_degrees) * ((k + 1) >> 1) * (1.0 if k % 2 == 1 else -1.0)
-	var a := atan2(away.x, away.z) + step
-	var dir := Vector3(sin(a), 0.0, cos(a))
+	var step := DetMath.deg_to_rad(t.spawn_spread_degrees) * ((k + 1) >> 1) * (1.0 if k % 2 == 1 else -1.0)
+	var a := DetMath.atan2(away.x, away.z) + step
+	var dir := Vector3(DetMath.sin(a), 0.0, DetMath.cos(a))
 	var r := director.arena_radius - Tuning.fighter.body_radius - t.spawn_edge_inset
-	return Transform3D(Basis.looking_at(-dir), dir * r)
+	return Transform3D(DetMath.looking_at(-dir), dir * r)
 
 
 func _alive(team: int) -> int:

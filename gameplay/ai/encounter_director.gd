@@ -196,7 +196,7 @@ func _in_view(attacker: Fighter, victim: Fighter) -> bool:
 	fwd.y = 0.0
 	if fwd.length_squared() < 0.0001:
 		return true
-	return rad_to_deg(fwd.normalized().angle_to(to.normalized())) <= Tuning.coop.offscreen_cone_half_angle
+	return DetMath.rad_to_deg(DetMath.angle_to(fwd.normalized(), to.normalized())) <= Tuning.coop.offscreen_cone_half_angle
 
 
 func _token_index(holder: int, victim: int, kind: int) -> int:

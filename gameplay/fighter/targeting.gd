@@ -39,7 +39,7 @@ static func score(self_pos: Vector3, self_fwd: Vector3, cand_pos: Vector3, attac
 	var f := _flat(self_fwd)
 	var ang := 0.0
 	if d.length_squared() > 0.0 and f.length_squared() > 0.0:
-		ang = absf(f.angle_to(d))
+		ang = absf(DetMath.angle_to_2d(f, d))
 	var s := -t.angle_weight * ang - t.distance_weight * d.length()
 	if attacking_me:
 		s += t.attacking_bonus
@@ -120,7 +120,7 @@ static func bearing(self_pos: Vector3, self_fwd: Vector3, pos: Vector3) -> float
 	if f.length_squared() == 0.0 or d.length_squared() == 0.0:
 		return 0.0
 	var right := Vector2(-f.y, f.x)  # fwd (0,-1) -> right (1,0)
-	return fposmod(atan2(d.dot(right), d.dot(f)), TAU)
+	return fposmod(DetMath.atan2(d.dot(right), d.dot(f)), TAU)
 
 
 static func _flat(v: Vector3) -> Vector2:

@@ -57,7 +57,7 @@ func _start() -> Vector3:
 
 func _place() -> void:
 	global_position = _start()
-	global_basis = Basis.looking_at(_dir)
+	global_basis = DetMath.looking_at(_dir)
 
 
 func get_active_hitboxes() -> Array[Hitbox]:
@@ -105,7 +105,7 @@ func _build_visual() -> void:
 	cyl.height = move.hitbox_length
 	_mesh.mesh = cyl
 	# Cylinder is along Y; lay it along -Z (our forward) and start at origin.
-	_mesh.rotation_degrees = Vector3(-90, 0, 0)
+	_mesh.rotation_degrees = Vector3(-90, 0, 0)  # det-ok: view-only mesh child
 	_mesh.position = Vector3(0, 0, -move.hitbox_length * 0.5)
 	var mat := StandardMaterial3D.new()
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED

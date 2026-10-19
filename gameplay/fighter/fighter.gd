@@ -392,7 +392,7 @@ func sim_tick(_tick: int) -> void:
 func reset_for_round(xform: Transform3D) -> void:
 	global_position = xform.origin
 	var fwd := -xform.basis.z
-	_set_yaw(atan2(-fwd.x, -fwd.z))
+	_set_yaw(DetMath.yaw_of(fwd))
 	health = tuning.max_health
 	ki = tuning.ki_start
 	combo_hits = 0
@@ -1215,9 +1215,9 @@ func _sway_step(step: float, to_right: bool) -> void:
 	var rel := global_position - pivot
 	var r := maxf(rel.length(), tuning.body_radius)
 	var angle := step / r
-	var cand := pivot + rel.rotated(Vector3.UP, angle)
+	var cand := pivot + DetMath.rotate_y(rel, angle)
 	if ((cand - global_position).dot(_right()) < 0.0) == to_right:
-		cand = pivot + rel.rotated(Vector3.UP, -angle)
+		cand = pivot + DetMath.rotate_y(rel, -angle)
 	global_position = cand
 
 
@@ -1795,7 +1795,7 @@ func _is_facing(from: Vector3) -> bool:
 	to.y = 0.0
 	if to.length_squared() < 0.0001:
 		return true
-	return rad_to_deg(_fwd().angle_to(to.normalized())) <= tuning.guard_half_angle_deg
+	return DetMath.rad_to_deg(DetMath.angle_to(_fwd(), to.normalized())) <= tuning.guard_half_angle_deg
 
 
 ## The guard's GuardResult against `hb`, or -1 when not guarding at all
@@ -2174,11 +2174,11 @@ func _set_ground_velocity(v: Vector3) -> void:
 
 
 func _turn_step() -> float:
-	return deg_to_rad(tuning.turn_speed_deg) / Tuning.match_rules.tick_rate
+	return DetMath.deg_to_rad(tuning.turn_speed_deg) / Tuning.match_rules.tick_rate
 
 
 func _attack_turn_step() -> float:
-	return deg_to_rad(tuning.attack_track_turn_deg) / Tuning.match_rules.tick_rate
+	return DetMath.deg_to_rad(tuning.attack_track_turn_deg) / Tuning.match_rules.tick_rate
 
 
 func _face_target(max_step: float) -> void:
@@ -2192,7 +2192,7 @@ func _face_toward(f: Fighter, max_step: float) -> void:
 	to.y = 0.0
 	if to.length_squared() < 0.0001:
 		return
-	var want := atan2(-to.x, -to.z)
+	var want := DetMath.yaw_of(to)
 	var diff := wrapf(want - _yaw, -PI, PI)
 	_set_yaw(_yaw + clampf(diff, -max_step, max_step))
 
@@ -2258,15 +2258,15 @@ func _fighter(p_slot: int) -> Fighter:
 
 func _set_yaw(y: float) -> void:
 	_yaw = wrapf(y, -PI, PI)
-	global_basis = Basis(Vector3.UP, _yaw)
+	global_basis = DetMath.yaw_basis(_yaw)
 
 
 func _fwd() -> Vector3:
-	return Vector3(-sin(_yaw), 0.0, -cos(_yaw))
+	return Vector3(-DetMath.sin(_yaw), 0.0, -DetMath.cos(_yaw))
 
 
 func _right() -> Vector3:
-	return Vector3(cos(_yaw), 0.0, -sin(_yaw))
+	return Vector3(DetMath.cos(_yaw), 0.0, -DetMath.sin(_yaw))
 
 
 func _to_world2(v: Vector2) -> Vector3:

@@ -407,11 +407,11 @@ func spawn_transform(i: int) -> Transform3D:
 		radial = Vector3.BACK if ti == 0 else Vector3.FORWARD
 	elif teams.size() > 2:
 		var a := TAU * ti / teams.size()
-		radial = Vector3(sin(a), 0.0, cos(a))
+		radial = Vector3(DetMath.sin(a), 0.0, DetMath.cos(a))
 	var side := Vector3(-radial.z, 0.0, radial.x)
 	var r := Tuning.match_rules
 	var pos := radial * (r.spawn_distance * 0.5) + side * ((mi - (mates.size() - 1) * 0.5) * r.spawn_team_spacing)
-	return Transform3D(Basis.looking_at(-radial), pos)
+	return Transform3D(DetMath.looking_at(-radial), pos)
 
 
 func fighter_for_slot(slot: int) -> Fighter:

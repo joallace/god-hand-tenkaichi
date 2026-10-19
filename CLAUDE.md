@@ -79,6 +79,10 @@ before autoloads exist. See `tests/README.md`. Always wrap Godot calls in
 - Gameplay runs only in `sim_tick` (never `_process`/`_physics_process`), must
   be deterministic, and every sim variable must round-trip through
   `save_state`/`load_state` (future rollback netcode).
+- Sim code never calls libm-backed math (`sin`, `atan2`, `angle_to`,
+  `rotated`, `Basis(axis, angle)`, `pow`...), the global RNG or the clock: use
+  `DetMath` (`core/sim/det_math.gd`) and a seeded `RandomNumberGenerator`.
+  `tests/determinism_lint_test` enforces it (`# det-ok: <reason>` to allow).
 - Gameplay never polls `Input`; it reads `InputFrame`s. New modes = new
   `InputSource` + `MatchConfig` setup, not fighter changes.
 - Presentation never writes gameplay state.
