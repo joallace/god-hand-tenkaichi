@@ -177,6 +177,9 @@ var team: int = 0
 ## lunges, sidesteps, aimed blasts. Null = none (keeps its facing). Picked by
 ## the MatchDirector; saved by slot.
 var target: Fighter
+## Co-op: at 0 HP this fighter goes DOWNED (revivable) instead of KO. Set by
+## the MatchDirector from the config (team 0 in a co-op run), not saved.
+var downable: bool = false
 var health: float
 var ki: float
 var combo_hits: int = 0
