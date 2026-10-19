@@ -76,12 +76,15 @@ func _test_takeover_reclaim_rollback() -> void:
 	straight.step()
 	_check(straight.sources[0] is CpuInput and straight.controller_for_slot(0) == MatchDirector.Controller.CPU,
 			"CPU_TAKEOVER at its tick swaps slot 0 to a CpuInput")
+	_check(MatchScene.cpu_takeover_slots(straight) == PackedInt32Array([0]),
+			"the results extra lists the taken-over human slot")
 	_check(straight.fighters[0] == f0 and f0.health <= state_before["health"] and f0.health > 0.0,
 			"the fighter (and its health) is kept through the takeover")
 	_check((straight.sources[0] as CpuInput).brain.level == 1, "takeover CPU uses the command's level")
 	_run_to(straight, RECLAIM_AT)
 	_check(straight.sources[0] is TickInput and straight.controller_for_slot(0) == MatchDirector.Controller.PLAYER,
 			"RECLAIM gives slot 0 its player source back")
+	_check(MatchScene.cpu_takeover_slots(straight).is_empty(), "a reclaimed slot is no longer listed")
 	_run_to(straight, END_AT)
 	var want := StateHash.of(straight)
 

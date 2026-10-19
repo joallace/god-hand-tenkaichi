@@ -16,6 +16,9 @@ extends Resource
 @export var color_disabled: Color = Color(0.35, 0.38, 0.48)
 @export var color_p1: Color = Color(1.0, 0.45, 0.1)
 @export var color_p2: Color = Color(0.25, 0.65, 1.0)
+## Players 3 and 4 (online co-op has up to Tuning.net.max_humans players).
+@export var color_p3: Color = Color(0.80, 0.45, 1.0)
+@export var color_p4: Color = Color(0.30, 0.95, 0.75)
 @export var color_ready: Color = Color(0.35, 1.0, 0.4)
 
 @export_group("Sizes")
@@ -82,6 +85,14 @@ extends Resource
 @export var join_settings_ratio: float = 1.5
 ## Border width of the P1/P2-coloured player panels.
 @export var join_panel_border: int = 6
+## More than two player panels (online co-op): they stack two per column
+## either side of the settings panel, with these smaller fonts, a thinner
+## inner padding and a smaller gap between the stacked panels.
+@export var join_compact_header_font: int = 24
+@export var join_compact_state_font: int = 22
+@export var join_compact_character_font: int = 20
+@export var join_compact_panel_margin: int = 6
+@export var join_compact_stack_separation: int = 8
 ## Seconds between "all ready" and the match starting (cancel by un-readying).
 @export var join_start_delay: float = 1.0
 ## Stick deflection that counts as a menu direction on the join screen.
@@ -104,6 +115,9 @@ extends Resource
 @export var results_table_max_height: int = 260
 ## Inner padding of the stats panel.
 @export var results_panel_padding: int = 10
+## Online co-op: the Retry / Lobby / Save replay / Leave buttons go in a grid
+## this many columns wide (under the stats table).
+@export var results_online_coop_button_columns: int = 2
 
 @export_group("Online screens")
 ## Settings and join-online screens: gap between the title, rows and footer.
@@ -120,3 +134,9 @@ extends Resource
 ## Status / error line colours.
 @export var color_error: Color = Color(1.0, 0.4, 0.35)
 @export var color_ok: Color = Color(0.35, 1.0, 0.4)
+
+
+## Colour of player slot `slot` (0-based): P1..P4, then repeating.
+func player_color(slot: int) -> Color:
+	var colors: Array[Color] = [color_p1, color_p2, color_p3, color_p4]
+	return colors[posmod(slot, colors.size())]

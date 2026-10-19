@@ -28,6 +28,9 @@ extends Control
 ##   guest's commands go to the host (OnlineRoom.request) and the screen
 ##   redraws on every state broadcast. The host's countdown
 ##   (Tuning.net.lobby_countdown_frames) starts the match on every peer.
+## Online co-op has up to four player slots: the panels then stack two per
+##   column either side of the settings panel (compact fonts), and with the
+##   CPU ally on, the place it takes (model.human_capacity()) shows the ally.
 
 ## Emitted with the finished config right before a local match starts.
 signal match_requested(config: MatchConfig)
@@ -116,6 +119,24 @@ func nobody_joined() -> bool:
 
 func build_config() -> MatchConfig:
 	return model.build_config(randi())
+
+
+## Empty human slots drawn as the CPU ally: online co-op with the ally on
+## leaves model.human_capacity() places for humans; the last empty slots
+## stand for the ally's place.
+func ally_slots() -> Array[int]:
+	var out: Array[int] = []
+	var humans := 0
+	for s in slots:
+		if s.type == SlotType.HUMAN:
+			humans += 1
+	var extra := humans - model.human_capacity()
+	for i in range(slots.size() - 1, -1, -1):
+		if out.size() >= extra:
+			break
+		if slots[i].type == SlotType.HUMAN and slots[i].state == SlotState.EMPTY:
+			out.append(i)
+	return out
 
 
 # --- Room ------------------------------------------------------------------------
@@ -516,8 +537,9 @@ func _process(delta: float) -> void:
 		else:
 			_countdown = UiTheme.tuning().join_start_delay
 	_refresh_status()
+	var ally := ally_slots()
 	for i in mini(_ui.size(), slots.size()):
-		if slots[i].state == SlotState.EMPTY:
+		if slots[i].state == SlotState.EMPTY and not i in ally:
 			(_ui[i]["state"] as Label).modulate.a = 0.55 + 0.45 * absf(sin(_blink * 3.0))
 		else:
 			(_ui[i]["state"] as Label).modulate.a = 1.0
@@ -586,16 +608,21 @@ func _build_room_bar() -> Control:
 	_room_label = _fit_label("", &"HintLabel")
 	_room_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	bar.add_child(_room_label)
+	# Text-wide buttons, so the address keeps the room.
 	_copy_button = MenuHelpers.button("Copy", copy_address)
 	_copy_button.focus_mode = Control.FOCUS_NONE
+	_copy_button.custom_minimum_size.x = 0
 	bar.add_child(_copy_button)
 	_room_button = MenuHelpers.button("Open online", room_action)
 	_room_button.focus_mode = Control.FOCUS_NONE
+	_room_button.custom_minimum_size.x = 0
 	bar.add_child(_room_button)
 	return bar
 
 
-## (Re)build one panel per slot around the settings panel.
+## (Re)build one panel per slot around the settings panel. Two slots: P1 |
+## settings | P2. More (online co-op): compact panels in two columns, odd
+## players (P1, P3) on the left, even ones on the right.
 func _rebuild_panels() -> void:
 	if _panel_row == null:
 		return
@@ -606,12 +633,29 @@ func _rebuild_panels() -> void:
 	_row_labels.clear()
 	_coop_labels.clear()
 	var u := UiTheme.tuning()
+	var compact := slots.size() > 2
+	if not compact:
+		for i in slots.size():
+			var ui := _build_player_panel(i, u.player_color(i), false)
+			_ui.append(ui)
+			_panel_row.add_child(ui["panel"])
+			if i == 0:
+				_panel_row.add_child(_build_settings_panel())
+		return
+	var columns: Array[VBoxContainer] = []
+	for side in 2:
+		var column := VBoxContainer.new()
+		column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		column.add_theme_constant_override("separation", u.join_compact_stack_separation)
+		columns.append(column)
+	_panel_row.add_child(columns[0])
+	_panel_row.add_child(_build_settings_panel())
+	_panel_row.add_child(columns[1])
 	for i in slots.size():
-		var ui := _build_player_panel(i, u.color_p1 if i == 0 else u.color_p2)
+		var ui := _build_player_panel(i, u.player_color(i), true)
+		(ui["panel"] as Control).size_flags_vertical = Control.SIZE_EXPAND_FILL
 		_ui.append(ui)
-		_panel_row.add_child(ui["panel"])
-		if i == 0:
-			_panel_row.add_child(_build_settings_panel())
+		columns[i % 2].add_child(ui["panel"])
 
 
 ## Single-line label that shrinks with an ellipsis instead of widening its panel.
@@ -623,25 +667,27 @@ static func _fit_label(text: String, variation: StringName = &"", font_size := 0
 	return l
 
 
-func _build_player_panel(_i: int, color: Color) -> Dictionary:
+func _build_player_panel(_i: int, color: Color, compact: bool) -> Dictionary:
 	var u := UiTheme.tuning()
 	var panel := PanelContainer.new()
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var sb := (UiTheme.get_theme().get_stylebox("panel", "PanelContainer") as StyleBoxFlat).duplicate() as StyleBoxFlat
 	sb.border_color = color
 	sb.set_border_width_all(u.join_panel_border)
+	if compact:
+		sb.set_content_margin_all(u.join_compact_panel_margin)
 	panel.add_theme_stylebox_override("panel", sb)
 	var col := VBoxContainer.new()
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
 	panel.add_child(col)
-	var header := _fit_label("", &"HeaderLabel")
+	var header := _fit_label("", &"HeaderLabel", u.join_compact_header_font if compact else 0)
 	header.add_theme_color_override("font_color", color)
 	col.add_child(header)
 	var device := _fit_label("", &"HintLabel")
 	col.add_child(device)
-	var state := _fit_label("", &"HeaderLabel", u.join_state_font)
+	var state := _fit_label("", &"HeaderLabel", u.join_compact_state_font if compact else u.join_state_font)
 	col.add_child(state)
-	var character := _fit_label("", &"", u.join_character_font)
+	var character := _fit_label("", &"", u.join_compact_character_font if compact else u.join_character_font)
 	col.add_child(character)
 	var hint := MenuHelpers.label("", &"HintLabel", HORIZONTAL_ALIGNMENT_CENTER)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -719,7 +765,7 @@ func _row_color(row: int) -> Color:
 	var u := UiTheme.tuning()
 	for i in slots.size():
 		if slots[i].state == SlotState.JOINED and slots[i].cursor == row:
-			return u.color_p1 if i == 0 else u.color_p2
+			return u.player_color(i)
 	return u.color_text
 
 
@@ -731,6 +777,7 @@ func _refresh() -> void:
 	var u := UiTheme.tuning()
 	var ids := MenuHelpers.character_ids()
 	var mine := local_slots()
+	var ally := ally_slots()
 	for i in slots.size():
 		var s := slots[i]
 		var ui := _ui[i]
@@ -777,10 +824,30 @@ func _refresh() -> void:
 			on_char = tags != ""
 		character.text = ("%s<  %s  >" % [tags, cname]) if on_char else cname
 		character.add_theme_color_override("font_color", ui["color"] if on_char else u.color_text)
+		if i in ally:
+			_show_ally(ui)
+		hint.visible = hint.text != ""
 	_refresh_rows()
 	_refresh_room()
 	_refresh_status()
 	_scroll_to_cursor.call_deferred()
+
+
+## A place the CPU ally takes (ally_slots): its level and fighter from the
+## co-op rows (set there, so no hint).
+func _show_ally(ui: Dictionary) -> void:
+	var u := UiTheme.tuning()
+	var ids := MenuHelpers.character_ids()
+	(ui["header"] as Label).text = "CPU ALLY"
+	(ui["device"] as Label).text = "Level: %s" % Tuning.cpu.level_name(model.coop_ally_level)
+	var state: Label = ui["state"]
+	state.text = "READY!"
+	state.add_theme_color_override("font_color", u.color_ready)
+	var character: Label = ui["character"]
+	character.visible = true
+	character.text = MenuHelpers.character_name(ids[clampi(model.coop_ally_char, 0, ids.size() - 1)])
+	character.add_theme_color_override("font_color", u.color_text)
+	(ui["hint"] as Label).text = ""
 
 
 func _online_label(peer: int) -> String:
@@ -884,10 +951,21 @@ func _refresh_status() -> void:
 		_status_label.text = "GET READY... %d" % ceili(maxf(_countdown, 0.0))
 	elif local_slots().is_empty():
 		_status_label.text = "B / ESC: leave the room" if is_online() else "B / ESC: back to menu"
+	elif is_online() and is_coop():
+		_status_label.text = _coop_online_status()
 	elif is_online() and model.first_free_slot() >= 0:
 		_status_label.text = "Waiting for an opponent to join..."
 	else:
 		_status_label.text = ""
+
+
+## Online co-op starts once every joined player is ready, however many joined.
+func _coop_online_status() -> String:
+	var waiting := local_slots().all(func(i: int) -> bool: return slots[i].state == SlotState.READY)
+	var text := "Waiting for everyone to ready up..." if waiting else "Ready up to start the run"
+	if model.first_free_slot() >= 0:
+		text += "  -  more players can still join"
+	return text
 
 
 func _punch_panel(idx: int) -> void:

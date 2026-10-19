@@ -11,6 +11,9 @@ const SIZES: Array[Vector2i] = [Vector2i(1152, 648), Vector2i(1600, 648)]
 ## A realistic long SDL pad name, to check device labels clip.
 const LONG_PAD_NAME := "PS5 DualSense Wireless Controller (Bluetooth, Extended Report Mode)"
 const TOLERANCE := 1.0
+## Online co-op: fake remote peers and a profile name of Tuning.net.name_max_len.
+const REMOTE_PEERS: Array[int] = [7, 8, 9]
+const LONG_PLAYER_NAME := "Supercalifragili"
 
 var _fails := 0
 var _vp: SubViewport
@@ -38,6 +41,8 @@ func _run_all(tag: String) -> void:
 	for m in [MatchConfig.Mode.LOCAL_VERSUS, MatchConfig.Mode.VERSUS_CPU, MatchConfig.Mode.COOP]:
 		await _check_join(m, tag)
 	await _check_results(tag)
+	await _check_online_coop_lobby(tag)
+	await _check_online_coop_results(tag)
 	await _check_pause_menu(tag)
 
 
@@ -261,6 +266,120 @@ func _check_results(tag: String) -> void:
 		await _assert_fits(r, "results screen (%s) %s" % ["co-op" if res.has("stats") else "versus", tag])
 		r.queue_free()
 		await frames(1)
+	Game.last_result = saved
+
+
+## Online co-op lobby (hosted over a LoopbackNetwork): four compact slots,
+## the local host, remote players, the CPU ally's place and empty slots;
+## per-slot colours and the co-op status line.
+func _check_online_coop_lobby(tag: String) -> void:
+	var what := "online co-op lobby "
+	var u := UiTheme.tuning()
+	var net := LoopbackNetwork.new(1)
+	Net.start_host(net.create_host())
+	var m := Net.room.model
+	m.set_mode(MatchConfig.Mode.COOP)
+	var j := (load(Game.SCENE_LOBBY) as PackedScene).instantiate() as Lobby
+	j.auto_start = false
+	_vp.add_child(j)
+	check(j._ui.size() == mini(Tuning.net.max_humans, Tuning.net.max_fighters), what + "has a panel per slot " + tag)
+	await _assert_fits(j, what + "(nobody joined) " + tag)
+	j.join(Bindings.Kind.PAD, 0)
+	m.join(Bindings.Kind.PAD, 0, REMOTE_PEERS[0], LONG_PLAYER_NAME)
+	var longest := _longest_character()
+	for s in m.slots:
+		s.char_index = longest
+	m.coop_ally = true
+	m.coop_ally_char = longest
+	m.coop_ally_level = 0
+	m.coop_structure = CoopConfig.Structure.WAVES
+	j._refresh()
+	var colors := [u.color_p1, u.color_p2, u.color_p3, u.color_p4]
+	var colored := true
+	for i in j._ui.size():
+		colored = colored and j._ui[i]["color"] == colors[i]
+	check(colored and u.color_p3 != u.color_p1 and u.color_p4 != u.color_p2,
+			what + "P1..P4 have their own colours " + tag)
+	var last := j.slots.size() - 1
+	var ally_ui: Dictionary = j._ui[last]
+	check(j.ally_slots() == [last] and (ally_ui["header"] as Label).text == "CPU ALLY"
+			and (ally_ui["character"] as Label).text == MenuHelpers.character_name(MenuHelpers.character_ids()[longest]),
+			what + "the ally's place shows the CPU ally " + tag)
+	check(not (j._ui[2]["header"] as Label).text.contains("ALLY"), what + "the other empty slot stays open " + tag)
+	check(j._status_label.text.begins_with("Ready up") and j._status_label.text.contains("can still join"),
+			what + "status: ready up, more can join (got %s) %s" % [j._status_label.text, tag])
+	(j._ui[0]["device"] as Label).text = LONG_PAD_NAME
+	await _assert_fits(j, what + "(host + remote + empty + ally) " + tag)
+	var cut := truncated(j, LONG_PAD_NAME)
+	check(cut.is_empty(), what + "shows every row / name untrimmed " + tag)
+	for c in cut.slice(0, 6):
+		print("    trimmed: ", c)
+	m.join(Bindings.Kind.PAD, 0, REMOTE_PEERS[1], LONG_PLAYER_NAME)
+	m.slots[0].state = LobbyModel.SlotState.READY
+	for s in m.slots:
+		s.char_index = longest
+	j._refresh()
+	check(m.first_free_slot() < 0 and j._status_label.text == "Waiting for everyone to ready up...",
+			what + "status once full and ready: waiting for the others (got %s) %s" % [j._status_label.text, tag])
+	await _assert_fits(j, what + "(full with the ally) " + tag)
+	m.coop_ally = false
+	j._refresh()
+	check(j.ally_slots().is_empty() and (j._ui[last]["header"] as Label).text != "CPU ALLY",
+			what + "ally off: the last slot is a player slot again " + tag)
+	m.join(Bindings.Kind.PAD, 0, REMOTE_PEERS[2], LONG_PLAYER_NAME)
+	for s in m.slots:
+		s.char_index = longest
+	j._refresh()
+	await _assert_fits(j, what + "(four players) " + tag)
+	j.queue_free()
+	Net.leave()
+	await frames(1)
+
+
+## Online co-op results: a column per human (one taken over by a CPU) and
+## the online buttons, the vote one called Retry.
+func _check_online_coop_results(tag: String) -> void:
+	var saved := Game.last_result
+	var net := LoopbackNetwork.new(1)
+	Net.start_host(net.create_host())
+	var coop := MatchConfig.from_defaults(MatchConfig.Mode.COOP)
+	coop.coop = CoopConfig.new()
+	coop.coop.structure = CoopConfig.Structure.WAVES
+	var stats := {}
+	var n := mini(Tuning.net.max_humans, Tuning.net.max_fighters)
+	for i in n:
+		var p := PlayerSlotConfig.new()
+		p.slot = i
+		p.character_id = MenuHelpers.character_ids()[_longest_character()]
+		p.owner_peer = Net.local_peer() if i == 0 else REMOTE_PEERS[i - 1]
+		p.display_name = LONG_PLAYER_NAME
+		coop.players.append(p)
+		stats[i] = {RunStats.KOS: 12, RunStats.DAMAGE: 4321.0, RunStats.BEST_COMBO: 23,
+				RunStats.REVIVES: 3, RunStats.PERFECT_DODGES: 17}
+	Net.room.last_config = coop
+	Net.room._set_phase(OnlineRoom.Phase.MATCH)
+	Net.room.match_finished()
+	Game.last_result = {"winner_slot": 0, "wins": PackedInt32Array([1, 0]), "config": coop, "stats": stats,
+			"run": {"cleared": true, "frames": 7380, "seconds": 123.0, "waves_cleared": 3},
+			"cpu_takeovers": PackedInt32Array([n - 1])}
+	var r := (load(Game.SCENE_RESULTS) as PackedScene).instantiate() as ResultsScreen
+	r.navigate = func(_path: String) -> void: pass
+	_vp.add_child(r)
+	await frames(3)
+	await _assert_fits(r, "results screen (online co-op, %d players) %s" % [n, tag])
+	check(r._table.columns == 1 + n, "online co-op results: a column per player " + tag)
+	var takeover := Tuning.hud.text_cpu_takeover % LONG_PLAYER_NAME
+	var tags: Array = r._table.get_children().slice(1, 1 + n).map(func(l: Node) -> String: return (l as Label).text)
+	check(tags[n - 1] == takeover and tags[0] == LONG_PLAYER_NAME,
+			"online co-op results: a taken-over slot reads %s (got %s) %s" % [takeover, tags, tag])
+	check(r._rematch_btn.text.begins_with("Retry ("), "online co-op results: the vote button is Retry " + tag)
+	var cut := truncated(r, "")
+	check(cut.is_empty(), "online co-op results: names untrimmed " + tag)
+	for c in cut.slice(0, 6):
+		print("    trimmed: ", c)
+	r.queue_free()
+	Net.leave()
+	await frames(1)
 	Game.last_result = saved
 
 

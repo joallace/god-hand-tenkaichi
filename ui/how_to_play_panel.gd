@@ -28,6 +28,7 @@ const ROWS := [
 ## "Online" section; %d = Tuning.net.default_port.
 const ONLINE_LINES := [
 	"Host: open a room from the lobby (Play > Open online). Others pick Join online and type your address.",
+	"The host picks the game in the lobby: Versus (1 on 1) or Co-op (everyone against CPU enemies; a CPU ally can take a free place).",
 	"Your UDP port %d must be reachable. UPnP is tried automatically; if it fails, forward the port on your router, or play over LAN or a VPN such as Tailscale or ZeroTier.",
 	"Windows shows a firewall prompt the first time you host: allow it.",
 	"The port, your profile name and input delay are in Settings.",

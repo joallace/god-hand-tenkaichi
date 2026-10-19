@@ -171,7 +171,7 @@ func _on_fighters_spawned(fighters: Array[Fighter]) -> void:
 
 func _build_panel(f: Fighter, right_side: bool) -> void:
 	var t := Tuning.hud
-	var pcolor := t.p1_color if f.slot % 2 == 0 else t.p2_color
+	var pcolor := t.slot_color(f.slot)
 	var p := {"fighter": f, "right": right_side}
 
 	var name_label := _label(t.name_font_size, pcolor)
@@ -633,7 +633,7 @@ func _on_run_ended(cleared: bool) -> void:
 
 
 func _slot_color(slot: int) -> Color:
-	return Tuning.hud.p1_color if slot % 2 == 0 else Tuning.hud.p2_color
+	return Tuning.hud.slot_color(slot)
 
 
 func _refresh_pips() -> void:

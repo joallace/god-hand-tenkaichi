@@ -229,10 +229,24 @@ func _on_match_ended(winner_slot: int) -> void:
 	get_tree().create_timer(Tuning.hud.match_end_delay, false).timeout.connect(_finish.bind(winner_slot))
 
 
+## Human config slots a CPU controls at the end (co-op disconnect / Leave
+## Run takeovers), for the results screen's "CPU (<name>)" tags.
+static func cpu_takeover_slots(d: MatchDirector) -> PackedInt32Array:
+	var out := PackedInt32Array()
+	if d == null or d.config == null:
+		return out
+	for p in d.config.players:
+		if p.input_kind != PlayerSlotConfig.InputKind.CPU \
+				and d.controller_for_slot(p.slot) == MatchDirector.Controller.CPU:
+			out.append(p.slot)
+	return out
+
+
 func _finish(winner_slot: int) -> void:
 	if driver != null and Net.room != null:
 		Net.room.match_finished()
 	var extra: Dictionary = run_stats.result() if run_stats != null else {}
 	extra["replay_path"] = recorder.auto_path
 	extra["end_reason"] = director.end_reason
+	extra["cpu_takeovers"] = cpu_takeover_slots(director)
 	Game.finish_match(winner_slot, director.wins, extra)

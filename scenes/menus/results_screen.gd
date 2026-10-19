@@ -15,7 +15,9 @@ extends Control
 ## takes the room back; every peer follows on phase_changed -> LOBBY), Save
 ## replay (copies last_result "replay_path") and Leave (also ui_cancel).
 ## Peers of the match that left show as "<name> disconnected"; a forfeit
-## (end_reason &"forfeit") names the losing team.
+## (end_reason &"forfeit") names the losing team. An online co-op run has
+## the same buttons with Rematch called Retry; its stats table names the
+## human slots a CPU took over (last_result "cpu_takeovers") "CPU (<name>)".
 
 const ELLIPSIS := "…"
 const NAME_SEP := ", "
@@ -23,7 +25,7 @@ const NAME_SEP := ", "
 var _headline: Label
 var _tally: Label
 var _rematch_btn: Button
-var _list: VBoxContainer
+var _list: Container
 var _table: GridContainer  # co-op only
 var _table_scroll: ScrollContainer  # co-op only
 var _col: VBoxContainer
@@ -172,13 +174,18 @@ func _build_stats_panel(res: Dictionary, cfg: MatchConfig) -> Control:
 	_table.add_theme_constant_override("h_separation", u.results_table_h_gap)
 	_table.add_theme_constant_override("v_separation", u.results_table_v_gap)
 	_add_cell("", &"", u.results_label_col_width)
+	var taken := PackedInt32Array(res.get("cpu_takeovers", PackedInt32Array()))
 	for p in cfg.players:
-		var tag := _add_cell(cfg.player_tag(p.slot), &"", u.results_player_col_width, HORIZONTAL_ALIGNMENT_CENTER)
-		tag.add_theme_color_override("font_color", _tag_color(cfg, p.slot))
+		var tag := _add_cell(player_column_tag(cfg, p.slot, taken), &"", u.results_player_col_width,
+				HORIZONTAL_ALIGNMENT_CENTER)
+		tag.add_theme_color_override("font_color", _tag_color(cfg, p.slot, taken))
+		# Long online names / "CPU (<name>)" wrap inside the column.
+		tag.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_add_cell("", &"HintLabel", u.results_label_col_width)
 	for p in cfg.players:
-		_add_cell(MenuHelpers.character_name(p.character_id), &"HintLabel", u.results_player_col_width,
-				HORIZONTAL_ALIGNMENT_CENTER)
+		var fighter := _add_cell(MenuHelpers.character_name(p.character_id), &"HintLabel",
+				u.results_player_col_width, HORIZONTAL_ALIGNMENT_CENTER)
+		fighter.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	for row: Array in RunStats.ROWS:
 		var name_cell := _add_cell(String(row[1]), &"", u.results_label_col_width)
 		name_cell.add_theme_color_override("font_color", u.color_text_dim)
@@ -218,11 +225,18 @@ func _add_cell(text: String, variation: StringName, min_width: int,
 	return l
 
 
-static func _tag_color(cfg: MatchConfig, slot: int) -> Color:
+## A stats column's name: the player's tag, "CPU (<name>)" when a CPU took
+## the slot over (`taken`).
+static func player_column_tag(cfg: MatchConfig, slot: int, taken: PackedInt32Array) -> String:
+	var tag := cfg.player_tag(slot)
+	return Tuning.hud.text_cpu_takeover % tag if slot in taken else tag
+
+
+static func _tag_color(cfg: MatchConfig, slot: int, taken: PackedInt32Array) -> Color:
 	var u := UiTheme.tuning()
-	if cfg.player_tag(slot) == "CPU":
+	if cfg.player_tag(slot) == "CPU" or slot in taken:
 		return u.color_text_dim
-	return u.color_p1 if slot == 0 else u.color_p2
+	return u.player_color(slot)
 
 
 static func tally_text(wins: PackedInt32Array, cfg: MatchConfig) -> String:
@@ -297,18 +311,25 @@ func _build_online(res: Dictionary) -> void:
 	_col.add_child(info)
 
 	var host := room != null and room.is_host()
-	_rematch_btn = MenuHelpers.button("Rematch", _on_online_rematch, room == null)
+	_rematch_btn = MenuHelpers.button(_rematch_word(), _on_online_rematch, room == null)
 	_lobby_btn = MenuHelpers.button("Lobby" if host or room == null else "Lobby (Host picks)",
 			_on_online_lobby, not host)
 	var replay_path := String(res.get("replay_path", ""))
 	_save_btn = MenuHelpers.button("Save replay", _on_save_replay,
 			replay_path.is_empty() or not FileAccess.file_exists(replay_path))
-	_list = MenuHelpers.vlist([
-		_rematch_btn,
-		_lobby_btn,
-		_save_btn,
-		MenuHelpers.button("Leave", _on_leave),
-	])
+	var buttons: Array = [_rematch_btn, _lobby_btn, _save_btn, MenuHelpers.button("Leave", _on_leave)]
+	if is_coop(res):
+		# Under the stats table: two columns, so the screen keeps its height.
+		var grid := GridContainer.new()
+		grid.columns = u.results_online_coop_button_columns
+		grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		grid.add_theme_constant_override("h_separation", u.list_separation)
+		grid.add_theme_constant_override("v_separation", u.list_separation)
+		for b: Button in buttons:
+			grid.add_child(b)
+		_list = grid
+	else:
+		_list = MenuHelpers.vlist(buttons)
 	_col.add_child(_list)
 
 	_vote_label = MenuHelpers.label("", &"HintLabel", HORIZONTAL_ALIGNMENT_CENTER)
@@ -402,16 +423,22 @@ func _refresh_online() -> void:
 		else:
 			waiting.append(_peer_name(cfg, peer, room.departed))
 	var voted := room.local_peer() in room.rematch_votes
-	_rematch_btn.text = "%s (%d/%d)" % ["Cancel Rematch" if voted else "Rematch", votes, peers.size()]
+	var word := _rematch_word()
+	_rematch_btn.text = "%s (%d/%d)" % ["Cancel " + word if voted else word, votes, peers.size()]
 	_rematch_btn.disabled = gone > 0 or room.phase != OnlineRoom.Phase.RESULTS
 	if gone > 0:
-		_vote_label.text = "Rematch unavailable"
+		_vote_label.text = "%s unavailable" % word
 	elif voted and not waiting.is_empty():
 		_vote_label.text = "Waiting for %s%s" % [NAME_SEP.join(waiting), ELLIPSIS]
 	elif votes > 0:
-		_vote_label.text = "Rematch requested"
+		_vote_label.text = "%s requested" % word
 	else:
 		_vote_label.text = ""
+
+
+## "Retry" for a co-op run, "Rematch" for versus (button and vote lines).
+func _rematch_word() -> String:
+	return "Retry" if is_coop(Game.last_result) else "Rematch"
 
 
 func _on_peer_departed(_peer: int, _peer_name_text: String) -> void:

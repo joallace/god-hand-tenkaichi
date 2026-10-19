@@ -32,6 +32,9 @@ extends Resource
 @export_group("Colors")
 @export var p1_color: Color = Color(1.0, 0.55, 0.1)
 @export var p2_color: Color = Color(0.2, 0.6, 1.0)
+## Slots 3 and 4 (co-op: the CPU ally, online players 3/4).
+@export var p3_color: Color = Color(0.8, 0.45, 1.0)
+@export var p4_color: Color = Color(0.3, 0.95, 0.75)
 @export var bar_bg_color: Color = Color(0.05, 0.05, 0.08, 0.85)
 @export var bar_border_color: Color = Color(1, 1, 1, 0.9)
 @export var health_high_color: Color = Color(1.0, 0.85, 0.15)
@@ -177,3 +180,9 @@ extends Resource
 @export var net_overlay_bg_color: Color = Color(0.0, 0.0, 0.0, 0.6)
 ## Window (s) for the rollbacks-per-second rate.
 @export var net_overlay_rate_window: float = 1.0
+
+
+## Name colour of fighter slot `slot` (0-based): P1..P4, then repeating.
+func slot_color(slot: int) -> Color:
+	var colors: Array[Color] = [p1_color, p2_color, p3_color, p4_color]
+	return colors[posmod(slot, colors.size())]
