@@ -25,7 +25,6 @@ func _ready() -> void:
 		await _run_all(str(s))
 		_vp.queue_free()
 		await frames(2)
-	await _report_results_screen()
 	print("UI_LAYOUT %s (%d failures)" % ["OK" if _fails == 0 else "FAIL", _fails])
 	get_tree().quit(0 if _fails == 0 else 1)
 
@@ -38,6 +37,7 @@ func _run_all(tag: String) -> void:
 	await _check_controls_overlay(tag)
 	for m in [MatchConfig.Mode.LOCAL_VERSUS, MatchConfig.Mode.VERSUS_CPU, MatchConfig.Mode.COOP]:
 		await _check_join(m, tag)
+	await _check_results(tag)
 	await _check_pause_menu(tag)
 
 
@@ -227,31 +227,41 @@ func _check_pause_menu(tag: String) -> void:
 	await frames(1)
 
 
-## Results screen is reported only (being rewritten elsewhere).
-func _report_results_screen() -> void:
-	_vp = SubViewport.new()
-	_vp.size = SIZES[0]
-	_vp.gui_disable_input = true
-	add_child(_vp)
-	var cfg := MatchConfig.from_defaults(MatchConfig.Mode.LOCAL_VERSUS)
-	for i in 2:
+## Results screen: a versus result, and a co-op Waves run with three team-0
+## players (P1, P2, CPU ally) and their stats table.
+func _check_results(tag: String) -> void:
+	var saved := Game.last_result
+	var vs := MatchConfig.from_defaults(MatchConfig.Mode.LOCAL_VERSUS)
+	var coop := MatchConfig.from_defaults(MatchConfig.Mode.COOP)
+	coop.coop = CoopConfig.new()
+	coop.coop.structure = CoopConfig.Structure.WAVES
+	for i in 3:
 		var p := PlayerSlotConfig.new()
 		p.slot = i
 		p.character_id = MenuHelpers.character_ids()[0]
-		cfg.players.append(p)
-	var saved := Game.last_result
-	Game.last_result = {"winner_slot": 0, "wins": PackedInt32Array([2, 1]), "config": cfg}
-	var r := (load(Game.SCENE_RESULTS) as PackedScene).instantiate()
-	_vp.add_child(r)
-	await frames(3)
-	var bad := overflows(r)
-	print("INFO: results screen %s at %s" % ["fits" if bad.is_empty() else "OVERFLOWS", _vp.size])
-	for b in bad.slice(0, 6):
-		print("    overflow: ", b)
-	r.queue_free()
+		if i == 2:
+			p.input_kind = PlayerSlotConfig.InputKind.CPU
+		coop.players.append(p)
+		if i < 2:
+			vs.players.append(p)
+	var stats := {}
+	for i in 3:
+		stats[i] = {RunStats.KOS: 12, RunStats.DAMAGE: 4321.0, RunStats.BEST_COMBO: 23,
+				RunStats.REVIVES: 3, RunStats.PERFECT_DODGES: 17}
+	var results: Array[Dictionary] = [
+		{"winner_slot": 0, "wins": PackedInt32Array([2, 1]), "config": vs},
+		{"winner_slot": 0, "wins": PackedInt32Array([1, 0]), "config": coop, "stats": stats,
+				"run": {"cleared": true, "frames": 7380, "seconds": 123.0, "waves_cleared": 3}},
+	]
+	for res in results:
+		Game.last_result = res
+		var r := (load(Game.SCENE_RESULTS) as PackedScene).instantiate()
+		_vp.add_child(r)
+		await frames(3)
+		await _assert_fits(r, "results screen (%s) %s" % ["co-op" if res.has("stats") else "versus", tag])
+		r.queue_free()
+		await frames(1)
 	Game.last_result = saved
-	_vp.queue_free()
-	await frames(2)
 
 
 func _longest_character() -> int:
