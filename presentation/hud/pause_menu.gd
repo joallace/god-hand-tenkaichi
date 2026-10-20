@@ -318,6 +318,7 @@ func _sample_pause_buttons() -> Dictionary:
 	for p in director.config.players:
 		if p.input_kind != PlayerSlotConfig.InputKind.LOCAL:
 			continue
-		var b: Dictionary = Bindings.get_binding(p.slot, p.device_kind, "PAUSE")
+		var profile := director.config.binding_profile(p.slot)
+		var b: Dictionary = Bindings.get_binding(profile, p.device_kind, "PAUSE")
 		out[p.slot] = Bindings.is_binding_active(b, p.device_id, 0.5)
 	return out

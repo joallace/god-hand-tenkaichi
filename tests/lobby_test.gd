@@ -270,6 +270,31 @@ func _test_binding_profiles() -> void:
 	check(d.tick == 30 and d.fighters.size() == 3, "a local match with players in slots 0, 2 and 3 runs")
 	remove_child(d)
 	d.free()
+	# Online 2 local vs 2 local, seen from the machine owning slots 2 and 3:
+	# the pause menu reads their Pause keys through profiles 0 / 1.
+	var o := MatchConfig.from_defaults(MatchConfig.Mode.ONLINE)
+	for slot in 4:
+		var p := PlayerSlotConfig.new()
+		p.slot = slot
+		p.team = slot / 2
+		p.owner_peer = 1 if slot < 2 else 2
+		p.device_kind = Bindings.Kind.PAD
+		o.players.append(p)
+	o.localize_for_peer(2)
+	check(o.binding_profile(2) == 0 and o.binding_profile(3) == 1, "the guest's slots 2 / 3 use profiles 0 / 1")
+	var od := MatchDirector.new()
+	od.auto_step = false
+	od.source_factory = func(_p: PlayerSlotConfig) -> InputSource: return ScriptedInput.new()
+	add_child(od)
+	var pm := PauseMenu.new()
+	add_child(pm)
+	pm.setup(od)
+	od.setup(o)
+	var held := pm._sample_pause_buttons()
+	check(held.keys() == [2, 3], "pause menu samples the Pause binding of local slots 2 and 3 without an error")
+	for n: Node in [pm, od]:
+		remove_child(n)
+		n.free()
 
 
 func _test_model_carry_coop() -> void:
