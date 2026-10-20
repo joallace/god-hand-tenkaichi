@@ -46,9 +46,10 @@ extends Resource
 @export var shadow_filter_quality: PackedInt32Array = [0, 1, 2]
 
 @export_group("Apply")
-## Seconds a display change (window mode / size) waits for more input before
-## it is applied, so cycling through options applies only the last one.
-@export var display_apply_delay: float = 0.6
+## Seconds a display change (window mode / size) waits after the last edit
+## before it is applied; input on the display rows (or a field being typed
+## in) restarts the wait, so setting width and height applies once.
+@export var display_apply_delay: float = 3.0
 ## "Keep these display settings?" countdown before reverting.
 @export var revert_seconds: float = 10.0
 

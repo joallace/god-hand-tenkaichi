@@ -295,6 +295,19 @@ func _test_number_stepper() -> void:
 	s.disabled = true
 	s._gui_input(key(KEY_RIGHT))
 	check(s.value == 640, "disabled stepper ignores input")
+	s.disabled = false
+	s.pressed.emit()
+	check(s.is_typing() and s.text.contains("<  _  >"), "click / Enter opens an empty field")
+	s.commit_typing()
+	check(not s.is_typing() and s.value == 640, "committing an empty field keeps the value")
+	s.grab_focus()
+	await frames(1)
+	await press(key(KEY_9, "9".unicode_at(0)))
+	await press(key(KEY_0, "0".unicode_at(0)))
+	await press(key(KEY_0, "0".unicode_at(0)))
+	await press(key(KEY_ENTER))
+	await frames(2)
+	check(not s.is_typing() and s.value == 900, "real key events type and Enter commits (without reopening)")
 	s.queue_free()
 	await frames(1)
 
@@ -359,7 +372,7 @@ func _test_graphics_page() -> void:
 	var t := Tuning.video
 	var old_delay := t.display_apply_delay
 	var old_revert := t.revert_seconds
-	t.display_apply_delay = 0.05
+	t.display_apply_delay = 0.2
 	t.revert_seconds = 0.3
 	Settings.video.reset_defaults()
 	var s := spawn_hub()
@@ -382,7 +395,7 @@ func _test_graphics_page() -> void:
 	check(g.has_pending() and Settings.video.window_mode == VideoSettings.WindowMode.WINDOWED,
 			"window mode change is staged, not applied")
 	check(g.size_sel.disabled and g.width_step.disabled, "window size rows disabled outside windowed mode")
-	await seconds(0.15)
+	await seconds(t.display_apply_delay * 2.0)
 	var p := prompt_in(s)
 	check(p != null and Settings.video.window_mode == VideoSettings.WindowMode.BORDERLESS,
 			"after the debounce it applies and asks to keep")
@@ -415,10 +428,33 @@ func _test_graphics_page() -> void:
 	g.width_step.set_value_user(1000)
 	check(g.size_sel.current() == GraphicsPage.CUSTOM_LABEL and g.pending_size.x == 1000,
 			"stepper size not in the presets shows Custom")
-	g.apply_pending()
-	prompt_in(s).resolve(true)
+	# Typing the height (real key events through the viewport) holds the apply.
+	g.height_step.grab_focus()
+	await frames(1)
+	for ch in "800":
+		await press(key(OS.find_keycode_from_string(ch), ch.unicode_at(0)))
+	check(g.height_step.is_typing() and g.height_step.text.contains("800_"), "keyboard digits type into the height")
+	await seconds(t.display_apply_delay * 3.0)
+	check(prompt_in(s) == null and g.has_pending(), "no prompt while a size field is being typed in")
+	await press(key(KEY_ENTER))
+	check(not g.height_step.is_typing() and g.pending_size == Vector2i(1000, 800), "Enter commits the typed height")
+	await press(key(KEY_UP))
+	await seconds(t.display_apply_delay * 0.6)
+	await press(key(KEY_DOWN))
+	await seconds(t.display_apply_delay * 0.6)
+	check(prompt_in(s) == null, "moving between display rows pushes the apply back")
+	await seconds(t.display_apply_delay * 1.2)
+	p = prompt_in(s)
+	check(p != null and Settings.video.window_size == Vector2i(1000, 800), "applies once editing stops")
+	p.resolve(true)
 	await frames(2)
-	check(Settings.video.window_size.x == 1000, "custom width applied")
+	check(Settings.video.window_size.x == 1000, "custom size applied")
+	g.mode_sel.index = VideoSettings.WindowMode.BORDERLESS
+	g.pending_mode = VideoSettings.WindowMode.BORDERLESS
+	g._sync_rows()
+	check(str(g.width_step.get_meta(&"help")) == GraphicsPage.SIZE_DISABLED_HELP, "disabled size rows say why")
+	g.pending_mode = Settings.video.window_mode
+	g._sync_rows()
 
 	# Reset: confirm, defaults restored (display part through the keep prompt).
 	g.ui_sel.cycle(1)

@@ -2,9 +2,10 @@ class_name NumberStepper
 extends Button
 ## Focusable "Label   <  1600  >" row for numbers, usable from a gamepad.
 ## ui_left / ui_right step by `step`; holding (key/stick repeat) switches to
-## `step_fast` after Tuning.ui.stepper_fast_after_repeats repeats. With a
-## keyboard, typing digits edits the number in place: Enter (or leaving the
-## row) commits, Esc cancels, Backspace deletes. Values are clamped to
+## `step_fast` after Tuning.ui.stepper_fast_after_repeats repeats. Keyboard
+## entry: start typing digits on the focused row, or click it / press
+## Enter (A) to open an empty field; Enter (or leaving the row) commits,
+## Esc cancels, Backspace deletes, an empty field keeps the old value. Values are clamped to
 ## [min_value, max_value]. `labels` maps values to display text (e.g. a
 ## port's default).
 
@@ -23,12 +24,14 @@ var value: int = 0:
 		_refresh()
 
 var _typing := ""
+var _editing := false
 var _repeats := 0
 
 
 func _ready() -> void:
 	focus_mode = Control.FOCUS_ALL
 	alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pressed.connect(begin_typing)
 	focus_exited.connect(func() -> void:
 		if is_typing():
 			commit_typing())
@@ -46,7 +49,16 @@ func setup(p_label: String, p_min: int, p_max: int, p_value: int, p_step := 1, p
 
 
 func is_typing() -> bool:
-	return not _typing.is_empty()
+	return _editing
+
+
+## Open an empty text field on this row (click / ui_accept / first digit).
+func begin_typing() -> void:
+	if disabled or _editing:
+		return
+	_editing = true
+	_typing = ""
+	_refresh()
 
 
 ## Change by `delta` (clamped); emits value_changed when it moved.
@@ -71,6 +83,7 @@ func set_value_user(v: int) -> void:
 func commit_typing() -> void:
 	var t := _typing
 	_typing = ""
+	_editing = false
 	if t.is_valid_int():
 		set_value_user(t.to_int())
 	else:
@@ -79,6 +92,7 @@ func commit_typing() -> void:
 
 func cancel_typing() -> void:
 	_typing = ""
+	_editing = false
 	_refresh()
 
 
@@ -89,6 +103,7 @@ func _gui_input(event: InputEvent) -> void:
 	if k != null and k.pressed:
 		var ch := char(k.unicode) if k.unicode > 0 else ""
 		if ch.length() == 1 and ch >= "0" and ch <= "9":
+			begin_typing()
 			if _typing.length() < str(max_value).length():
 				_typing += ch
 			_refresh()

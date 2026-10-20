@@ -4,7 +4,8 @@ extends SettingsPage
 ##
 ## Display changes (window mode, window size) are staged: they apply once
 ## the player stops changing them for Tuning.video.display_apply_delay
-## seconds, then a "Keep these display settings?" prompt counts down
+## seconds (any input while focus is on a display row, or typing in a size
+## field, restarts the wait; leaving the page applies at once), then a "Keep these display settings?" prompt counts down
 ## Tuning.video.revert_seconds and reverts unless confirmed, so a mode the
 ## screen can't show undoes itself. Only confirmed values are saved. Every
 ## other option applies and saves immediately.
@@ -21,6 +22,9 @@ const SHADOW_LABELS := ["Off", "Low", "High"]
 const OFF_ON := ["Off", "On"]
 const CUSTOM_LABEL := "Custom"
 const UNLIMITED_LABEL := "Unlimited"
+const SIZE_HELP := "Window size in windowed mode. Fullscreen uses the desktop resolution: use Render scale instead."
+const CUSTOM_HELP := "Custom window size: type a number (or click / Enter first), or hold left/right."
+const SIZE_DISABLED_HELP := "Window size only applies in windowed mode: set Window mode to Windowed first."
 
 var mode_sel: OptionSelector
 var size_sel: OptionSelector
@@ -54,7 +58,7 @@ func _ready() -> void:
 	_presets = VideoSettings.presets_for(Settings.usable_screen_size())
 	_debounce = Timer.new()
 	_debounce.one_shot = true
-	_debounce.timeout.connect(apply_pending)
+	_debounce.timeout.connect(_on_debounce)
 	add_child(_debounce)
 
 	mode_sel = _selector("Window mode", MODE_LABELS, v.window_mode,
@@ -62,8 +66,7 @@ func _ready() -> void:
 	mode_sel.value_changed.connect(func(i: int) -> void:
 		pending_mode = i
 		_stage())
-	size_sel = _selector("Window size", _size_labels(), 0,
-			"Window size in windowed mode. Fullscreen uses the desktop resolution: use Render scale instead.")
+	size_sel = _selector("Window size", _size_labels(), 0, SIZE_HELP)
 	size_sel.value_changed.connect(_on_size_preset)
 	var usable := Settings.usable_screen_size()
 	var max_size := usable if usable.x > 0 else _largest_preset()
@@ -74,7 +77,7 @@ func _ready() -> void:
 	for s: NumberStepper in [width_step, height_step]:
 		s.custom_minimum_size.y = UiTheme.tuning().button_min_size.y
 		s.value_changed.connect(_on_custom_size.unbind(1))
-		add_row(s, "Custom window size. Hold left/right to change faster, or type a number.")
+		add_row(s, CUSTOM_HELP)
 
 	render_sel = _selector("Render scale", SettingsPage.percent_labels(t.render_scale_steps),
 			t.render_scale_steps.find(v.render_scale),
@@ -162,6 +165,8 @@ func _sync_rows() -> void:
 	var windowed := pending_mode == VideoSettings.WindowMode.WINDOWED
 	for c: Button in [size_sel, width_step, height_step]:
 		c.disabled = not windowed
+		var help := SIZE_HELP if c == size_sel else CUSTOM_HELP
+		c.set_meta(&"help", help if windowed else SIZE_DISABLED_HELP)
 	upscaler_sel.disabled = v.render_scale >= 1.0
 	relink()
 
@@ -189,11 +194,30 @@ func _stage() -> void:
 		status.emit("", false)
 		return
 	_debounce.start(Tuning.video.display_apply_delay)
-	status.emit("Applying display settings...", false)
+	status.emit("Display change applies %d s after your last edit." % ceili(Tuning.video.display_apply_delay), false)
 
 
 func has_pending() -> bool:
 	return not _debounce.is_stopped()
+
+
+func _display_rows() -> Array[Control]:
+	return [mode_sel, size_sel, width_step, height_step]
+
+
+## Still editing the display rows: push the pending apply back.
+func _input(event: InputEvent) -> void:
+	if not has_pending() or not is_visible_in_tree() or not event.is_pressed():
+		return
+	if get_viewport().gui_get_focus_owner() in _display_rows():
+		_debounce.start(Tuning.video.display_apply_delay)
+
+
+func _on_debounce() -> void:
+	if width_step.is_typing() or height_step.is_typing():
+		_debounce.start(Tuning.video.display_apply_delay)
+		return
+	apply_pending()
 
 
 ## Apply the staged display values and ask to keep them.
@@ -256,6 +280,10 @@ func is_busy() -> bool:
 
 
 func flush() -> bool:
+	if width_step.is_typing():
+		width_step.commit_typing()
+	if height_step.is_typing():
+		height_step.commit_typing()
 	if has_pending():
 		apply_pending()
 	return is_busy()
