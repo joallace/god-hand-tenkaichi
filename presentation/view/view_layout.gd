@@ -7,7 +7,14 @@ extends Control
 ##                 (VERSUS_CPU, ONLINE and any future mode).
 ## Each view = Control(clip) > SubViewportContainer(stretch) > SubViewport >
 ## FighterCamera, plus a full-rect tint ColorRect for per-view flashes.
-## Containers are anchored full rect, so window resizes are automatic.
+##
+## Resolution: a stretched container sizes its SubViewport in canvas units,
+## which under the canvas_items stretch mode is the 1152x648-ish base size,
+## not the window's pixels. So each container is sized to its panel times the
+## window's canvas->pixel scale and drawn scaled back down: the 3D renders at
+## native pixels, then Settings.configure_viewport() applies the player's
+## render scale + upscaler. Refit on panel resize, window resize and
+## Settings.video_applied (UI scale changes the canvas scale).
 ##
 ## Also routes presentation events (MatchEventHub) to the cameras. In co-op
 ## an ultimate's orbit cinematic plays only on its caster's view (the other
@@ -19,6 +26,8 @@ var panels: Dictionary = {}
 var _coop := false
 var _tints: Dictionary = {}  # slot -> ColorRect
 var _tint_tweens: Dictionary = {}  # slot -> Tween
+## panel Control -> its SubViewportContainer.
+var _containers: Dictionary = {}
 
 
 func _init() -> void:
@@ -59,6 +68,8 @@ func build(config: MatchConfig, fighters: Array[Fighter], world: World3D, hub: M
 
 	if hub != null:
 		hub.fighter_event.connect(_on_fighter_event.bind(hub))
+	get_viewport().size_changed.connect(_refit_all)
+	Settings.video_applied.connect(_on_video_applied)
 
 
 func _fighter_for(fighters: Array[Fighter], slot: int) -> Fighter:
@@ -81,7 +92,8 @@ func _make_view(f: Fighter, is_split: bool, world: World3D) -> Control:
 	container.stretch = true
 	container.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(container)
-	container.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_containers[panel] = container
+	panel.resized.connect(_fit.bind(panel))
 
 	var vp := SubViewport.new()
 	vp.name = "SubViewport"
@@ -90,6 +102,7 @@ func _make_view(f: Fighter, is_split: bool, world: World3D) -> Control:
 	vp.handle_input_locally = false
 	vp.msaa_3d = Viewport.MSAA_2X
 	vp.positional_shadow_atlas_size = 0
+	Settings.configure_viewport(vp)
 	container.add_child(vp)
 
 	var cam := FighterCamera.new()
@@ -105,6 +118,35 @@ func _make_view(f: Fighter, is_split: bool, world: World3D) -> Control:
 	tint.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_tints[f.slot] = tint
 	return panel
+
+
+## Canvas units -> window pixels for this layout's viewport.
+func pixel_scale() -> float:
+	var sc := get_viewport().get_final_transform().get_scale()
+	return maxf(minf(sc.x, sc.y), 0.01)
+
+
+func _fit(panel: Control) -> void:
+	var c: SubViewportContainer = _containers.get(panel)
+	if c == null:
+		return
+	var k := pixel_scale()
+	c.position = Vector2.ZERO
+	c.scale = Vector2.ONE / k
+	c.size = panel.size * k
+
+
+func _refit_all() -> void:
+	for panel: Control in _containers:
+		_fit(panel)
+
+
+func _on_video_applied() -> void:
+	for c: SubViewportContainer in _containers.values():
+		for vp in c.get_children():
+			if vp is SubViewport:
+				Settings.configure_viewport(vp)
+	_refit_all.call_deferred()
 
 
 func snap_cameras() -> void:

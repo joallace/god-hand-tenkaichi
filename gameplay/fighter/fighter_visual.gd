@@ -1,8 +1,9 @@
 class_name FighterVisual
-extends Node3D
+extends SmoothedVisual
 ## Placeholder humanoid built from primitive meshes, posed in code. Strictly
 ## read-only on the Fighter (its parent): reads state/pose each frame and
 ## listens to its `event` signal for flashes. Never touches sim state.
+## Follows the fighter with motion smoothing (SmoothedVisual).
 ##
 ## Rotation convention: limbs hang along -Y; +X rotation swings a limb
 ## forward (toward -Z = toward the opponent). Angles in degrees.
@@ -228,6 +229,7 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	super(delta)
 	if _fighter == null:
 		return
 	_time += delta

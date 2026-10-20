@@ -6,8 +6,8 @@ extends Camera3D
 ## the right shoulder, looking at a point between the fighters biased toward
 ## the target (fighter.target; none = a point ahead). Distance grows with
 ## separation. Yaw is smoothed and speed limited so cross-ups swing around
-## instead of popping. Visual only: reads
-## fighter transforms, never writes gameplay state.
+## instead of popping. Visual only: reads the fighters' drawn (motion-
+## smoothed) transforms, never writes gameplay state.
 ##
 ## InputFrame.move is in fighter space (+Y = toward target), so keeping the
 ## camera behind the fighter makes "stick up" = "screen forward".
@@ -134,10 +134,12 @@ func _orient() -> void:
 ## Returns [camera_position, look_point]. Updates the smoothed yaw.
 func _desired(delta: float) -> Array:
 	var t := Tuning.camera
-	var me := fighter.global_position
-	var opp := me + (-fighter.global_basis.z) * 4.0
+	# Frame what is drawn (motion-smoothed visuals), not the raw sim tick.
+	var mt := SmoothedVisual.render_transform_of(fighter)
+	var me := mt.origin
+	var opp := me + (-mt.basis.z) * 4.0
 	if fighter.target != null and is_instance_valid(fighter.target):
-		opp = fighter.target.global_position
+		opp = SmoothedVisual.render_transform_of(fighter.target).origin
 	var flat := Vector3(me.x - opp.x, 0.0, me.z - opp.z)
 	var sep := flat.length()
 
@@ -153,7 +155,7 @@ func _desired(delta: float) -> Array:
 			var max_step := deg_to_rad(t.max_yaw_speed_deg) * delta
 			_yaw += clampf(step, -max_step, max_step)
 	elif not _have_yaw:
-		_yaw = atan2(fighter.global_basis.z.x, fighter.global_basis.z.z)
+		_yaw = atan2(mt.basis.z.x, mt.basis.z.z)
 		_have_yaw = true
 
 	var dist := clampf(t.base_distance + sep * t.distance_per_meter, t.min_distance, t.max_distance)
@@ -179,8 +181,9 @@ func _desired(delta: float) -> Array:
 	if _ult_t >= 0.0 and _ult_user != null and is_instance_valid(_ult_user):
 		var p := clampf(_ult_t / t.ultimate_duration, 0.0, 1.0)
 		var w := minf(smoothstep(0.0, t.ultimate_blend, p), 1.0 - smoothstep(1.0 - t.ultimate_blend, 1.0, p))
-		var u := _ult_user.global_position
-		var ub := _ult_user.global_basis.z
+		var ut := SmoothedVisual.render_transform_of(_ult_user)
+		var u := ut.origin
+		var ub := ut.basis.z
 		var a := atan2(ub.x, ub.z) + deg_to_rad(t.ultimate_orbit_deg) * p * _ult_sign
 		var cpos := u + Vector3(sin(a), 0.0, cos(a)) * t.ultimate_distance + Vector3.UP * t.ultimate_height
 		var clook := u + Vector3.UP * t.ultimate_look_height

@@ -100,4 +100,7 @@ func _build_visual() -> void:
 	mat.emission = c.lightened(0.3)
 	mat.emission_energy_multiplier = 3.0
 	_mesh.material_override = mat
-	add_child(_mesh)
+	var smoothed := SmoothedVisual.new()
+	smoothed.name = "Visual"
+	smoothed.add_child(_mesh)
+	add_child(smoothed)

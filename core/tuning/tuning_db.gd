@@ -22,6 +22,7 @@ const REGISTRY := {
 	"targeting": preload("res://core/tuning/targeting_tuning.gd"),
 	"coop": preload("res://core/tuning/coop_tuning.gd"),
 	"net": preload("res://core/tuning/net_tuning.gd"),
+	"video": preload("res://core/tuning/video_tuning.gd"),
 }
 
 var input: InputTuning
@@ -37,6 +38,7 @@ var cpu: CpuTuning
 var targeting: TargetingTuning
 var coop: CoopTuning
 var net: NetTuning
+var video: VideoTuning
 
 
 func _init() -> void:

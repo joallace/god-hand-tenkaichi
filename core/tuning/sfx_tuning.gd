@@ -6,7 +6,14 @@ extends Resource
 
 @export_group("Mix")
 @export var enabled: bool = true
-@export var bus: StringName = &"Master"
+## Bus for gameplay sounds; menu sounds (ui_sounds) go to ui_bus. Both feed
+## Master. The player's volumes per bus live in user://audio.cfg
+## (AudioSettings); the buses are in res://default_bus_layout.tres.
+@export var bus: StringName = &"SFX"
+@export var ui_bus: StringName = &"UI"
+## Sounds routed to ui_bus: names starting with ui_sound_prefix plus these.
+@export var ui_sound_prefix: String = "ui_"
+@export var ui_sounds: Array[StringName] = [&"pause"]
 @export var master_volume_db: float = -6.0
 ## Per-sound offset added to master_volume_db (sound name -> dB). Unlisted
 ## sounds play at 0 dB offset.
@@ -36,6 +43,11 @@ extends Resource
 }
 ## Simultaneous one-shot voices; the oldest is cut when all are busy.
 @export var voices: int = 16
+
+@export_group("Player volume")
+## Settings > Audio sliders: default and step, in percent (0 = muted).
+@export var default_volume_percent: int = 100
+@export var volume_step_percent: int = 5
 
 @export_group("Variation")
 ## Random +- pitch scale on gameplay one-shots so repeats don't sound robotic.

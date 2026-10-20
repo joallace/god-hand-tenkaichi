@@ -26,7 +26,6 @@ func _ready() -> void:
 	_list = MenuHelpers.vlist([
 		MenuHelpers.button("Play", _on_play),
 		MenuHelpers.button("Join online", _on_join_online),
-		MenuHelpers.button("Controls", _on_controls),
 		MenuHelpers.button("How to Play", _on_how_to_play),
 		MenuHelpers.button("Settings", _on_settings),
 		MenuHelpers.button("Quit", _on_quit),
@@ -71,10 +70,6 @@ func _on_join_online() -> void:
 
 func _on_settings() -> void:
 	Game.goto(Game.SCENE_SETTINGS)
-
-
-func _on_controls() -> void:
-	Game.goto(Game.SCENE_CONTROLS)
 
 
 func _on_how_to_play() -> void:

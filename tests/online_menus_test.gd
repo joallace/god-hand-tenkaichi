@@ -86,7 +86,7 @@ func _test_main_menu() -> void:
 	await frames(5)
 	var labels: Array = (m.get("_list") as Node).get_children().map(
 			func(b: Node) -> String: return (b as Button).text if b is Button else "")
-	check(labels == ["Play", "Join online", "Controls", "How to Play", "Settings", "Quit"],
+	check(labels == ["Play", "Join online", "How to Play", "Settings", "Quit"],
 			"main menu entries in order (got %s)" % [labels])
 	check(_focus_text() == "Play", "main menu focuses Play")
 	await action("ui_up")
@@ -131,37 +131,54 @@ func _test_pending_message() -> void:
 func _test_settings_screen() -> void:
 	var s := spawn(Game.SCENE_SETTINGS) as SettingsScreen
 	await frames(3)
-	check(get_viewport().gui_get_focus_owner() == s.name_edit, "settings focuses the name field")
-	check(s.port_edit.text.is_empty() and s.port_edit.placeholder_text.contains(str(Tuning.net.default_port)),
-			"default port shown as placeholder")
-	check(s.delay_sel.current() == SettingsScreen.DELAY_AUTO_LABEL, "input delay starts at Auto")
-	check(s.delay_sel.options.size() == Tuning.net.input_delay_max + 2, "input delay options: Auto + 0..max")
+	s.select_tab(SettingsScreen.Tab.ONLINE)
+	await frames(2)
+	var o := s.online
+	check(get_viewport().gui_get_focus_owner() == o.name_edit, "online tab focuses the name field")
+	check(o.port_step.value == Tuning.net.default_port and o.port_step.text.contains("default"),
+			"default port shown as default")
+	check(o.delay_sel.current() == OnlinePage.DELAY_AUTO_LABEL, "input delay starts at Auto")
+	check(o.delay_sel.options.size() == Tuning.net.input_delay_max + 2, "input delay options: Auto + 0..max")
 
-	check(s.set_name_text("  Goku  "), "valid name accepted")
-	check(not s.set_name_text(""), "empty name rejected")
-	check(not s.set_name_text("x".repeat(Tuning.net.name_max_len + 1)), "too long name rejected")
-	check(not s.set_name_text("bad\nname"), "control characters rejected")
+	check(o.set_name_text("  Goku  "), "valid name accepted")
+	check(not o.set_name_text(""), "empty name rejected")
+	check(not o.set_name_text("x".repeat(Tuning.net.name_max_len + 1)), "too long name rejected")
+	check(not o.set_name_text("bad\nname"), "control characters rejected")
 	check(s.status.text.contains("Invalid"), "invalid name shows on the status line")
 	check(Net.settings.player_name == "Goku", "rejected names keep the last valid one")
 	# Typing goes through text_changed like a real edit.
-	s.name_edit.text = "Vegeta"
-	s.name_edit.text_changed.emit(s.name_edit.text)
+	o.name_edit.text = "Vegeta"
+	o.name_edit.text_changed.emit(o.name_edit.text)
 	check(Net.settings.player_name == "Vegeta" and not s.status.text.contains("Invalid"),
 			"typing a valid name stores it and clears the error")
 
-	s.delay_sel.cycle(1)
+	o.delay_sel.cycle(1)
 	check(Net.settings.input_delay == 0, "delay Auto -> 0")
-	s.delay_sel.cycle(1)
-	s.delay_sel.cycle(1)
+	o.delay_sel.cycle(1)
+	o.delay_sel.cycle(1)
 	check(Net.settings.input_delay == 2, "delay -> 2")
 
-	check(s.set_port_text("9000"), "port 9000 accepted")
-	check(not s.set_port_text("80"), "port below 1024 rejected")
-	check(not s.set_port_text("70000"), "port above 65535 rejected")
-	check(not s.set_port_text("abc"), "non-numeric port rejected")
-	check(Net.settings.port == 9000, "rejected ports keep the last valid one")
+	o.port_step.set_value_user(9000)
+	check(Net.settings.port == 9000, "port 9000 stored")
+	o.port_step.set_value_user(80)
+	check(Net.settings.port == OnlinePage.PORT_MIN, "ports below 1024 clamp to 1024")
+	o.port_step.set_value_user(70000)
+	check(Net.settings.port == OnlineSettings.MAX_PORT, "ports above 65535 clamp")
+	o.port_step.set_value_user(Tuning.net.default_port)
+	check(Net.settings.port == OnlineSettings.PORT_DEFAULT, "the default port stores PORT_DEFAULT")
+	# Typed digits on the focused stepper.
+	o.port_step.grab_focus()
+	await frames(1)
+	for ch in "9000":
+		var e := InputEventKey.new()
+		e.keycode = KEY_0
+		e.unicode = ch.unicode_at(0)
+		e.pressed = true
+		o.port_step._gui_input(e)
+	o.port_step.commit_typing()
+	check(Net.settings.port == 9000, "typing a port stores it")
 
-	s.overlay_sel.cycle(1)
+	o.overlay_sel.cycle(1)
 	check(Net.settings.net_overlay, "net overlay toggled on")
 
 	var disk := OnlineSettings.load_from(TEMP_CFG)
@@ -170,26 +187,25 @@ func _test_settings_screen() -> void:
 	check(_real_settings.path == OnlineSettings.DEFAULT_PATH and Net.settings.path == TEMP_CFG,
 			"test writes only the temp config")
 
-	check(s.set_port_text(""), "empty port accepted")
-	check(OnlineSettings.load_from(TEMP_CFG).port == OnlineSettings.PORT_DEFAULT, "empty port = default")
-	check(s.set_port_text(str(Tuning.net.default_port)) and Net.settings.port == OnlineSettings.PORT_DEFAULT,
-			"typing the default port stores PORT_DEFAULT")
-
 	# Pad/keyboard navigation reaches every row and wraps.
+	o.focus_first()
+	await frames(2)
+	var reset_btn: Control = o.rows.get_child(o.rows.get_child_count() - 1)
 	var seen: Array[Control] = []
 	for i in 5:
 		seen.append(get_viewport().gui_get_focus_owner())
 		await action("ui_down")
-	check(seen == [s.name_edit, s.delay_sel, s.port_edit, s.overlay_sel, s.back_btn]
-			and get_viewport().gui_get_focus_owner() == s.name_edit, "settings rows navigable top to bottom, wrapping")
+	check(seen == [o.name_edit, o.delay_sel, o.port_step, o.overlay_sel, reset_btn]
+			and get_viewport().gui_get_focus_owner() == o.name_edit, "online rows navigable top to bottom, wrapping")
 	s.queue_free()
 	await frames(2)
 
 	# A reopened screen shows the stored values.
 	s = spawn(Game.SCENE_SETTINGS) as SettingsScreen
 	await frames(2)
-	check(s.name_edit.text == "Vegeta" and s.delay_sel.current() == "2" and s.overlay_sel.current() == "On",
-			"settings screen shows stored values")
+	o = s.online
+	check(o.name_edit.text == "Vegeta" and o.delay_sel.current() == "2" and o.overlay_sel.current() == "On"
+			and o.port_step.value == 9000, "settings screen shows stored values")
 	s.queue_free()
 	await frames(2)
 

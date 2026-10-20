@@ -84,10 +84,21 @@ before autoloads exist. See `tests/README.md`. Always wrap Godot calls in
   - `tuning/`: one Resource class per category, loaded by the `Tuning` autoload
     from `data/tuning/<key>.tres`.
   - `game.gd`: `Game` autoload, scene flow.
+  - `settings/`: `Settings` autoload (presentation only, never read by the
+    sim): `VideoSettings` (`user://video.cfg`: window mode/size, render
+    scale + upscaler, vsync, FPS cap, motion smoothing, shadows, UI scale;
+    defaults/options in `data/tuning/video.tres`) and `AudioSettings`
+    (`user://audio.cfg`: volume per bus; buses in `default_bus_layout.tres`).
+    `apply_video()` -> window/renderer + `video_applied`; `ViewLayout` pulls
+    `configure_viewport()`. Window bits are skipped headless (`apply_display`).
 - `gameplay/` — `Fighter` (state machine, public contract in its header;
   `Targeting` picks/cycles its target),
   `CombatSystem`, `MoveData`, projectiles, `CharacterDef`/`CharacterRegistry`,
   `FighterVisual` (placeholder primitives, read-only view of the fighter).
+  Fighter/projectile visuals are `SmoothedVisual`s (presentation/view):
+  top_level, blended between the last two sim ticks (motion smoothing; the
+  engine's physics interpolation stays off). Anything framing an entity on
+  screen reads `SmoothedVisual.render_transform_of(node)`.
   - `ai/CpuBrain`: the CPU opponent. Reads public fighter state behind a
     reaction delay and emits `InputFrame`s (no cheating, no fighter changes).
     Difficulty levels and every behavior knob live in `data/tuning/cpu.tres`
@@ -103,11 +114,16 @@ before autoloads exist. See `tests/README.md`. Always wrap Godot calls in
   only structural director signals (spawn/remove) are connected directly.
   - `audio/`: `Sfx` autoload (play by sound name, voice pool, keyed loops,
     menu focus blip) and `MatchSfx` (fighter events/states + director
-    signals -> sounds). Mix volumes in `data/tuning/sfx.tres`.
+    signals -> sounds). Mix volumes in `data/tuning/sfx.tres`; menu sounds
+    play on the UI bus, the rest on SFX.
 - `scenes/menus/`, `ui/` — main menu, unified lobby (`Lobby`, local and
   online; rules/data in `core/match/LobbyModel`), join-online screen (recent
-  hosts), settings, controls rebinding, results (online: rematch votes,
-  lobby, save replay).
+  hosts), settings hub (`SettingsScreen`: LB/RB tabs Graphics / Audio /
+  Controls / Online, pages in `scenes/menus/settings/`; display changes are
+  debounced then confirmed with a revert countdown; also a pause-menu
+  overlay with the Online page locked), controls rebinding (`ControlsScreen`,
+  embedded as the Controls tab), results (online: rematch votes, lobby,
+  save replay). `ui/`: `OptionSelector`, `NumberStepper`, `ConfirmPrompt`.
 
 ## Rules
 
