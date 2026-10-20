@@ -599,6 +599,24 @@ mode, port override, recent hosts, debug overlay.
    on-screen keyboard for pads).*
 3. **Online co-op**: Brawl/Waves for 2, then up to 4 humans; CPU ally
    online; `CPU_TAKEOVER`; online field cap tuned with `net_bench`.
+   *Status 2026-10-19: implemented, tested headless over loopback (not
+   play-tested over a WAN). `LobbyModel` offers Versus / Co-op online;
+   online co-op has min(`max_humans`, `max_fighters`) optional slots and the
+   CPU ally takes one of the `max_fighters` places; mode switches pack the
+   joined humans (`OnlineRoom` moves each peer's device along and maps it to
+   co-op's renumbered config slots); a local co-op lobby opened online stays
+   co-op. `CoopRun.field_cap_for` clamps the field to
+   `coop.online_field_cap` online (never below team 0 + 1); the cap stays 6
+   (§12.1: skipping final-tick snapshots saves ~2 %, nothing to raise it
+   with yet). HUD / results show "CPU (<name>)" for taken-over slots, 4
+   player colours, a 4-slot lobby layout, Retry votes for co-op. Fixed on
+   the way: a rematch stalled on stale INPUT_ACKs from the last match
+   (`Session.end_match`), and a reused peer id stayed "departed". Tests:
+   `net_coop_test` (host + 3 guests: lobby -> co-op run with latency/loss,
+   field cap, leave-run and disconnect takeovers at one tick everywhere,
+   equal hashes, clear -> results -> rematch), `lobby_test`,
+   `ui_layout_test`. Guest auto delay still doubles its own RTT for the
+   guest->host->guest path (no shared per-link RTTs).*
 4. **Drop-in / reconnect** at Waves breathers.
 5. **n-vs-n and couch + online**: teams/FFA rows, lock, several local
    players per peer, per-machine split screen.

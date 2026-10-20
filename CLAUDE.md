@@ -72,7 +72,8 @@ before autoloads exist. See `tests/README.md`. Always wrap Godot calls in
     snapshot ring, rollback + resim (`director.resimulating`, hub
     `rollback_to`/`confirm_through`), stall/TimeSync, confirmed checkpoint
     hashes, host RESYNC + desync dumps, `issue_command`, disconnect ->
-    FORFEIT / CPU_TAKEOVER. Tested end to end in `tests/net_loopback_test`.
+    FORFEIT / CPU_TAKEOVER. Tested end to end in `tests/net_loopback_test`
+    (online co-op through rooms: `tests/net_coop_test`).
     `Net` autoload (`core/net/net.gd`): `host()`/`join()`/`leave()`, pumps
     the session outside matches (the match scene's driver pumps it during
     one), `OnlineSettings` (`user://online.cfg`: name, delay, port, recent
@@ -177,7 +178,9 @@ ours. Describe mechanics in our own words; never copy decomp code.
 
 ## Known gaps
 
-Online 1v1 (milestone 2) is implemented and tested headless, but not yet
-play-tested Linux↔Windows over a real WAN; online co-op, drop-in and
-couch + online are milestones 3-5 (SPEC_ONLINE.md §15). The CPU only knows the moveset roles in `CharacterDef`
+Online 1v1 and co-op (milestones 2-3) are implemented and tested headless,
+but not yet play-tested Linux↔Windows over a real WAN; drop-in and
+couch + online are milestones 4-5 (SPEC_ONLINE.md §15). Headless tests
+see real gamepads plugged into the machine (net_results_test swallows
+real input events for that reason). The CPU only knows the moveset roles in `CharacterDef`
 (string, heavies, supers), not character-specific tricks.
