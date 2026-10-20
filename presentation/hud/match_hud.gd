@@ -19,8 +19,7 @@ extends CanvasLayer
 ## (re-sent by Fighter.load_state, so they follow a rollback).
 ##
 ## Co-op (config.mode == COOP): panels only for the first two team-0 fighters
-## (humans / ally; enemies get per-view pips and a target bar from
-## CoopViewHud), no round pips or round announcements, the run timer is
+## (humans / ally; enemies get per-view HP / ki pips from CoopViewHud), no round pips or round announcements, the run timer is
 ## hidden when infinite, an "ENEMIES n" counter sits under it
 ## (CoopRun.enemies_left()) and run_ended
 ## announces CLEARED / WIPED OUT. Waves runs add a "WAVE n / N" counter under

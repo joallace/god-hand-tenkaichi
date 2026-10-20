@@ -2,9 +2,10 @@ extends Node
 ## Headless test for the co-op presentation layer: a MatchScene with a COOP
 ## config (2 local players on team 0) and the run's own enemies
 ## (CoopConfig.enemy_count of them, repositioned by the test once they spawn
-## at the ring edge, checked after their entry ends), then: per-view CoopViewHud (target bar, partner panel, pips / edge arrows that
-## follow spawns and removals, target bar following a target change, ultimate
-## banner on the other view only), global HUD (team-0 panels only, enemies
+## at the ring edge, checked after their entry ends), then: per-view CoopViewHud (partner panel, pips / edge arrows that
+## follow spawns and removals, target pip following a target change, pips
+## staying on their enemy when the view renders at a canvas->pixel scale != 1
+## (large / DPI-scaled windows), ultimate banner on the other view only), global HUD (team-0 panels only, enemies
 ## left, infinite timer hidden), co-op events through VFX/SFX, KO fade, and
 ## the pause menu's Restart Run button.
 ##   godot --headless res://tests/coop_hud_test.tscn
@@ -81,18 +82,35 @@ func _physics_process(_delta: float) -> void:
 				var ch: CoopViewHud = _match.coop_huds[slot]
 				_check(_all_marked(ch) == ENEMY_SLOTS, "view %d marks every enemy (pips %s, arrows %s)" % [slot, ch.pip_slots(), ch.arrow_slots()])
 				_check(ch.partner_count() == 1, "view %d has one partner panel" % slot)
-				_check(ch.shown_target() != null and ch.shown_target().team == 1, "view %d target bar shows an enemy" % slot)
-				_check(ch.get_node("TargetHealth").visible, "view %d target health bar visible" % slot)
+				_check(ch.find_children("Target*", "", false, false).is_empty(), "view %d has no top target panel" % slot)
 			var ch0: CoopViewHud = _match.coop_huds[0]
 			_check(_enemies[0].slot in ch0.pip_slots(), "enemy in front of P1 has a pip")
 			_check(_enemies[1].slot in ch0.arrow_slots(), "enemy behind P1's camera gets an edge arrow")
-			# Lock P1 on the third enemy: the target bar follows.
+			# Render P1's view at 2 pixels per canvas unit, as ViewLayout._fit
+			# does for a window twice the base size.
+			var panel: Control = _match.views.panels[0]
+			var c: SubViewportContainer = _match.views._containers[panel]
+			c.scale = Vector2.ONE * 0.5
+			c.size = panel.size * 2.0
+		41:
+			var ch0: CoopViewHud = _match.coop_huds[0]
+			var panel: Control = _match.views.panels[0]
+			var c: SubViewportContainer = _match.views._containers[panel]
+			var cam: FighterCamera = _match.views.cameras[0]
+			var pos := SmoothedVisual.render_transform_of(_enemies[0]).origin + Vector3.UP * Tuning.hud.pip_world_height
+			var on_screen := c.position + cam.unproject_position(pos) * c.scale
+			var drawn := ch0.pip_point(_enemies[0].slot)
+			_check(drawn.distance_to(on_screen) < 4.0, "pip stays over its enemy at pixel scale 2 (drawn %s, enemy %s)" % [drawn, on_screen])
+			_match.views._fit(panel)
+			# Lock P1 on the third enemy: the target pip follows.
 			var p1 := d.fighters[0]
 			p1.target = _enemies[2]
 			p1.set(&"_target_locked", true)
-		42:
+		43:
 			var ch0: CoopViewHud = _match.coop_huds[0]
-			_check(ch0.shown_target() == _enemies[2], "target bar follows a target change")
+			_check(ch0.target_pip_slot() == _enemies[2].slot or _enemies[2].slot in ch0.arrow_slots(),
+					"target pip follows a target change (target pip %d)" % ch0.target_pip_slot())
+			_check(ch0.target_pip_slot() != _enemies[0].slot, "previous target loses its highlight")
 			# Ultimate by P2: banner on P1's view, not on P2's own.
 			d.fighters[1].event.emit(&"ultimate_start", {"freeze_frames": 0})
 			_check(ch0.banner_text() == Tuning.hud.text_ultimate_banner % "P2", "P1's view shows the P2 ULTIMATE banner")

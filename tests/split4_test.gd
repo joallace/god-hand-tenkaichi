@@ -233,12 +233,10 @@ func _test_coop_quarters() -> void:
 		var view := Rect2(Vector2.ZERO, panel.size)
 		_check(ch.size.is_equal_approx(panel.size), "coop: view %d HUD fills its quarter" % slot)
 		_check(ch.partner_count() == 3, "coop: view %d lists 3 teammates" % slot)
-		var bar := Rect2(ch._target_bar.position, ch._target_bar.size)
-		_check(view.encloses(bar), "coop: view %d target bar inside the quarter" % slot)
 		for p: Dictionary in ch._partners:
 			var hb := p["health"] as Control
 			var r := Rect2(hb.position, hb.size)
-			_check(view.encloses(r) and not r.intersects(bar), "coop: view %d partner bar inside, clear of the target bar" % slot)
+			_check(view.encloses(r), "coop: view %d partner bar inside the quarter" % slot)
 	_check(m.hud.panels.size() == 2, "coop: global HUD keeps two panels")
 	await _stop(m)
 

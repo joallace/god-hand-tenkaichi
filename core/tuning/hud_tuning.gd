@@ -105,11 +105,6 @@ extends Resource
 @export var text_counter: String = "COUNTER!"
 
 @export_group("Co-op (per-view HUD)")
-## Current target's bar: centered in each view, this far below its top edge.
-@export var coop_target_top: float = 104.0
-@export var coop_target_width: float = 360.0
-@export var coop_target_bar_height: float = 16.0
-@export var coop_target_ki_height: float = 8.0
 @export var coop_small_font_size: int = 18
 ## Teammate panels, stacked from the view's bottom-left corner.
 @export var coop_partner_width: float = 200.0
@@ -117,10 +112,13 @@ extends Resource
 @export var coop_partner_ki_height: float = 6.0
 @export var coop_partner_margin: float = 16.0
 @export var coop_partner_spacing: float = 52.0
-## World-space HP pips over enemies (m above the feet, px size).
+## World-space HP pips over enemies (m above the feet, px size), with a ki
+## strip under the HP bar.
 @export var pip_world_height: float = 2.25
 @export var enemy_pip_width: float = 54.0
 @export var enemy_pip_height: float = 6.0
+@export var enemy_pip_ki_height: float = 3.0
+@export var enemy_pip_ki_gap: float = 1.0
 @export var enemy_pip_bg_color: Color = Color(0.05, 0.05, 0.08, 0.8)
 @export var enemy_pip_color: Color = Color(1.0, 0.3, 0.2)
 ## The pip of this view's current target.

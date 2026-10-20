@@ -2,27 +2,26 @@ class_name CoopViewHud
 extends Control
 ## Per-view overlay for co-op runs (SPEC.md §7), one per local view, drawn on
 ## top of that view's SubViewport (same pixel space as its camera):
-##   - the view fighter's current target: name + full HP bar + ki gauge
-##     (follows target changes)
 ##   - teammates: small HP/ki panels from the bottom-left corner, with a
 ##     DOWNED / OUT status
-##   - HP pips over every enemy on screen, edge arrows for enemies off screen
+##   - an HP bar + ki strip over every enemy on screen (the view fighter's
+##     current target in its own colour), edge arrows for enemies off screen
 ##     (no token colouring: enemies give no attack tell)
 ##   - a revive ring + bleed-out seconds over each downed teammate
 ##   - a "P2 ULTIMATE" banner when someone other than the view fighter starts
 ##     an ultimate (that fighter's own view plays the camera cinematic)
 ## Enemies and teammates are read from director.fighters every frame, so
 ## fighters spawned or removed mid-match need no bookkeeping. Read only.
+##
+## World markers project through the view's camera, whose SubViewport is
+## sized in window pixels (ViewLayout._fit) while this overlay is in canvas
+## units: `_to_view` rescales between the two.
 
 var director: MatchDirector
 var fighter: Fighter
 var camera: FighterCamera
 
 var _font: SystemFont
-var _target_name: Label
-var _target_bar: HudHealthBar
-var _target_ki: HudKiGauge
-var _shown_target: Fighter
 var _partners: Array[Dictionary] = []  # {fighter, name, health, ki, status}
 var _partner_slots: Array[int] = []
 var _banner: Label
@@ -30,6 +29,9 @@ var _banner_tween: Tween
 ## Enemy slots that drew a pip / an edge arrow on the last redraw (tests).
 var _pip_slots: Array[int] = []
 var _arrow_slots: Array[int] = []
+## slot -> where that enemy's pip was anchored on the last redraw (tests).
+var _pip_points: Dictionary = {}
+var _target_pip_slot := -1
 
 
 func _init() -> void:
@@ -45,18 +47,6 @@ func setup(p_director: MatchDirector, hub: MatchEventHub, p_fighter: Fighter, p_
 	_font = SystemFont.new()
 	_font.font_names = t.font_names
 	_font.font_weight = t.font_weight
-
-	_target_name = _label(t.coop_small_font_size, t.text_color)
-	_target_name.name = "TargetName"
-	_target_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	add_child(_target_name)
-	_target_bar = HudHealthBar.new()
-	_target_bar.name = "TargetHealth"
-	add_child(_target_bar)
-	_target_ki = HudKiGauge.new()
-	_target_ki.name = "TargetKi"
-	_target_ki.bars = Tuning.fighter.ki_bars
-	add_child(_target_ki)
 
 	_banner = _label(t.banner_font_size, t.banner_color)
 	_banner.name = "Banner"
@@ -118,8 +108,13 @@ func arrow_slots() -> Array[int]:
 	return _arrow_slots
 
 
-func shown_target() -> Fighter:
-	return _shown_target if _valid(_shown_target) else null
+func pip_point(slot: int) -> Vector2:
+	return _pip_points.get(slot, Vector2.INF)
+
+
+## Slot of the enemy whose pip was drawn as this view's target (-1: none).
+func target_pip_slot() -> int:
+	return _target_pip_slot
 
 
 func partner_count() -> int:
@@ -141,13 +136,6 @@ func _ki_max(f: Fighter) -> float:
 func _layout() -> void:
 	var t := Tuning.hud
 	var w := size.x
-	var x0 := (w - t.coop_target_width) * 0.5
-	_target_name.position = Vector2(x0, t.coop_target_top - t.coop_small_font_size - 10.0)
-	_target_name.size = Vector2(t.coop_target_width, t.coop_small_font_size + 8.0)
-	_target_bar.position = Vector2(x0, t.coop_target_top)
-	_target_bar.size = Vector2(t.coop_target_width, t.coop_target_bar_height)
-	_target_ki.position = Vector2(x0, t.coop_target_top + t.coop_target_bar_height + 6.0)
-	_target_ki.size = Vector2(t.coop_target_width * t.ki_width_ratio, t.coop_target_ki_height)
 	_banner.size = Vector2(w, t.banner_font_size * 1.6)
 	_banner.position = Vector2(0, size.y * t.banner_y_ratio - _banner.size.y * 0.5)
 	_banner.pivot_offset = _banner.size * 0.5
@@ -207,7 +195,6 @@ func _process(_delta: float) -> void:
 	if not _valid(fighter):
 		return
 	_refresh_partners()
-	_update_target()
 	var t := Tuning.hud
 	for p in _partners:
 		var m: Fighter = p["fighter"]
@@ -228,32 +215,21 @@ func _process(_delta: float) -> void:
 	queue_redraw()
 
 
-func _update_target() -> void:
-	var tgt := fighter.target if _valid(fighter.target) else null
-	var show := tgt != null and not tgt.is_ko()
-	_target_name.visible = show
-	_target_bar.visible = show
-	_target_ki.visible = show
-	if not show:
-		_shown_target = null
-		return
-	if tgt != _shown_target:
-		_shown_target = tgt
-		var char_name := ""
-		if tgt.def != null:
-			char_name = tgt.def.display_name if tgt.def.display_name != "" else String(tgt.def.id)
-		_target_name.text = "%s  %s" % [_tag(tgt), char_name.to_upper()]
-		_target_bar.set_ratio(tgt.health_ratio(), true)
-	else:
-		_target_bar.set_ratio(tgt.health_ratio())
-	_target_ki.set_ki(tgt.ki, _ki_max(tgt))
-
-
 # --- world markers (pips, arrows, revive rings) --------------------------------
+
+## Camera (SubViewport pixel) position -> this overlay's coordinates.
+func _to_view(world_pos: Vector3) -> Vector2:
+	var vp_size := camera.get_viewport().get_visible_rect().size
+	if vp_size.x <= 0.0 or vp_size.y <= 0.0:
+		return Vector2.INF
+	return camera.unproject_position(world_pos) * size / vp_size
+
 
 func _draw() -> void:
 	_pip_slots.clear()
 	_arrow_slots.clear()
+	_pip_points.clear()
+	_target_pip_slot = -1
 	if camera == null or not is_instance_valid(camera) or not camera.is_inside_tree() or not _valid(fighter):
 		return
 	var t := Tuning.hud
@@ -263,10 +239,13 @@ func _draw() -> void:
 			continue
 		var pos := SmoothedVisual.render_transform_of(e).origin + Vector3.UP * t.pip_world_height
 		if not camera.is_position_behind(pos):
-			var p := camera.unproject_position(pos)
+			var p := _to_view(pos)
 			if rect.has_point(p):
 				_draw_pip(p, e)
 				_pip_slots.append(e.slot)
+				_pip_points[e.slot] = p
+				if e == fighter.target:
+					_target_pip_slot = e.slot
 				continue
 		_draw_edge_arrow(pos)
 		_arrow_slots.append(e.slot)
@@ -274,17 +253,37 @@ func _draw() -> void:
 		if m.is_downed():
 			var pos := SmoothedVisual.render_transform_of(m).origin + Vector3.UP * t.revive_marker_height
 			if not camera.is_position_behind(pos):
-				_draw_revive_ring(camera.unproject_position(pos), m)
+				_draw_revive_ring(_to_view(pos), m)
 
 
+## HP bar with a ki strip under it, bottom edge at `at`. The ki strip fills
+## like the HUD gauge: full bars bright, the bar being charged dim, a tick
+## between bars.
 func _draw_pip(at: Vector2, e: Fighter) -> void:
 	var t := Tuning.hud
-	var r := Rect2(at - Vector2(t.enemy_pip_width * 0.5, t.enemy_pip_height), Vector2(t.enemy_pip_width, t.enemy_pip_height))
-	draw_rect(r.grow(1.0), t.outline_color)
-	draw_rect(r, t.enemy_pip_bg_color)
-	var fill := r
+	var w := t.enemy_pip_width
+	var total_h := t.enemy_pip_height + t.enemy_pip_ki_gap + t.enemy_pip_ki_height
+	var box := Rect2(at - Vector2(w * 0.5, total_h), Vector2(w, total_h))
+	draw_rect(box.grow(1.0), t.outline_color)
+	var hp := Rect2(box.position, Vector2(w, t.enemy_pip_height))
+	draw_rect(hp, t.enemy_pip_bg_color)
+	var fill := hp
 	fill.size.x *= clampf(e.health_ratio(), 0.0, 1.0)
 	draw_rect(fill, t.enemy_pip_target_color if e == fighter.target else t.enemy_pip_color)
+
+	var ki := Rect2(box.position + Vector2(0.0, t.enemy_pip_height + t.enemy_pip_ki_gap), Vector2(w, t.enemy_pip_ki_height))
+	draw_rect(ki, t.ki_empty_color)
+	var bars := maxi(Tuning.fighter.ki_bars, 1)
+	var ki_ratio := clampf(e.ki / maxf(_ki_max(e), 0.0001), 0.0, 1.0)
+	var full_w := floorf(ki_ratio * bars + 0.0001) / bars * w
+	if full_w > 0.0:
+		draw_rect(Rect2(ki.position, Vector2(full_w, ki.size.y)), t.ki_full_color)
+	var part_w := ki_ratio * w - full_w
+	if part_w > 0.0:
+		draw_rect(Rect2(ki.position + Vector2(full_w, 0.0), Vector2(part_w, ki.size.y)), t.ki_partial_color)
+	for i in range(1, bars):
+		var x := ki.position.x + w * i / bars
+		draw_line(Vector2(x, ki.position.y), Vector2(x, ki.end.y), t.outline_color)
 
 
 func _draw_edge_arrow(world_pos: Vector3) -> void:
