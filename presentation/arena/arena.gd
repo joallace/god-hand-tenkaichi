@@ -6,7 +6,8 @@ extends Node3D
 ## the boundary, boulders/pillars outside the ring, distant mountains, a bright
 ## procedural sky and a shadowed sun. Visual only, plus a flat static floor
 ## collider (top at y = 0) for any physics-based movement.
-## Look is driven by Tuning.arena (data/tuning/arena.tres).
+## Look is driven by Tuning.arena (data/tuning/arena.tres); the sun's shadows
+## follow Settings > Graphics > Shadows.
 
 const GROUND_SHADER := """
 shader_type spatial;
@@ -58,6 +59,7 @@ void fragment() {
 """
 
 var radius: float = 0.0
+var _sun: DirectionalLight3D
 
 
 func _init() -> void:
@@ -110,11 +112,17 @@ func _build_environment() -> void:
 	sun.rotation_degrees = Vector3(a.sun_pitch_deg, a.sun_yaw_deg, 0.0)
 	sun.light_energy = a.sun_energy
 	sun.light_color = Color(1.0, 0.97, 0.9)
-	sun.shadow_enabled = true
+	sun.shadow_enabled = Settings.shadows_enabled()
+	_sun = sun
+	Settings.video_applied.connect(_on_video_applied)
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
 	sun.directional_shadow_max_distance = a.shadow_max_distance
 	sun.shadow_blur = 1.0
 	add_child(sun)
+
+
+func _on_video_applied() -> void:
+	_sun.shadow_enabled = Settings.shadows_enabled()
 
 
 func _build_ground() -> void:

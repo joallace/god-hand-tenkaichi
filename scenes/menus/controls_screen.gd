@@ -21,6 +21,11 @@ extends Control
 ##   var cs := ControlsScreen.open_overlay(self)
 ##   cs.closed.connect(_on_controls_closed)
 ## process_mode is ALWAYS, so it works while get_tree().paused is true.
+##
+## Embedded use (`embedded = true`): the Controls tab of SettingsScreen. No
+## background, title or Back button and no ui_cancel handling (the hub owns
+## those); it meets the SettingsPage contract (focus_first, is_busy, flush,
+## on_close).
 
 signal closed
 
@@ -57,6 +62,9 @@ const COMBO_ROWS := [
 ## When true, Back emits `closed` and frees this node instead of going to
 ## the main menu.
 var as_overlay: bool = false
+## Inside SettingsScreen as its Controls tab.
+var embedded: bool = false
+var title := "CONTROLS"
 ## Currently edited profile.
 var slot: int = 0
 var kind: int = Bindings.Kind.PAD
@@ -95,7 +103,9 @@ func _init() -> void:
 
 func _ready() -> void:
 	MenuHelpers.setup_screen(self)
-	if as_overlay:
+	if embedded:
+		pass
+	elif as_overlay:
 		var dim := ColorRect.new()
 		dim.color = Color(0, 0, 0, 0.82)
 		dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -105,13 +115,15 @@ func _ready() -> void:
 
 	var col := VBoxContainer.new()
 	col.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	col.offset_left = 80
-	col.offset_right = -80
-	col.offset_top = 16
-	col.offset_bottom = -16
+	if not embedded:
+		col.offset_left = 80
+		col.offset_right = -80
+		col.offset_top = 16
+		col.offset_bottom = -16
 	add_child(col)
 
-	col.add_child(MenuHelpers.title("CONTROLS"))
+	if not embedded:
+		col.add_child(MenuHelpers.title(title))
 
 	var sel_row := HBoxContainer.new()
 	sel_row.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -153,10 +165,12 @@ func _ready() -> void:
 	_back_btn = MenuHelpers.button("Save & Back", save_and_back)
 	bottom.add_child(_reset_btn)
 	bottom.add_child(_back_btn)
+	_back_btn.visible = not embedded
 	col.add_child(bottom)
 
 	_rebuild_rows()
-	_player_sel.grab_focus.call_deferred()
+	if not embedded:
+		_player_sel.grab_focus.call_deferred()
 
 
 func _rebuild_rows() -> void:
@@ -231,8 +245,11 @@ func _relink_focus() -> void:
 	for action in _row_buttons:
 		chain.append(_row_buttons[action])
 	chain.append(_reset_btn)
-	chain.append(_back_btn)
+	if not embedded:
+		chain.append(_back_btn)
 	MenuHelpers.link_vertical(chain)
+	if embedded:
+		return
 	# Selectors use left/right to cycle; bottom buttons move between each other.
 	_reset_btn.focus_neighbor_right = _reset_btn.get_path_to(_back_btn)
 	_reset_btn.focus_neighbor_left = _reset_btn.get_path_to(_back_btn)
@@ -351,7 +368,7 @@ func assign(action: String, b: Dictionary) -> void:
 # --- Buttons ---------------------------------------------------------------------
 
 func _unhandled_input(event: InputEvent) -> void:
-	if is_listening():
+	if is_listening() or embedded:
 		return
 	if event.is_action_pressed("ui_cancel"):
 		get_viewport().set_input_as_handled()
@@ -378,3 +395,22 @@ func save_and_back() -> void:
 		queue_free()
 	else:
 		Game.goto(Game.SCENE_MAIN_MENU)
+
+
+# --- SettingsPage contract (embedded) ---------------------------------------------
+
+func focus_first() -> void:
+	_player_sel.grab_focus.call_deferred()
+
+
+func is_busy() -> bool:
+	return is_listening()
+
+
+func flush() -> bool:
+	return false
+
+
+func on_close() -> void:
+	cancel_listen()
+	Bindings.save_to_disk()

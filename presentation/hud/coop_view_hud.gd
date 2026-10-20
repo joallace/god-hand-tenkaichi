@@ -260,7 +260,7 @@ func _draw() -> void:
 	for e in enemies():
 		if e.is_ko() or e.is_vanished():
 			continue
-		var pos := e.global_position + Vector3.UP * t.pip_world_height
+		var pos := SmoothedVisual.render_transform_of(e).origin + Vector3.UP * t.pip_world_height
 		if not camera.is_position_behind(pos):
 			var p := camera.unproject_position(pos)
 			if rect.has_point(p):
@@ -271,7 +271,7 @@ func _draw() -> void:
 		_arrow_slots.append(e.slot)
 	for m in teammates():
 		if m.is_downed():
-			var pos := m.global_position + Vector3.UP * t.revive_marker_height
+			var pos := SmoothedVisual.render_transform_of(m).origin + Vector3.UP * t.revive_marker_height
 			if not camera.is_position_behind(pos):
 				_draw_revive_ring(camera.unproject_position(pos), m)
 

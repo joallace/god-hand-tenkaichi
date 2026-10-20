@@ -1,141 +1,227 @@
 class_name SettingsScreen
 extends Control
-## Settings (SPEC_ONLINE.md §10.1): profile name, input delay (Auto / fixed
-## frames), host port and the debug net overlay. Edits Net.settings
-## (OnlineSettings) directly; every valid change is saved to
-## user://online.cfg, invalid text is flagged on the status line and not
-## stored. ui_cancel / Back returns to the main menu.
+## Settings hub: tabs Graphics / Audio / Controls / Online, switched with
+## LB/RB on any pad or Q/E / PageUp/PageDown on a keyboard (or by clicking a
+## tab). Each tab is a page (SettingsPage contract; Controls is the
+## embedded ControlsScreen) that edits and saves its own settings:
+## Settings.video (user://video.cfg), Settings.audio (user://audio.cfg),
+## Bindings (user://controls.cfg), Net.settings (user://online.cfg).
+##
+## The status line shows the focused row's help or the page's last message.
+## ui_cancel / Back leaves (main menu, or `closed` as an overlay) unless the
+## page still needs the player: rebinding, typing, a prompt, or a staged
+## display change (which is applied and confirmed first).
+##
+## Overlay use (pause menu; works while the tree is paused):
+##   var s := SettingsScreen.open_overlay(self, layer, true)
+##   s.closed.connect(_on_settings_closed)
+## `in_match` locks the Online page's session settings.
 
-## Lowest port the host-port field accepts (below are privileged/well-known).
-const PORT_MIN := 1024
-const DELAY_AUTO_LABEL := "Auto"
+signal closed
 
-var name_edit: LineEdit
-var delay_sel: OptionSelector
-var port_edit: LineEdit
-var overlay_sel: OptionSelector
+const SCENE_PATH := "res://scenes/menus/settings_screen.tscn"
+enum Tab { GRAPHICS, AUDIO, CONTROLS, ONLINE }
+const HINT := "[LB]/[RB] or Q/E tabs     [A]/[Enter] select     [B]/[Esc] back"
+
+## Back emits `closed` and frees this node instead of going to the main menu.
+var as_overlay := false
+## Opened during a match (Online page read-only).
+var in_match := false
+var initial_tab: int = Tab.GRAPHICS
+
+var graphics: GraphicsPage
+var audio: AudioPage
+var controls: ControlsScreen
+var online: OnlinePage
+## Pages in tab order.
+var pages: Array[Control] = []
+var tab_buttons: Array[Button] = []
+var current := -1
 var status: Label
-var back_btn: Button
+var _message := ""
+var _message_error := false
+
+
+## Instantiate as an overlay on its own CanvasLayer under `parent`.
+static func open_overlay(parent: Node, layer: int = 100, p_in_match := true) -> SettingsScreen:
+	var cl := CanvasLayer.new()
+	cl.name = "SettingsOverlay"
+	cl.layer = layer
+	cl.process_mode = Node.PROCESS_MODE_ALWAYS
+	var s: SettingsScreen = (load(SCENE_PATH) as PackedScene).instantiate()
+	s.as_overlay = true
+	s.in_match = p_in_match
+	cl.add_child(s)
+	s.tree_exited.connect(cl.queue_free)
+	parent.add_child(cl)
+	return s
+
+
+func _init() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS
 
 
 func _ready() -> void:
-	MenuHelpers.setup_screen(self)
-	add_child(AnimatedBackground.new())
 	var u := UiTheme.tuning()
-	var s := Net.settings
+	MenuHelpers.setup_screen(self)
+	if as_overlay:
+		var dim := ColorRect.new()
+		dim.color = Tuning.hud.pause_dim_color
+		dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		add_child(dim)
+	else:
+		add_child(AnimatedBackground.new())
 
 	var col := VBoxContainer.new()
-	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	col.add_theme_constant_override("separation", u.online_separation)
+	col.add_theme_constant_override("separation", u.settings_separation)
+	add_child(col)
+	col.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	col.offset_left = u.settings_margin.x
+	col.offset_right = -u.settings_margin.x
+	col.offset_top = u.settings_margin.y
+	col.offset_bottom = -u.settings_margin.y
 	col.add_child(MenuHelpers.title("SETTINGS"))
 
-	name_edit = _field(s.player_name, "Profile name")
-	name_edit.max_length = Tuning.net.name_max_len
-	name_edit.text_changed.connect(set_name_text)
-	port_edit = _field("" if s.port == OnlineSettings.PORT_DEFAULT else str(s.port),
-			"%d (default)" % Tuning.net.default_port)
-	port_edit.max_length = str(OnlineSettings.MAX_PORT).length()
-	port_edit.text_changed.connect(set_port_text)
+	graphics = GraphicsPage.new()
+	audio = AudioPage.new()
+	controls = (load(ControlsScreen.SCENE_PATH) as PackedScene).instantiate()
+	controls.embedded = true
+	online = OnlinePage.new()
+	online.locked = in_match
+	pages = [graphics, audio, controls, online]
 
-	var delays := PackedStringArray([DELAY_AUTO_LABEL])
-	for d in Tuning.net.input_delay_max + 1:
-		delays.append("%d" % d)
-	delay_sel = MenuHelpers.selector("Input delay", delays, 0 if s.is_auto_delay() else s.input_delay + 1)
-	delay_sel.value_changed.connect(func(i: int) -> void:
-		Net.settings.set_input_delay(OnlineSettings.DELAY_AUTO if i == 0 else i - 1)
-		_save())
-	overlay_sel = MenuHelpers.selector("Net stats overlay", PackedStringArray(["Off", "On"]),
-			1 if s.net_overlay else 0)
-	overlay_sel.value_changed.connect(func(i: int) -> void:
-		Net.settings.net_overlay = i == 1
-		_save())
-	back_btn = MenuHelpers.button("Back", back)
+	var bar := HBoxContainer.new()
+	bar.alignment = BoxContainer.ALIGNMENT_CENTER
+	bar.add_theme_constant_override("separation", u.settings_tab_separation)
+	bar.add_child(MenuHelpers.label("LB", &"HintLabel"))
+	for i in pages.size():
+		var b := Button.new()
+		b.text = str(pages[i].get("title"))
+		b.flat = true
+		b.focus_mode = Control.FOCUS_NONE
+		b.add_theme_font_size_override("font_size", u.settings_tab_font)
+		b.pressed.connect(func() -> void: select_tab(i))
+		bar.add_child(b)
+		tab_buttons.append(b)
+	bar.add_child(MenuHelpers.label("RB", &"HintLabel"))
+	col.add_child(bar)
 
-	var name_row := _row("Profile name", name_edit)
-	var port_row := _row("Host port (UDP)", port_edit)
-	var list := MenuHelpers.vlist([name_row, delay_sel, port_row, overlay_sel, back_btn])
-	col.add_child(list)
-	MenuHelpers.link_vertical([name_edit, delay_sel, port_edit, overlay_sel, back_btn])
+	var area := Control.new()
+	area.name = "Pages"
+	area.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	area.clip_contents = true
+	col.add_child(area)
+	for p in pages:
+		area.add_child(p)
+		p.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		p.visible = false
+		if p.has_signal(&"status"):
+			p.connect(&"status", _on_page_status)
 
 	status = MenuHelpers.label("", &"HintLabel", HORIZONTAL_ALIGNMENT_CENTER)
+	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	col.add_child(status)
-	col.add_child(MenuHelpers.label("[A]/[Enter] edit / select     [B]/[Esc] back", &"HintLabel",
-			HORIZONTAL_ALIGNMENT_CENTER))
-	add_child(MenuHelpers.centered(col))
-	_show_status("")
-	name_edit.grab_focus.call_deferred()
+	col.add_child(MenuHelpers.label(HINT, &"HintLabel", HORIZONTAL_ALIGNMENT_CENTER))
+
+	get_viewport().gui_focus_changed.connect(_on_focus_changed)
+	select_tab(initial_tab)
 
 
-func _field(text: String, placeholder: String) -> LineEdit:
-	var e := LineEdit.new()
-	e.text = text
-	e.placeholder_text = placeholder
-	e.custom_minimum_size = Vector2(UiTheme.tuning().online_field_width, UiTheme.tuning().button_min_size.y)
-	e.select_all_on_focus = true
-	return e
+func page() -> Control:
+	return pages[current]
 
 
-func _row(label_text: String, field: Control) -> HBoxContainer:
-	var row := HBoxContainer.new()
-	var l := MenuHelpers.label(label_text)
-	l.custom_minimum_size.x = UiTheme.tuning().online_label_width
-	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	row.add_child(l)
-	row.add_child(field)
-	return row
-
-
-## Validate and store a profile name; returns whether it was accepted.
-func set_name_text(t: String) -> bool:
-	if not Net.settings.set_player_name(t):
-		_show_status("Invalid name: 1-%d printable characters" % Tuning.net.name_max_len, true)
-		return false
-	_save()
-	return true
-
-
-## Validate and store the host port ("" = default); returns whether it was
-## accepted.
-func set_port_text(t: String) -> bool:
-	var s := t.strip_edges()
-	if s.is_empty():
-		Net.settings.set_port(OnlineSettings.PORT_DEFAULT)
-	elif s.is_valid_int() and s.to_int() >= PORT_MIN and s.to_int() <= OnlineSettings.MAX_PORT:
-		var p := s.to_int()
-		Net.settings.set_port(OnlineSettings.PORT_DEFAULT if p == Tuning.net.default_port else p)
-	else:
-		_show_status("Invalid port: %d-%d (empty = %d)" % [PORT_MIN, OnlineSettings.MAX_PORT,
-				Tuning.net.default_port], true)
-		return false
-	_save()
-	return true
-
-
-func _save() -> void:
-	if Net.settings.save() != OK:
-		_show_status("Could not save settings", true)
-	else:
-		_show_status("")
-
-
-func _show_status(text: String, error := false) -> void:
+## Show tab `i` (wraps). Stays put while the current page still needs the
+## player (e.g. a display change awaiting confirmation).
+func select_tab(i: int) -> void:
+	i = posmod(i, pages.size())
+	if i == current:
+		return
+	if current >= 0:
+		var old := page()
+		if old.call(&"is_busy") or old.call(&"flush"):
+			return
+		old.call(&"on_close")
+		old.visible = false
+	current = i
+	page().visible = true
 	var u := UiTheme.tuning()
-	status.text = text if not text.is_empty() else "Name and port are typed; the name is shown to other players online."
-	status.add_theme_color_override("font_color", u.color_error if error else u.color_text_dim)
+	for j in tab_buttons.size():
+		tab_buttons[j].add_theme_color_override("font_color", u.color_focus if j == i else u.color_text_dim)
+	_message = ""
+	_refresh_status()
+	page().call(&"focus_first")
+
+
+## Leave the hub, saving every page; waits while a page needs the player.
+func back() -> void:
+	var p := page()
+	if p.call(&"is_busy") or p.call(&"flush"):
+		return
+	for pg in pages:
+		pg.call(&"on_close")
+	if as_overlay:
+		closed.emit()
+		queue_free()
+	else:
+		Game.goto(Game.SCENE_MAIN_MENU)
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("ui_cancel"):
+	if current < 0 or page().call(&"is_busy"):
+		return
+	var dir := tab_direction(event)
+	if dir != 0:
+		get_viewport().set_input_as_handled()
+		Sfx.play(&"ui_move")
+		select_tab(current + dir)
+	elif event.is_action_pressed("ui_cancel"):
 		get_viewport().set_input_as_handled()
 		Sfx.play(&"ui_back")
 		back()
 	elif get_viewport().gui_get_focus_owner() == null and (
 			event.is_action_pressed("ui_up") or event.is_action_pressed("ui_down")):
 		get_viewport().set_input_as_handled()
-		name_edit.grab_focus()
+		page().call(&"focus_first")
 
 
-## Save (fields hold only valid values in Net.settings) and leave.
-func back() -> void:
-	Net.settings.save()
-	Game.goto(Game.SCENE_MAIN_MENU)
+## -1 / +1 for a previous / next tab press (LB/RB on any pad, Q/E or
+## PageUp/PageDown), else 0.
+static func tab_direction(event: InputEvent) -> int:
+	if event is InputEventJoypadButton and event.pressed:
+		match (event as InputEventJoypadButton).button_index:
+			JOY_BUTTON_LEFT_SHOULDER:
+				return -1
+			JOY_BUTTON_RIGHT_SHOULDER:
+				return 1
+	elif event is InputEventKey and event.pressed and not event.is_echo():
+		match (event as InputEventKey).keycode:
+			KEY_Q, KEY_PAGEUP:
+				return -1
+			KEY_E, KEY_PAGEDOWN:
+				return 1
+	return 0
+
+
+func _on_page_status(text: String, error: bool) -> void:
+	_message = text
+	_message_error = error
+	_refresh_status()
+
+
+func _on_focus_changed(_c: Control) -> void:
+	if not _message_error:
+		_message = ""
+	_refresh_status()
+
+
+func _refresh_status() -> void:
+	var u := UiTheme.tuning()
+	var text := _message
+	if text.is_empty():
+		var f := get_viewport().gui_get_focus_owner()
+		if f != null and is_ancestor_of(f) and f.has_meta(&"help"):
+			text = str(f.get_meta(&"help"))
+	status.text = text
+	status.add_theme_color_override("font_color", u.color_error if _message_error and not _message.is_empty()
+			else u.color_text_dim)

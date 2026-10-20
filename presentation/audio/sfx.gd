@@ -2,7 +2,9 @@ extends Node
 ## Autoload "Sfx": plays the sfxr-generated sounds in assets/sfx/ by name
 ## (file basename, e.g. &"hit_heavy"). One-shots share a small voice pool;
 ## loops are keyed so callers can stop them (e.g. one ki charge per fighter).
-## Mixing comes from Tuning.sfx. Missing sounds are silently skipped.
+## Mixing comes from Tuning.sfx; menu sounds play on Tuning.sfx.ui_bus, the
+## rest on Tuning.sfx.bus (player volumes per bus: Settings.audio). Missing
+## sounds are silently skipped.
 ##
 ## Menus get a focus-move blip automatically; buttons/back call play().
 ## Regenerate sounds with: godot --headless --script res://tools/generate_sfx.gd
@@ -56,6 +58,12 @@ func volume_for(id: StringName) -> float:
 	return t.master_volume_db + t.volume_db.get(id, 0.0)
 
 
+## The bus `id` plays on (menu sounds vs gameplay).
+func bus_for(id: StringName) -> StringName:
+	var t := Tuning.sfx
+	return t.ui_bus if String(id).begins_with(t.ui_sound_prefix) or id in t.ui_sounds else t.bus
+
+
 ## Play a one-shot. Returns the voice (or null if muted/missing).
 func play(id: StringName, pitch: float = 1.0) -> AudioStreamPlayer:
 	var s: AudioStream = _streams.get(id)
@@ -63,6 +71,7 @@ func play(id: StringName, pitch: float = 1.0) -> AudioStreamPlayer:
 		return null
 	var p := _free_voice()
 	p.stream = s
+	p.bus = bus_for(id)
 	p.volume_db = volume_for(id)
 	p.pitch_scale = maxf(pitch, 0.01)
 	p.play()
@@ -84,7 +93,7 @@ func start_loop(key: Variant, id: StringName) -> void:
 	var p := AudioStreamPlayer.new()
 	p.name = "Loop"
 	p.process_mode = Node.PROCESS_MODE_PAUSABLE
-	p.bus = Tuning.sfx.bus
+	p.bus = bus_for(id)
 	p.stream = s
 	p.volume_db = volume_for(id)
 	add_child(p)

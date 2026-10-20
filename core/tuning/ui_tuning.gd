@@ -120,3 +120,20 @@ extends Resource
 ## Status / error line colours.
 @export var color_error: Color = Color(1.0, 0.4, 0.35)
 @export var color_ok: Color = Color(0.35, 1.0, 0.4)
+
+@export_group("Settings screen")
+## Gap between the title, tab bar, page and footer; outer margin (x, y).
+@export var settings_separation: int = 8
+@export var settings_margin: Vector2 = Vector2(80, 16)
+## Tab bar: gap between tabs, tab font size.
+@export var settings_tab_separation: int = 28
+@export var settings_tab_font: int = 30
+## Width of the option rows on the Graphics / Audio / Online pages.
+@export var settings_row_width: int = 640
+## Number steppers: held repeats before the fast step kicks in.
+@export var stepper_fast_after_repeats: int = 6
+## Host port stepper: fast (held) step.
+@export var port_step_fast: int = 100
+## Confirm prompts (reset, keep display settings): panel padding and width.
+@export var confirm_padding: int = 28
+@export var confirm_width: int = 620

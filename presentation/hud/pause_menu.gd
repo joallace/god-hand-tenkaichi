@@ -12,7 +12,7 @@ extends CanvasLayer
 ## pauses. The menu opens / closes on the driver's `pause_pressed` (a local
 ## PAUSE edge), sets `driver.local_paused` (local slots send neutral frames)
 ## and tells the room (`{"op": "pause"}`: the "⏸ <name>" tag on the other
-## peers). Items: Resume, Controls, Net Stats (debug overlay, saved in
+## peers). Items: Resume, Settings, Net Stats (debug overlay, saved in
 ## Net.settings), Forfeit (versus) / Leave Run (co-op) and Quit to Menu (leaves the session).
 
 const LAYER := 50
@@ -29,6 +29,7 @@ var _subtitle: Label
 var _box: VBoxContainer
 var _net_stats_button: Button
 var _buttons: Array[Button] = []
+## The open settings overlay (its CanvasLayer), if any.
 var _controls_overlay: Node
 var _pause_held: Dictionary = {}  # slot -> bool (previous frame)
 
@@ -90,8 +91,7 @@ func _build() -> void:
 	box.add_child(_subtitle)
 
 	_add_button(box, "Resume", resume)
-	if ResourceLoader.exists(Game.SCENE_CONTROLS):
-		_add_button(box, "Controls", _open_controls)
+	_add_button(box, "Settings", _open_settings)
 	_add_button(box, "Quit to Menu", _quit)
 	_wire_focus()
 
@@ -122,8 +122,7 @@ func setup_online(p_driver: RollbackDriver) -> void:
 		b.queue_free()
 	_buttons.clear()
 	_add_button(_box, "Resume", resume)
-	if ResourceLoader.exists(Game.SCENE_CONTROLS):
-		_add_button(_box, "Controls", _open_controls)
+	_add_button(_box, "Settings", _open_settings)
 	_add_button(_box, "Net Stats", _toggle_net_stats)
 	_net_stats_button = _buttons.back()
 	_refresh_net_stats_text()
@@ -255,24 +254,11 @@ func _restart() -> void:
 	Game.restart_match()
 
 
-func _open_controls() -> void:
-	var packed := load(Game.SCENE_CONTROLS) as PackedScene
-	if packed == null:
-		return
-	var cs := packed.instantiate()
-	if "as_overlay" in cs:
-		cs.set("as_overlay", true)
-	cs.process_mode = Node.PROCESS_MODE_ALWAYS
-	var cl := CanvasLayer.new()
-	cl.name = "ControlsOverlay"
-	cl.layer = LAYER + 1
-	cl.process_mode = Node.PROCESS_MODE_ALWAYS
-	cl.add_child(cs)
-	add_child(cl)
-	_controls_overlay = cl
-	if cs.has_signal(&"closed"):
-		cs.connect(&"closed", _on_controls_closed)
-	cs.tree_exited.connect(_on_controls_closed)
+func _open_settings() -> void:
+	var settings := SettingsScreen.open_overlay(self, LAYER + 1, true)
+	_controls_overlay = settings.get_parent()
+	settings.closed.connect(_on_controls_closed)
+	settings.tree_exited.connect(_on_controls_closed)
 	_panel.visible = false
 
 
