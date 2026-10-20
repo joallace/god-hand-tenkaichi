@@ -15,6 +15,9 @@ var _net: LoopbackNetwork
 func _ready() -> void:
 	_test_model_modes()
 	_test_model_wire()
+	_test_model_online_coop()
+	_test_model_online_mode_switch()
+	_test_model_carry_coop()
 	_test_rooms()
 	await _test_scene_hosting()
 	print("LOBBY %s (%d failures)" % ["OK" if _fails == 0 else "FAIL", _fails])
@@ -71,6 +74,118 @@ func _test_model_wire() -> void:
 	check(not copy.apply_dict({"slots": "x", "mode": 1}) and not copy.apply_dict({}), "malformed lobby refused")
 	check(copy.apply_dict({"mode": 0, "slots": [{"type": 9, "char": -4, "cursor": 99, "name": 5}, 3]})
 			and copy.slots.size() == 2, "junk slot fields are clamped, not fatal")
+
+
+## An online lobby switched to Co-op by its host (Game row).
+func _online_coop_lobby() -> LobbyModel:
+	var o := LobbyModel.new(MatchConfig.Mode.ONLINE, true)
+	var h := o.join(Bindings.Kind.KEYBOARD, -1, Transport.HOST_PEER, "Host")
+	o.slots[h].cursor = LobbyModel.Row.MODE
+	o.command(h, LobbyModel.Cmd.RIGHT)
+	return o
+
+
+func _test_model_online_coop() -> void:
+	var o := _online_coop_lobby()
+	var places := mini(Tuning.net.max_humans, Tuning.net.max_fighters)
+	check(o.is_coop() and o.slots.size() == places and o.cpu_slot() < 0
+			and o.slots.all(func(s: LobbyModel.Slot) -> bool: return s.type == LobbyModel.SlotType.HUMAN),
+			"online co-op: %d human slots, no CPU slot" % places)
+	var guests: Array[int] = []
+	for i in places - 1:
+		guests.append(o.join(Bindings.Kind.PAD, -1, Transport.HOST_PEER + 1 + i, "G%d" % i))
+	check(not guests.has(-1) and o.joined_humans() == places and o.first_free_slot() < 0,
+			"every place can take a human with the ally off")
+	check(o.rows_for(0).has(LobbyModel.Row.MODE) and o.rows_for(0).has(LobbyModel.Row.ALLY),
+			"online co-op: the host has the Game row and the run rows")
+	check(o.rows_for(guests[0]) == ([LobbyModel.Row.CHARACTER] as Array[int]), "online co-op: guests only pick their fighter")
+	o.slots[0].cursor = LobbyModel.Row.ALLY
+	o.command(0, LobbyModel.Cmd.RIGHT)
+	check(not o.coop_ally, "the ally can't be switched on with every place taken by a human")
+	o.leave(guests[0])  # a gap at slot 1
+	o.command(0, LobbyModel.Cmd.RIGHT)
+	check(o.coop_ally and o.human_capacity() == Tuning.net.max_fighters - 1, "ally on once a place is free")
+	check(o.first_free_slot() < 0 and o.join(Bindings.Kind.PAD, -1, Transport.HOST_PEER + places, "Late") < 0,
+			"ally on: only %d humans can join" % (Tuning.net.max_fighters - 1))
+
+	var cfg := o.build_config(9)
+	var owners: Array[int] = []
+	var slots_ok := true
+	for i in cfg.players.size():
+		var p := cfg.players[i]
+		slots_ok = slots_ok and p.slot == i and p.team == 0
+		if p.input_kind != PlayerSlotConfig.InputKind.CPU:
+			owners.append(p.owner_peer)
+	var expected: Array[int] = [Transport.HOST_PEER]
+	for i in range(1, guests.size()):
+		expected.append(o.slots[guests[i]].owner_peer)
+	check(cfg.mode == MatchConfig.Mode.COOP and cfg.is_online() and cfg.rng_seed == 9 and cfg.coop != null,
+			"online co-op config is online, with its run")
+	check(slots_ok and owners == expected and cfg.players.size() == expected.size() + 1,
+			"joined humans renumbered from 0 in slot order, all on team 0 (owners %s)" % str(owners))
+	check(cfg.players[1].display_name == o.slots[guests[1]].display_name and cfg.player_tag(1) == "G1",
+			"renumbered slots keep their names")
+	var ally := cfg.players[cfg.players.size() - 1]
+	check(ally.input_kind == PlayerSlotConfig.InputKind.CPU and ally.owner_peer == 0 and ally.cpu_level == o.coop_ally_level
+			and cfg.coop.ally_enabled, "the CPU ally comes last, owned by nobody")
+
+	var copy := LobbyModel.new()
+	check(copy.apply_dict(o.to_dict()) and copy.to_dict() == o.to_dict(), "online co-op lobby round-trips its wire form")
+	check(copy.online and copy.is_coop() and copy.coop_ally and copy.slots.size() == places
+			and copy.slots[1].state == LobbyModel.SlotState.EMPTY and copy.slots_of(o.slots[guests[1]].owner_peer) == [guests[1]],
+			"the mirror keeps the gap, the owners and the ally")
+	var mine := cfg.to_dict()
+	var mirrored := copy.build_config(9).to_dict()
+	for d: Dictionary in [mine, mirrored]:
+		for p: Dictionary in d["players"]:
+			p["device_kind"] = 0  # devices stay on the machine that owns the slot
+			p["device_id"] = -1
+	check(mine == mirrored, "a mirror builds the same config apart from devices")
+
+
+func _test_model_online_mode_switch() -> void:
+	var o := _online_coop_lobby()
+	var a := o.join(Bindings.Kind.PAD, -1, 2, "Ann")
+	var b := o.join(Bindings.Kind.PAD, -1, 3, "Bob")
+	o.slots[a].char_index = 1
+	o.command(a, LobbyModel.Cmd.CONFIRM)
+	o.command(b, LobbyModel.Cmd.CONFIRM)
+	o.slots[0].cursor = LobbyModel.Row.MODE
+	o.command(0, LobbyModel.Cmd.RIGHT)
+	check(o.mode == MatchConfig.Mode.ONLINE and o.slots.size() == 2, "co-op -> versus: two slots")
+	check(o.slots[0].owner_peer == Transport.HOST_PEER and o.slots[1].owner_peer == 2 and o.slots[1].char_index == 1
+			and o.slots_of(3).is_empty(), "the first two humans keep a versus slot (and their pick), the third has none")
+	check(o.slots.all(func(s: LobbyModel.Slot) -> bool: return s.state != LobbyModel.SlotState.READY),
+			"a mode switch un-readies everyone")
+	o.command(0, LobbyModel.Cmd.RIGHT)
+	check(o.is_coop() and o.joined_humans() == 2 and o.slots[1].owner_peer == 2 and o.slots[1].display_name == "Ann",
+			"versus -> co-op keeps the joined humans")
+	check(o.first_free_slot() == 2, "the free co-op slots follow the joined ones")
+
+
+func _test_model_carry_coop() -> void:
+	var local := LobbyModel.new(MatchConfig.Mode.COOP)
+	local.join(Bindings.Kind.KEYBOARD, -1)
+	local.coop_structure = CoopConfig.Structure.WAVES
+	local.coop_waves = 2
+	local.coop_enemy_count = 7
+	local.coop_enemy_level = 1
+	local.coop_roster = 1
+	local.coop_ally = true
+	local.coop_ally_level = 2
+	local.friendly_fire = true
+	var room := LobbyModel.new(MatchConfig.Mode.ONLINE, true)
+	room.carry_rules_from(local)
+	check(room.online and room.is_coop() and room.slots.size() == mini(Tuning.net.max_humans, Tuning.net.max_fighters)
+			and room.nobody_joined(), "opening a room from local co-op gives an online co-op lobby")
+	var a := local.build_config(4)
+	var b := room.build_config(4)
+	check(a.coop.to_dict() == b.coop.to_dict() and a.friendly_fire == b.friendly_fire
+			and a.round_time_seconds == b.round_time_seconds, "the room keeps the run setup")
+	var versus := LobbyModel.new(MatchConfig.Mode.LOCAL_VERSUS)
+	var room2 := LobbyModel.new(MatchConfig.Mode.ONLINE, true)
+	room2.carry_rules_from(versus)
+	check(room2.mode == MatchConfig.Mode.ONLINE, "opening a room from local versus gives online versus")
 
 
 # --- rooms over loopback ---------------------------------------------------------

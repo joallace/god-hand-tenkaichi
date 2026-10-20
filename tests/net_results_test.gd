@@ -238,6 +238,14 @@ func _list_dir(dir: String) -> PackedStringArray:
 	return DirAccess.get_files_at(dir) if DirAccess.dir_exists_absolute(dir) else PackedStringArray()
 
 
+## Real device input (a pad plugged into the machine running the tests, even
+## headless) would steer the results screens' focus and press their buttons:
+## swallow it before the GUI sees it. The screens' children get _input first,
+## and none of them handle it there. The test drives the screens directly.
+func _input(_event: InputEvent) -> void:
+	get_viewport().set_input_as_handled()
+
+
 func _new_saved_files() -> PackedStringArray:
 	var out: PackedStringArray = []
 	for f in _list_dir(Replay.SAVED_DIR):

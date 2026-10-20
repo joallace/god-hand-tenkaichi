@@ -134,6 +134,13 @@ func _physics_process(_delta: float) -> void:
 		advance()
 
 
+## The match scene is going away: this machine stops trading inputs for it
+## (Session.end_match), so the next match starts with clean acks.
+func _exit_tree() -> void:
+	if session != null:
+		session.end_match()
+
+
 ## One rendered frame: up to `ticks` sim steps (catch-up after a hitch is
 ## capped at Tuning.net.max_catchup_ticks).
 func advance(ticks: int = 1) -> void:

@@ -15,3 +15,9 @@ Adding a test: create `tests/<name>_test.gd` (extends Node) + a minimal
 `tests/<name>_test.tscn` pointing at it. Drive matches deterministically with
 `MatchDirector.auto_step = false` and `director.step()`; script inputs with an
 `InputSource` subclass (see `scripted_input.gd`).
+
+Online tests run several peers in one process over a `LoopbackNetwork`
+(`net_*_test`); `net_coop_test` is online co-op end to end (lobby ->
+MATCH_START -> rollback match with takeovers -> results -> rematch).
+Screens under test should swallow real device input (a pad plugged into the
+machine reaches headless runs too; see `net_results_test._input`).

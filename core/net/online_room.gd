@@ -80,6 +80,7 @@ func _init(s: Session) -> void:
 	s.lobby_request_received.connect(_apply)
 	s.match_start_received.connect(_on_match_start)
 	s.peer_left.connect(_on_peer_left)
+	s.peer_joined.connect(_on_peer_joined)
 	s.welcomed.connect(_on_welcomed)
 	if s.is_host():
 		_broadcast()
@@ -92,7 +93,8 @@ func detach() -> void:
 		return
 	for pair: Array in [[session.lobby_state_received, _on_lobby_state],
 			[session.lobby_request_received, _apply], [session.match_start_received, _on_match_start],
-			[session.peer_left, _on_peer_left], [session.welcomed, _on_welcomed]]:
+			[session.peer_left, _on_peer_left], [session.peer_joined, _on_peer_joined],
+			[session.welcomed, _on_welcomed]]:
 		if (pair[0] as Signal).is_connected(pair[1]):
 			(pair[0] as Signal).disconnect(pair[1])
 	session = null
@@ -301,6 +303,12 @@ func _on_peer_left(peer: int, _reason: int, _last_tick: int) -> void:
 		_update_countdown()
 		_broadcast()
 	changed.emit()
+
+
+## Peer ids are reused (the lowest free one): a newcomer with a departed
+## peer's id is here, not gone (rematch votes, "<name> disconnected").
+func _on_peer_joined(peer: int, _peer_name: String) -> void:
+	departed.erase(peer)
 
 
 func _broadcast() -> void:

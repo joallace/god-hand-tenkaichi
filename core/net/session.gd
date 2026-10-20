@@ -18,7 +18,11 @@ extends RefCounted
 ## roll back to the minimum tick it saw. Local frames go in through
 ## `submit_local_input`. Which peer owns which slot comes from the match
 ## config: `set_slot_owners({slot: peer})` (frames for slots a peer doesn't
-## own are dropped). `begin_match()` resets history, acks and TimeSync.
+## own are dropped). `begin_match()` resets history, acks and TimeSync;
+## `end_match()` (the driver leaving) stops INPUT / INPUT_ACK both ways until
+## the next begin_match, so a peer still on the old match can't poison the
+## new match's acks (an old ack is far ahead of the new ticks, and acks only
+## grow: the frames it claims would never be sent) or history.
 ##
 ## Routing (§5.2): an INPUT on link X->D for origin O carries frames of O from
 ## ack(O, D)+1 (every frame D hasn't acked, oldest first, capped by
@@ -254,6 +258,17 @@ func begin_match(owners: Dictionary, first_tick: int = 1) -> void:
 	history.reset(first_tick)
 	_acks.clear()
 	time_sync.clear()
+
+
+## The match is over here: no slot owners, so no INPUT / INPUT_ACK goes out
+## and arriving ones are ignored until the next begin_match.
+func end_match() -> void:
+	_slot_owner.clear()
+	_acks.clear()
+
+
+func in_match() -> bool:
+	return not _slot_owner.is_empty()
 
 
 ## Record a local slot's frame for `tick` (sent on send_pending).
@@ -500,6 +515,8 @@ func _on_packet(peer: int, channel: int, data: PackedByteArray) -> void:
 		Protocol.Type.INPUT:
 			_on_input(peer, msg)
 		Protocol.Type.INPUT_ACK:
+			if not in_match():
+				return
 			for origin: int in msg["acks"]:
 				_set_ack(origin, peer, msg["acks"][origin])
 		Protocol.Type.PING:
@@ -587,6 +604,8 @@ func _on_input(peer: int, msg: Dictionary) -> void:
 	if origin == local_peer_id or (is_host() and origin != peer):
 		dropped_packets += 1
 		return
+	if not in_match():
+		return  # the other side is still on a match we left
 	_set_ack(local_peer_id, origin, msg["ack"])
 	for s: Dictionary in msg["slots"]:
 		var slot: int = s["slot"]
