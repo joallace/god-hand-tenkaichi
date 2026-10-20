@@ -145,7 +145,11 @@ coop.melee_tokens_per_player=1` (any `coop.<prop>=<n>` overrides tuning).
 CPU-only match, then mean/p50/p95/max of `step`, `save_state`, `load_state`,
 snapshot `var_to_bytes`+hash and an N-tick rollback, the per-frame budget
 estimate vs 8 ms, a determinism check (OK/MISMATCH, non-zero exit on
-mismatch) and a `NET_BENCH ...` summary line. `godot --headless
+mismatch) and a `NET_BENCH ...` summary line; then (unless `driver=0`)
+the same match through real `RollbackDriver`s over a `LoopbackNetwork`
+(one peer per human, `latency= jitter= loss= delay=`), timing each peer's
+`advance()` per rollback depth ("Full (driver)" = p95 of full-depth
+rollback frames) and a `NET_BENCH_DRIVER ...` line. `godot --headless
 res://tools/net_bench.tscn -- humans=2 enemies=6 [mode=coop|versus ticks=1800
 warmup=600 rollback=8 seed=7 coop.field_cap=10]`; the field is humans +
 enemies, clamped by `coop.field_cap`. Record results in SPEC_ONLINE.md §12.1.

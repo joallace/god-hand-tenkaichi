@@ -393,9 +393,17 @@ Uses now: desync debugging, `tools/replay_hash`, determinism tests. Viewer: late
   record results in this spec.
 - `coop.online_field_cap` *(tunable, 6)* clamps `field_cap` online; raise it
   if the bench allows.
-- Snapshot cost: the ring buffer holds Dictionaries. If save_state dominates,
-  snapshot only ticks that can still be rolled back (unconfirmed), and
-  consider PackedArray-based per-entity state later.
+- Snapshot cost: the ring buffer holds Dictionaries. Skipping the snapshots
+  of ticks that are already final (below the confirmed tick) was tried and
+  measured (§12.1, 2026-10-19 second block): it saves only 1–2 % of the
+  `save_state` calls, because the confirmed tick advances about one tick per
+  frame, so almost every re-simulated tick is still unconfirmed. Not worth
+  it; cheaper snapshots need PackedArray-based per-entity state, or sparser
+  snapshots (e.g. every 2nd tick, one extra re-step on odd rollbacks).
+- `tools/net_bench` also runs the match through real `RollbackDriver`s over
+  a `LoopbackNetwork` (one peer per human, `driver=0` skips it) and times
+  every peer's `advance()`; "Full (driver)" is the measured p95 of a frame
+  that rolled back the full `max_rollback_frames`.
 - During resim, visuals do nothing (they read state on `_process`), so resim
   is sim-only cost.
 
@@ -434,6 +442,72 @@ What it implies:
   or a faster minimum spec. Rerun the bench after any of those.
 - `var_to_bytes` + hash of a full snapshot is ~0.2–0.3 ms; at
   `net.checksum_interval` = 30 that is negligible.
+
+2026-10-19 (second run, milestone 3: online co-op up to 4 humans), a
+different dev box: AMD BC-250 (6-core Zen 2, Linux, headless), other
+agents' Godot processes possibly running alongside, so absolute times are
+~1.5× the block above and noisier; compare rows within this block. Same
+`net_bench` defaults (600-tick warmup, 1800 measured ticks, rollback 8, CPU
+humans level 7, enemies level 3, seed 7). Fields above 8 use
+`coop.field_cap=<n>` (the bench's offline `mode=coop` config is not online,
+so only `field_cap` applies; the driver run's config is online and the
+bench raises `online_field_cap` to the same value). What changed: the bench
+now also runs the match online through real `RollbackDriver`s, one peer per
+human over a `LoopbackNetwork`, and times each peer's `advance()` (pump,
+rollback, new tick, every snapshot the driver takes). Two network shapes:
+**typical** = 60±10 ms one way, 2 % loss, auto input delay (2 for 2 peers,
+6 for guest→host→guest); **worst** = 120±20 ms, 2 % loss, delay 0, so
+rollbacks hit the 8-tick cap (5–8 % of peer-frames). Offline columns are
+from the typical-run invocation (the worst-run invocation agrees within
+noise). "Drv frame p95" = slowest peer's `advance()` p95 (typical; max
+rollback depth seen in brackets); "Full (driver)" = p95 of the frames that
+rolled back 8 ticks (worst shape), next to the offline estimate of such a
+frame, `9×(step + save) + load` (8 re-steps plus the new tick). Determinism
+OK in every run (offline byte-identical resims; driver: all peers' confirmed
+checkpoint hashes equal, 0 resyncs).
+
+| Run | Fighters | step | save_state | load_state | Est. | Full | Drv frame p95 (typ.) | Full (driver) (worst) | 9×(step+save)+load |
+|---|---|---|---|---|---|---|---|---|---|
+| versus 1v1 | 2 | 0.12 / 0.21 | 0.09 / 0.11 | 0.16 / 0.18 | 2.0 | 2.7 | 1.4 (4) | 4.4 | 3.0 |
+| co-op 2 + 4 | 6 | 0.54 / 0.75 | 0.30 / 0.40 | 0.38 / 0.55 | 7.0 | 9.8 | 5.3 (5) | 11.0 | 10.0 |
+| co-op 3 + 3 | 6 | 0.53 / 0.76 | 0.29 / 0.41 | 0.42 / 0.55 | 7.0 | 9.9 | 6.0 (6) | 8.7 | 8.9 |
+| co-op 4 + 2 | 6 | 0.55 / 0.87 | 0.33 / 0.50 | 0.50 / 0.81 | 8.3 | 11.8 | 5.0 (5) | 9.4 | 11.2 |
+| co-op 2 + 6 | 8 | 0.69 / 0.89 | 0.37 / 0.45 | 0.45 / 0.77 | 8.3 | 11.4 | 6.1 (5) | 14.3 | 15.0 |
+| co-op 3 + 5 | 8 | 0.70 / 0.90 | 0.36 / 0.43 | 0.47 / 0.81 | 8.5 | 11.5 | 7.0 (6) | 12.3 | 11.8 |
+| co-op 4 + 4 | 8 | 0.84 / 1.12 | 0.42 / 0.56 | 0.59 / 0.93 | 10.5 | 14.4 | 7.8 (5) | 15.9 | 16.2 |
+| co-op 2 + 8 | 10 | 1.05 / 1.32 | 0.52 / 0.66 | 0.65 / 1.01 | 12.3 | 16.9 | 9.9 (5) | 19.4 | 18.7 |
+| co-op 3 + 7 | 10 | 1.07 / 1.40 | 0.54 / 0.68 | 0.66 / 1.04 | 12.9 | 17.7 | 9.0 (6) | 20.2 | 18.7 |
+| co-op 4 + 6 | 10 | 0.91 / 1.18 | 0.45 / 0.54 | 0.54 / 0.83 | 10.8 | 14.6 | 8.8 (5) | 16.2 | 16.0 |
+
+Snapshot-skipping experiment (§12 bullet; not kept): `RollbackDriver`
+skipping `save_state` for ticks below the tick about to be confirmed
+(except checkpoints and the confirmed tick itself) passed every network
+test, but over co-op 2 + 6 it skipped 2 % of the saves at the typical shape
+and 1.4 % at the worst one; an 8-tick rollback frame still took 8.56 saves
+instead of 9. Mispredictions arrive one remote tick per frame, so the
+confirmed tick trails the rollback base by about one tick and nearly every
+re-simulated tick is still rollback-able. Reverted: no budget gain to pay
+for the extra invariant.
+
+What it implies (milestone 3):
+
+- Cost per fighter is unchanged in shape (linear in fighters, not in
+  humans); 3–4 human rows differ from 2-human rows by noise plus the extra
+  in-process peers.
+- The measured driver frame matches the offline formula: a full 8-tick
+  rollback frame costs ≈ `9×(step + save) + load` (the old "Full" plus the
+  new tick). "Full" is still the honest worst case, now confirmed by the
+  driver run.
+- At the typical shape (auto delay absorbs most latency) rollbacks stay ≤
+  4–6 ticks and the slowest peer's frame p95 is ~5–6 ms at 6 fighters,
+  6–8 ms at 8, 9–10 ms at 10.
+- **`coop.online_field_cap` = 6 stays.** On this box even 6 fighters
+  exceed 8 ms at the worst shape (8.7–11 ms for a full rollback), so there
+  is no headroom to give; 8 fighters is 12–16 ms and 10 is 16–20 ms.
+  With 4 humans (+ no ally) that leaves 2 enemies on the field. Raising the
+  cap needs cheaper state (PackedArray per-entity snapshots, a cheaper
+  `step` for far/idle enemies), sparser snapshots, or `max_rollback_frames`
+  ≤ 5 for fields over 6; the skip-final-snapshots idea does not help (above).
 
 ## 13. Disconnects, drop-in, reconnect
 
