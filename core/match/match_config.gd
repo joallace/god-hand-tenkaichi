@@ -86,6 +86,20 @@ func localize_for_peer(me: int) -> MatchConfig:
 	return self
 
 
+## Bindings profile (Bindings.profile_for) of LOCAL `slot` among the LOCAL
+## players (owned by peer `me` when >= 0), in slot order; 0 if not one.
+func binding_profile(slot: int, me: int = -1) -> int:
+	var kinds: Array = []
+	var at := -1
+	for p in players:
+		if p.input_kind != PlayerSlotConfig.InputKind.LOCAL or (me >= 0 and p.owner_peer != me):
+			continue
+		if p.slot == slot:
+			at = kinds.size()
+		kinds.append(p.device_kind)
+	return Bindings.profile_for(kinds, at) if at >= 0 else 0
+
+
 ## Slots whose camera should be rendered on this machine.
 func local_view_slots() -> Array[int]:
 	var out: Array[int] = []

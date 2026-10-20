@@ -28,6 +28,15 @@ extends Resource
 @export var bar_skew: float = 10.0
 @export var pip_size: float = 12.0
 @export var divider_width: float = 4.0
+## Versus with 3-4 fighters: teammates (or the 3rd / 4th FFA fighter) stack
+## in rows on their side. Stacked rows are compact: row pitch, name font,
+## bar heights; the combo / callout line goes under the side's last row.
+@export var stack_row_height: float = 64.0
+@export var stack_name_font_size: int = 18
+@export var stack_health_bar_height: float = 16.0
+@export var stack_ki_bar_height: float = 8.0
+@export var stack_combo_font_size: int = 30
+@export var stack_callout_font_size: int = 24
 
 @export_group("Colors")
 @export var p1_color: Color = Color(1.0, 0.55, 0.1)
@@ -51,6 +60,8 @@ extends Resource
 @export var announce_color: Color = Color(1.0, 0.92, 0.3)
 @export var ko_color: Color = Color(1.0, 0.25, 0.15)
 @export var divider_color: Color = Color(0, 0, 0)
+## Split screen with 3 views: the empty 4th cell of the 2x2 grid.
+@export var split_filler_color: Color = Color(0.03, 0.03, 0.05)
 @export var pause_dim_color: Color = Color(0, 0, 0, 0.6)
 @export var guard_crash_color: Color = Color(1.0, 0.45, 0.1)
 @export var throw_break_color: Color = Color(0.85, 0.95, 1.0)
@@ -82,6 +93,11 @@ extends Resource
 @export var text_draw: String = "DRAW"
 @export var text_round_winner: String = "P%d WINS"
 @export var text_match_winner: String = "P%d VICTORY!"
+## Winning team of 2+ fighters: their tags joined by text_team_join
+## ("P1 & P3 WIN", online "ANA & BO VICTORY!"; also the results headline).
+@export var text_team_round_winner: String = "%s WIN"
+@export var text_team_match_winner: String = "%s VICTORY!"
+@export var text_team_join: String = " & "
 @export var text_combo: String = "%d HITS"
 @export var text_infinite: String = "∞"
 @export var text_guard_crash: String = "GUARD CRASH"

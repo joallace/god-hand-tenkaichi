@@ -81,6 +81,11 @@ before autoloads exist. See `tests/README.md`. Always wrap Godot calls in
     the main menu. `OnlineRoom`: host-authoritative lobby (`LobbyModel`),
     phases lobby/match/results, `request()` ops (LOBBY_REQ from guests),
     countdown -> MATCH_START -> `Game.start_match` on every peer.
+    Team versus (`LobbyModel.team_mode`): TEAM / Seat (CPU seats) / Lock
+    teams rows; several local players per machine online (couch + online,
+    `Bindings.profile_for` / `MatchConfig.binding_profile`); a peer's
+    drop-out = CPU takeover, forfeit only when the humans left share one team
+    (`RollbackDriver.drop_out_commands`).
   - `tuning/`: one Resource class per category, loaded by the `Tuning` autoload
     from `data/tuning/<key>.tres`.
   - `game.gd`: `Game` autoload, scene flow.
@@ -103,7 +108,7 @@ before autoloads exist. See `tests/README.md`. Always wrap Godot calls in
     reaction delay and emits `InputFrame`s (no cheating, no fighter changes).
     Difficulty levels and every behavior knob live in `data/tuning/cpu.tres`
     (`Vector2` = weakest..strongest level, lerped per level).
-- `presentation/` — match scene, arena, split-screen `ViewLayout`,
+- `presentation/` — match scene, arena, split-screen `ViewLayout` (2 side by side, 3-4 in a 2x2 grid),
   `FighterCamera`, HUD, VFX, pause menu. Observes signals only, through
   `MatchEventHub` (SPEC_ONLINE.md §9): the immediate stream (`fighter_event`,
   `fighter_state`, `director_event`; keyed by tick/sim_id/kind, muted during
@@ -194,9 +199,10 @@ ours. Describe mechanics in our own words; never copy decomp code.
 
 ## Known gaps
 
-Online 1v1 and co-op (milestones 2-3) are implemented and tested headless,
-but not yet play-tested Linux↔Windows over a real WAN; drop-in and
-couch + online are milestones 4-5 (SPEC_ONLINE.md §15). Headless tests
+Online 1v1, co-op and team versus / couch + online (milestones 2, 3, 5)
+are implemented and tested headless, but not yet play-tested
+Linux↔Windows over a real WAN; drop-in / reconnect is milestone 4
+(SPEC_ONLINE.md §15). Headless tests
 see real gamepads plugged into the machine (net_results_test swallows
 real input events for that reason). The CPU only knows the moveset roles in `CharacterDef`
 (string, heavies, supers), not character-specific tricks.

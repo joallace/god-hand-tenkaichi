@@ -118,6 +118,26 @@ func actions_for(kind: Kind) -> Array[String]:
 	return a
 
 
+## Bindings profile of a machine's local player `i`, given every local
+## player's device kind in player order: their player number while there is
+## a profile for it (P1, P2), else pads the last profile and keyboard players
+## the first keyboard layout no earlier keyboard player uses (the lobby lets
+## no more than SLOT_COUNT keyboard players join).
+static func profile_for(kinds: Array, i: int) -> int:
+	if kinds[i] != Kind.KEYBOARD:
+		return mini(i, SLOT_COUNT - 1)
+	var used: Array[int] = []
+	for j in i:
+		if kinds[j] == Kind.KEYBOARD:
+			used.append(profile_for(kinds, j))
+	if i < SLOT_COUNT and not i in used:
+		return i
+	for p in SLOT_COUNT:
+		if not p in used:
+			return p
+	return SLOT_COUNT - 1
+
+
 func get_binding(slot: int, kind: Kind, action: String) -> Dictionary:
 	return _maps[slot][kind].get(action, {})
 

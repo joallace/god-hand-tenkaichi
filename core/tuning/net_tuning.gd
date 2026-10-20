@@ -10,9 +10,9 @@ extends Resource
 @export_range(1, 8) var max_humans: int = 4
 ## Fighters per lobby (humans + CPUs).
 @export_range(2, 8) var max_fighters: int = 4
-## Local players one machine may bring into an online lobby (milestone 5
-## raises it for couch + online).
-@export_range(1, 4) var max_local_players_online: int = 1
+## Local players one machine may bring into an online lobby (couch +
+## online, each split-screened on that machine).
+@export_range(1, 4) var max_local_players_online: int = 4
 ## Packets larger than this are dropped unread.
 @export_range(256, 65536) var max_packet_bytes: int = 4096
 ## Bulk (snapshot) payloads larger than this are dropped unread.

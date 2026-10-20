@@ -4,7 +4,8 @@ extends Node
 ## latency, jitter and loss. Every peer's confirmed checkpoint hashes must
 ## equal an offline reference sim fed the same inputs (so prediction +
 ## rollback converge to the real timeline), a silent peer stalls the others,
-## and a peer leaving a versus match forfeits it on every remaining peer.
+## and a peer leaving a 1v1 forfeits it on every remaining peer (one of three
+## FFA players leaving gets a CPU in their place instead, §17).
 ## Run as a scene:  godot --headless res://tests/net_loopback_test.tscn
 
 ## Frames each run lasts.
@@ -39,7 +40,7 @@ func _ready() -> void:
 		_test_converges_coop,
 		_test_commands_over_network,
 		_test_silent_peer_stalls,
-		_test_leave_forfeits,
+		_test_leave_ffa_takeover, _test_leave_forfeits,
 	]
 	for t in tests:
 		t.call()
@@ -272,16 +273,39 @@ func _test_silent_peer_stalls() -> void:
 		"stall: resumes when the guest is heard again (tick %d)" % d.tick)
 
 
-func _test_leave_forfeits() -> void:
+func _test_leave_ffa_takeover() -> void:
 	var cfg := _config(3, false)
 	var room := _room(3, cfg, 2, 40.0, 5.0, 0.0)
+	if not _check(not room.is_empty(), "FFA leave: room connected"):
+		return
+	_run(room, 120)
+	var net: LoopbackNetwork = room["net"]
+	(room["peers"][2]["session"] as Session).close()
+	var rest: Array = room["peers"].slice(0, 2)
+	for i in 120:
+		net.advance_frame()
+		for p: Dictionary in rest:
+			(p["driver"] as RollbackDriver).advance()
+	for p: Dictionary in rest:
+		var d: MatchDirector = p["director"]
+		var drv: RollbackDriver = p["driver"]
+		var id := (p["session"] as Session).local_peer_id
+		_check(d.phase != MatchDirector.Phase.MATCH_OVER and d.controller_for_slot(2) == MatchDirector.Controller.CPU,
+			"FFA leave: peer %d goes on with a CPU in the leaver's slot" % id)
+		_check(drv.confirmed_tick >= d.tick - Tuning.net.max_rollback_frames,
+			"FFA leave: peer %d keeps confirming without the leaver (%d / %d)" % [id, drv.confirmed_tick, d.tick])
+
+
+func _test_leave_forfeits() -> void:
+	var cfg := _config(2, false)
+	var room := _room(2, cfg, 2, 40.0, 5.0, 0.0)
 	if not _check(not room.is_empty(), "forfeit: room connected"):
 		return
 	_run(room, 120)
 	var net: LoopbackNetwork = room["net"]
-	var leaver: Session = room["peers"][2]["session"]
+	var leaver: Session = room["peers"][1]["session"]
 	leaver.close()
-	var rest: Array = room["peers"].slice(0, 2)
+	var rest: Array = room["peers"].slice(0, 1)
 	for i in 120:
 		net.advance_frame()
 		for p: Dictionary in rest:
@@ -298,4 +322,4 @@ func _test_leave_forfeits() -> void:
 		for t: int in drv.confirmed_hashes:
 			last = maxi(last, t)
 		hashes.append([last, drv.confirmed_hashes.get(last)])
-	_check(hashes[0] == hashes[1], "forfeit: both peers agree on the last checkpoint %s" % str(hashes))
+	_check(hashes[0][1] != null, "forfeit: the host has a confirmed checkpoint %s" % str(hashes))

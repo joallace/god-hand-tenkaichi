@@ -517,8 +517,9 @@ What it implies (milestone 3):
 - **Cut point**: the host decides `last_tick` = the last tick it confirmed for
   that peer. It forwarded everything it had, so all peers agree. It then
   issues the command at `last_tick + 1`.
-- **Versus**: `FORFEIT { team }` for the dropped player's team (a 2v2
-  partner on that team loses too; see §16). The others see results with
+- **Versus**: `CPU_TAKEOVER` for each of the dropped peer's slots, plus
+  `FORFEIT { team, winner }` when the humans left are on fewer than two
+  teams (§17; a 1v1 drop forfeits, a 2v2 partner's drop doesn't). The others see results with
   "<name> disconnected".
 - **Co-op**: `CPU_TAKEOVER { slot, cpu_level = coop ally level }`. The slot
   keeps its health/meter and shows "CPU (<name>)". If every human peer but
@@ -620,6 +621,35 @@ mode, port override, recent hosts, debug overlay.
 4. **Drop-in / reconnect** at Waves breathers.
 5. **n-vs-n and couch + online**: teams/FFA rows, lock, several local
    players per peer, per-machine split screen.
+   *Status 2026-10-20: implemented, tested headless over loopback (not
+   play-tested over a WAN); done before milestone 4, which it doesn't
+   depend on. Versus lobbies (local and online) have `max_fighters` slots;
+   each player picks a team on a TEAM row (Free for all / Team A / Team B);
+   host-only Seat rows (any player offline) pick a slot and turn an empty
+   one into a CPU (or back), set its team and a CPU's fighter / level;
+   `Lock teams` (online) takes the TEAM row from guests. A match needs every
+   joined human ready, two fighters and two teams (`LobbyModel.teams_ok`);
+   empty slots are left out of the config (slots keep their lobby index) and
+   teams are numbered from 0 in slot order (all FFA = team -1, as a plain
+   1v1). Offline co-op also has min(`max_humans`, `max_fighters`) slots.
+   Couch + online: `max_local_players_online` = 4, one LOBBY_REQ join per
+   local device (`OnlineRoom` keeps a queue of pending devices; a refused or
+   full-room join is dropped). Bindings profile per local player
+   (`Bindings.profile_for`, `MatchConfig.binding_profile`: P1/P2 keep
+   theirs; a third keyboard player can't join). Per-machine split screen:
+   3-4 local views in a 2x2 grid (`ViewLayout`, one audio listener); the
+   HUD stacks 3-4 panels by team side; team winners are announced and shown
+   as "P1 & P3". Drop-out (§17 decided): `RollbackDriver.drop_out_commands`
+   — every slot of a leaving / forfeiting peer becomes a CPU, and versus
+   adds a FORFEIT (new `winner` arg: the remaining humans' team) only when
+   the humans left are on fewer than two teams. Fixed on the way: a FORFEIT
+   re-cut a slot already cut by an earlier takeover, stalling every peer.
+   Tests: `net_teams_test` (host + 2 guests, one with two couch players:
+   teams, seat move, lock, 2v2 config and devices, a drop -> takeover, a
+   forfeit -> team A wins, equal hashes), `lobby_test` (teams, seats,
+   start rule, wire form, binding profiles), `split4_test` (2x2 views, HUD
+   panels, team texts, results), `net_loopback_test` (FFA leave -> CPU,
+   1v1 leave -> forfeit).*
 6. **Later**: rendezvous/relay server + room codes + hybrid mesh; replay
    viewer; spectators.
 
@@ -654,8 +684,9 @@ mode, port override, recent hosts, debug overlay.
 ## 17. Risks and open questions
 
 - **2v2 forfeit is harsh**: one drop loses the match for the partner.
-  Alternative: CPU takeover in team versus, forfeit only when a team has no
-  human left. Decide when milestone 5 lands.
+  *Decided (milestone 5)*: a leaving or forfeiting peer's slots become
+  CPUs; the match is forfeited only when the humans still playing are on
+  fewer than two teams (their team wins). A 1v1 drop still forfeits.
 - **Windows CRT vs DetMath coverage**: engine internals (`Vector3.normalized`
   is sqrt-only, fine; anything else hidden?) only show up in the cross-OS
   hash test, so run it early (milestone 0).

@@ -5,3 +5,13 @@
 [resource]
 script = ExtResource("1_uxs1q")
 font_names = PackedStringArray("Impact", "Anton", "Arial Black", "DejaVu Sans", "sans-serif")
+stack_row_height = 64.0
+stack_name_font_size = 18
+stack_health_bar_height = 16.0
+stack_ki_bar_height = 8.0
+stack_combo_font_size = 30
+stack_callout_font_size = 24
+split_filler_color = Color(0.03, 0.03, 0.05, 1)
+text_team_round_winner = "%s WIN"
+text_team_match_winner = "%s VICTORY!"
+text_team_join = " & "

@@ -28,13 +28,15 @@ const MAX_SLOT := 63
 @export var display_name: String = ""
 
 
-func create_input_source() -> InputSource:
+## LOCAL slots read Bindings `profile` (MatchConfig.binding_profile; -1 =
+## the slot number, fine for the first two slots only).
+func create_input_source(profile: int = -1) -> InputSource:
 	match input_kind:
 		InputKind.CPU:
 			return CpuInput.new(cpu_level)
 		InputKind.NETWORK:
 			return NetworkInput.new()
-	return LocalDeviceInput.new(slot, device_kind, device_id)
+	return LocalDeviceInput.new(profile if profile >= 0 else slot, device_kind, device_id)
 
 
 ## Plain-data copy (int/String only) for the wire and replay files.

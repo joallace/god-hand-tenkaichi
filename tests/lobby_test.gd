@@ -17,6 +17,8 @@ func _ready() -> void:
 	_test_model_wire()
 	_test_model_online_coop()
 	_test_model_online_mode_switch()
+	_test_model_teams()
+	_test_binding_profiles()
 	_test_model_carry_coop()
 	_test_rooms()
 	await _test_scene_hosting()
@@ -51,8 +53,8 @@ func _test_model_modes() -> void:
 			and LobbyModel.ONLINE_MODES.has(MatchConfig.Mode.COOP), "online lobby's Game row: Versus / Co-op")
 	var h := o.join(Bindings.Kind.PAD, 0, Transport.HOST_PEER, "Host")
 	var g := o.join(Bindings.Kind.PAD, -1, 2, "Guest")
-	check(o.rows_for(g) == ([LobbyModel.Row.CHARACTER] as Array[int]) and o.rows_for(h).has(LobbyModel.Row.ROUNDS),
-			"guests only pick their fighter; the host has the rules")
+	check(o.rows_for(g) == ([LobbyModel.Row.CHARACTER, LobbyModel.Row.TEAM] as Array[int])
+			and o.rows_for(h).has(LobbyModel.Row.ROUNDS), "guests only pick their fighter and team; the host has the rules")
 	o.command(g, LobbyModel.Cmd.CONFIRM)
 	o.slots[h].cursor = LobbyModel.Row.ROUNDS
 	o.command(h, LobbyModel.Cmd.RIGHT)
@@ -152,15 +154,122 @@ func _test_model_online_mode_switch() -> void:
 	o.command(b, LobbyModel.Cmd.CONFIRM)
 	o.slots[0].cursor = LobbyModel.Row.MODE
 	o.command(0, LobbyModel.Cmd.RIGHT)
-	check(o.mode == MatchConfig.Mode.ONLINE and o.slots.size() == 2, "co-op -> versus: two slots")
+	check(o.mode == MatchConfig.Mode.ONLINE and o.slots.size() == Tuning.net.max_fighters, "co-op -> versus: max_fighters slots")
 	check(o.slots[0].owner_peer == Transport.HOST_PEER and o.slots[1].owner_peer == 2 and o.slots[1].char_index == 1
-			and o.slots_of(3).is_empty(), "the first two humans keep a versus slot (and their pick), the third has none")
+			and o.slots_of(3) == ([2] as Array[int]), "every human keeps a versus slot (and their pick), in order")
 	check(o.slots.all(func(s: LobbyModel.Slot) -> bool: return s.state != LobbyModel.SlotState.READY),
 			"a mode switch un-readies everyone")
 	o.command(0, LobbyModel.Cmd.RIGHT)
-	check(o.is_coop() and o.joined_humans() == 2 and o.slots[1].owner_peer == 2 and o.slots[1].display_name == "Ann",
+	check(o.is_coop() and o.joined_humans() == 3 and o.slots[1].owner_peer == 2 and o.slots[1].display_name == "Ann",
 			"versus -> co-op keeps the joined humans")
-	check(o.first_free_slot() == 2, "the free co-op slots follow the joined ones")
+	check(o.first_free_slot() == 3, "the free co-op slots follow the joined ones")
+
+
+## Team versus: TEAM rows, seats (CPUs), the start rule, config teams.
+func _test_model_teams() -> void:
+	var m := LobbyModel.new(MatchConfig.Mode.LOCAL_VERSUS)
+	check(m.team_mode() and m.slots.size() == Tuning.net.max_fighters, "local versus has max_fighters slots")
+	var a := m.join(Bindings.Kind.PAD, 0)
+	m.command(a, LobbyModel.Cmd.CONFIRM)
+	check(not m.all_ready() and not m.teams_ok(), "one fighter can't start")
+	var cfg1v1 := LobbyModel.new(MatchConfig.Mode.LOCAL_VERSUS)
+	cfg1v1.join(Bindings.Kind.PAD, 0)
+	cfg1v1.join(Bindings.Kind.PAD, 1)
+	for i in 2:
+		cfg1v1.command(i, LobbyModel.Cmd.CONFIRM)
+	var c := cfg1v1.build_config(1)
+	check(cfg1v1.all_ready() and c.players.size() == 2 and c.players.all(func(p: PlayerSlotConfig) -> bool: return p.team == -1),
+			"a plain 1v1 builds two own-team slots (empty slots left out)")
+	# Host seats a CPU in slot 2 and puts it with player 1 on team A; slot 1 joins team B.
+	m.command(a, LobbyModel.Cmd.BACK)
+	m.slots[a].cursor = LobbyModel.Row.SEAT
+	m.command(a, LobbyModel.Cmd.RIGHT)
+	m.command(a, LobbyModel.Cmd.RIGHT)
+	check(m.seat == 2 and m.rows().has(LobbyModel.Row.SEAT_TYPE) and not m.rows().has(LobbyModel.Row.SEAT_TEAM),
+			"Seat row picks slot 3 (empty: Seat is Open/CPU, no team)")
+	m.slots[a].cursor = LobbyModel.Row.SEAT_TYPE
+	m.command(a, LobbyModel.Cmd.RIGHT)
+	check(m.slots[2].type == LobbyModel.SlotType.CPU and m.slots[2].state == LobbyModel.SlotState.READY
+			and m.cpu_target() == 2 and m.rows().has(LobbyModel.Row.CPU_LEVEL), "an empty seat becomes a ready CPU with CPU rows")
+	m.slots[a].cursor = LobbyModel.Row.CPU_LEVEL
+	var lvl := m.slots[2].cpu_level
+	m.command(a, LobbyModel.Cmd.LEFT if lvl > 0 else LobbyModel.Cmd.RIGHT)
+	check(m.slots[2].cpu_level != lvl, "CPU level row edits the seated CPU")
+	m.slots[a].cursor = LobbyModel.Row.SEAT_TEAM
+	m.command(a, LobbyModel.Cmd.RIGHT)
+	m.slots[a].cursor = LobbyModel.Row.TEAM
+	m.command(a, LobbyModel.Cmd.RIGHT)
+	check(m.slots[2].team == 0 and m.slots[a].team == 0, "seat team and own team set to A")
+	m.command(a, LobbyModel.Cmd.CONFIRM)
+	check(not m.all_ready(), "player + CPU on one team: no opponent")
+	var b := m.join(Bindings.Kind.PAD, 1)
+	check(b == 1, "the next human takes the free slot before the CPU's")
+	m.slots[b].cursor = LobbyModel.Row.TEAM
+	m.command(b, LobbyModel.Cmd.RIGHT)
+	m.command(b, LobbyModel.Cmd.RIGHT)
+	m.command(b, LobbyModel.Cmd.CONFIRM)
+	check(m.slots[b].team == 1 and m.all_ready(), "a second team: the match can start")
+	var cfg := m.build_config(3)
+	var teams := {}
+	for p in cfg.players:
+		teams[p.slot] = p.team
+	check(cfg.players.size() == 3 and teams == {0: 0, 1: 1, 2: 0}
+			and cfg.players[2].input_kind == PlayerSlotConfig.InputKind.CPU, "config: A = team 0, B = team 1, CPU on A")
+	m.slots[b].team = LobbyModel.TEAM_FFA
+	m.slots[0].team = LobbyModel.TEAM_FFA
+	m.slots[2].team = 1
+	var t2 := m.config_teams()
+	check(t2 == {0: 0, 1: 1, 2: 2}, "FFA slots get their own team ids next to a named team")
+	m.seat = 2
+	m.slots[0].cursor = LobbyModel.Row.SEAT_TYPE
+	m.slots[0].state = LobbyModel.SlotState.JOINED
+	m.command(0, LobbyModel.Cmd.RIGHT)
+	check(m.slots[2].type == LobbyModel.SlotType.HUMAN and m.slots[2].state == LobbyModel.SlotState.EMPTY,
+			"Seat is -> Open removes the CPU")
+	m.seat = 1
+	m.fix_cursors()
+	m.command(0, LobbyModel.Cmd.RIGHT)
+	check(m.slots[1].type == LobbyModel.SlotType.HUMAN and m.slots[1].state != LobbyModel.SlotState.EMPTY,
+			"a joined human's seat can't become a CPU")
+	var o := LobbyModel.new(MatchConfig.Mode.ONLINE, true)
+	o.join(Bindings.Kind.PAD, 0, Transport.HOST_PEER, "Host")
+	o.slots[0].team = 1
+	o.lock_teams = true
+	o.seat = 3
+	var copy := LobbyModel.new(MatchConfig.Mode.ONLINE, true)
+	check(copy.apply_dict(o.to_dict()) and copy.slots[0].team == 1 and copy.lock_teams and copy.seat == 3,
+			"teams, lock and seat go over the wire")
+
+
+## Four local players (pads + keyboards, a slot gap) read the Bindings
+## profiles the lobby showed them, and a real local match runs with them.
+func _test_binding_profiles() -> void:
+	var kinds := [Bindings.Kind.PAD, Bindings.Kind.KEYBOARD, Bindings.Kind.PAD, Bindings.Kind.KEYBOARD]
+	check(Bindings.profile_for(kinds, 1) == 1 and Bindings.profile_for(kinds, 3) == 0
+			and Bindings.profile_for([Bindings.Kind.PAD, Bindings.Kind.PAD, Bindings.Kind.PAD], 2) == Bindings.SLOT_COUNT - 1,
+			"P2 keeps its profile; a later keyboard player takes the free layout, later pads the last profile")
+	var m := LobbyModel.new(MatchConfig.Mode.LOCAL_VERSUS)
+	m.join(Bindings.Kind.PAD, 0)
+	m.join(Bindings.Kind.KEYBOARD, -1)
+	m.join(Bindings.Kind.PAD, 1)
+	m.join(Bindings.Kind.KEYBOARD, -1)
+	m.slots[2].team = 0
+	m.slots[3].team = 0
+	m.leave(1)
+	var cfg := m.build_config(9)
+	var profiles: Array[int] = []
+	for p in cfg.players:
+		profiles.append(cfg.binding_profile(p.slot))
+	check(profiles == ([0, 1, 0] as Array[int]), "config profiles by local order: pad P1, pad P3, keyboard A (%s)" % str(profiles))
+	var d := MatchDirector.new()
+	d.auto_step = false
+	add_child(d)
+	d.setup(cfg)
+	for i in 30:
+		d.step()
+	check(d.tick == 30 and d.fighters.size() == 3, "a local match with players in slots 0, 2 and 3 runs")
+	remove_child(d)
+	d.free()
 
 
 func _test_model_carry_coop() -> void:
@@ -217,7 +326,8 @@ func _test_rooms() -> void:
 		if gs.state == Session.State.CONNECTED:
 			break
 	_pump(all_s, all_r, 5)
-	check(guest.welcomed and guest.model.online and guest.model.slots.size() == 2, "guest mirrors the host's lobby")
+	check(guest.welcomed and guest.model.online and guest.model.slots.size() == Tuning.net.max_fighters,
+			"guest mirrors the host's lobby")
 
 	host.join_local(Bindings.Kind.PAD, 0)
 	guest.join_local(Bindings.Kind.KEYBOARD, -1)
@@ -226,9 +336,16 @@ func _test_rooms() -> void:
 	check(guest.my_slots() == ([1] as Array[int]) and guest.local_devices.get(1) == [Bindings.Kind.KEYBOARD, -1],
 			"guest got slot 1 and keeps its keyboard locally")
 	check(host.model.slots[1].display_name == "Guest" and guest.model.slots[0].display_name == "Host", "names in both lobbies")
+	# Couch + online: a second local device takes a second slot, then leaves.
+	guest.join_local(Bindings.Kind.PAD, 3)
 	guest.join_local(Bindings.Kind.PAD, 3)
 	_pump(all_s, all_r, 10)
-	check(host.model.slots_of(2).size() == 1, "a peer can't take a second slot online")
+	check(host.model.slots_of(2) == ([1, 2] as Array[int]) and guest.local_devices.get(2) == [Bindings.Kind.PAD, 3]
+			and guest.slot_of_device(Bindings.Kind.PAD, 3) == 2, "a guest's second device gets its own slot (once)")
+	guest.request({"op": OnlineRoom.OP_CMD, "slot": 2, "cmd": LobbyModel.Cmd.BACK})
+	_pump(all_s, all_r, 10)
+	check(host.model.slots_of(2) == ([1] as Array[int]) and not guest.local_devices.has(2)
+			and guest.local_devices.get(1) == [Bindings.Kind.KEYBOARD, -1], "the second local player leaves; the first keeps its device")
 
 	guest.request({"op": OnlineRoom.OP_CMD, "slot": 1, "cmd": LobbyModel.Cmd.CONFIRM})
 	guest.request({"op": OnlineRoom.OP_CMD, "slot": 0, "cmd": LobbyModel.Cmd.CONFIRM})
@@ -238,7 +355,19 @@ func _test_rooms() -> void:
 	check(host.model.slots[1].state == LobbyModel.SlotState.JOINED and guest.model.slots[1].state == LobbyModel.SlotState.JOINED,
 			"guest's ready / un-ready applied by the host and mirrored back")
 	check(host.model.slots[0].state == LobbyModel.SlotState.JOINED, "guest can't steer the host's slot")
-	check(host.model.slots[1].cursor == LobbyModel.Row.CHARACTER, "guest cursor can't leave its fighter row")
+	check(host.model.slots[1].cursor == LobbyModel.Row.TEAM, "guest cursor goes from its fighter to its team row")
+	guest.request({"op": OnlineRoom.OP_CMD, "slot": 1, "cmd": LobbyModel.Cmd.DOWN})
+	_pump(all_s, all_r, 10)
+	check(host.model.slots[1].cursor == LobbyModel.Row.CHARACTER, "and wraps there: the rules are the host's")
+	host.model.lock_teams = true
+	host.model.fix_cursors()
+	guest.request({"op": OnlineRoom.OP_CMD, "slot": 1, "cmd": LobbyModel.Cmd.DOWN})
+	guest.request({"op": OnlineRoom.OP_CMD, "slot": 1, "cmd": LobbyModel.Cmd.RIGHT})
+	_pump(all_s, all_r, 10)
+	check(host.model.slots[1].cursor == LobbyModel.Row.CHARACTER and host.model.slots[1].team == LobbyModel.TEAM_FFA,
+			"locked teams: the guest can't reach its team row")
+	host.model.lock_teams = false
+	host.publish()
 
 	guest.request({"op": OnlineRoom.OP_CMD, "slot": 1, "cmd": LobbyModel.Cmd.CONFIRM})
 	host.model.slots[0].cursor = LobbyModel.Row.TIMER

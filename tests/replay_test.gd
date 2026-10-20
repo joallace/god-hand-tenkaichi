@@ -120,7 +120,7 @@ func _test_scripted_slot() -> void:
 func _test_format_round_trip() -> void:
 	var r: Replay = Tool.record(self, Tool.cpu_config(false, 2), 200)
 	r.inputs[0] = PackedByteArray([1, 2, 3, 4, 0, 255])
-	r.commands.append({"tick": 50, "kind": MatchDirector.CommandKind.FORFEIT, "team": 1})
+	r.commands.append({"tick": 50, "kind": MatchDirector.CommandKind.FORFEIT, "team": 1, "winner": -1})
 	var bytes := r.to_bytes()
 	var back := Replay.from_bytes(bytes)
 	_check(back != null and var_to_str(back.to_dict()) == var_to_str(r.to_dict()), "to_bytes/from_bytes round-trips")

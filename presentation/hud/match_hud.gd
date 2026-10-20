@@ -1,7 +1,11 @@
 class_name MatchHud
 extends CanvasLayer
 ## Global match HUD drawn once over all views: P1 on the left, P2 on the
-## right, timer in the center. Per player: name, round-win pips, health bar
+## right, timer in the center. Versus with 3-4 fighters (panel_places):
+## two teams -> the lowest slot's team on the left, the other on the right,
+## teammates stacked in compact rows; FFA / 3+ teams -> sides alternate in
+## slot order, the 3rd / 4th fighter on a second compact row. Pips show the
+## panel's team wins; a team of 2+ wins as "P1 & P3 WIN". Per player: name, round-win pips, health bar
 ## with damage trail, segmented ki gauge (+ full bar count), combo popup and
 ## a callout line (GUARD CRASH / THROW BREAK / COUNTER).
 ## Center: timer ("∞" when infinite) and announcer text (ROUND / FIGHT! /
@@ -163,18 +167,50 @@ func _on_fighters_spawned(fighters: Array[Fighter]) -> void:
 		for i in mini(team0.size(), 2):
 			_build_panel(team0[i], i == 1)
 	else:
-		for i in fighters.size():
-			_build_panel(fighters[i], i % 2 == 1)
+		var places := panel_places(fighters)
+		var compact := false
+		for place: Vector2i in places.values():
+			compact = compact or place.y > 0
+		for f in fighters:
+			var place: Vector2i = places[f.slot]
+			_build_panel(f, place.x == 1, place.y, compact)
 	_layout()
 	_refresh_pause_tags()
 
 
-func _build_panel(f: Fighter, right_side: bool) -> void:
+## Versus panel spots: slot -> Vector2i(side: 0 left / 1 right, row).
+## Exactly two teams: the lowest slot's team on the left, the other team on
+## the right, teammates in rows by slot. Otherwise (FFA, 3+ teams): sides
+## alternate in slot order, the 3rd / 4th fighter on the second row.
+static func panel_places(fighters: Array[Fighter]) -> Dictionary:
+	var sorted: Array[Fighter] = fighters.duplicate()
+	sorted.sort_custom(func(a: Fighter, b: Fighter) -> bool: return a.slot < b.slot)
+	var teams: Array[int] = []  # in order of their lowest slot
+	for f in sorted:
+		if not f.team in teams:
+			teams.append(f.team)
+	var out := {}
+	if teams.size() == 2:
+		var rows: Array[int] = [0, 0]
+		for f in sorted:
+			var side := 0 if f.team == teams[0] else 1
+			out[f.slot] = Vector2i(side, rows[side])
+			rows[side] += 1
+	else:
+		for i in sorted.size():
+			@warning_ignore("integer_division")
+			out[sorted[i].slot] = Vector2i(i % 2, i / 2)
+	return out
+
+
+## `row` > 0 stacks the panel under the others on its side; `compact` (some
+## side has 2+ rows) uses the smaller stack_* sizes for every panel.
+func _build_panel(f: Fighter, right_side: bool, row: int = 0, compact: bool = false) -> void:
 	var t := Tuning.hud
 	var pcolor := t.slot_color(f.slot)
-	var p := {"fighter": f, "right": right_side}
+	var p := {"fighter": f, "right": right_side, "row": row, "compact": compact}
 
-	var name_label := _label(t.name_font_size, pcolor)
+	var name_label := _label(t.stack_name_font_size if compact else t.name_font_size, pcolor)
 	name_label.name = "Name%d" % (f.slot + 1)
 	var char_name := ""
 	var tag := "P%d" % (f.slot + 1)
@@ -206,7 +242,7 @@ func _build_panel(f: Fighter, right_side: bool) -> void:
 	root.add_child(kg)
 	p["ki"] = kg
 
-	var ki_count := _label(int(t.name_font_size * 1.1), t.ki_full_color)
+	var ki_count := _label(int((t.stack_name_font_size if compact else t.name_font_size) * 1.1), t.ki_full_color)
 	ki_count.name = "KiCount%d" % (f.slot + 1)
 	ki_count.text = str(kg.full_bars())
 	ki_count.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -230,7 +266,7 @@ func _build_panel(f: Fighter, right_side: bool) -> void:
 	root.add_child(pips)
 	p["pips"] = pips
 
-	var combo := _label(t.combo_font_size, t.text_color)
+	var combo := _label(t.stack_combo_font_size if compact else t.combo_font_size, t.text_color)
 	combo.name = "Combo%d" % (f.slot + 1)
 	combo.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT if right_side else HORIZONTAL_ALIGNMENT_LEFT
 	combo.modulate.a = 0.0
@@ -238,9 +274,11 @@ func _build_panel(f: Fighter, right_side: bool) -> void:
 	p["combo"] = combo
 	p["combo_tween"] = null
 
-	var callout := _label(t.callout_font_size, t.text_color)
+	var callout := _label(t.stack_callout_font_size if compact else t.callout_font_size, t.text_color)
 	callout.name = "Callout%d" % (f.slot + 1)
 	callout.horizontal_alignment = combo.horizontal_alignment
+	if compact:  # shares the combo's line, at the panel's inner end
+		callout.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT if right_side else HORIZONTAL_ALIGNMENT_RIGHT
 	callout.modulate.a = 0.0
 	root.add_child(callout)
 	p["callout"] = callout
@@ -249,6 +287,8 @@ func _build_panel(f: Fighter, right_side: bool) -> void:
 	var pause_tag := _label(t.pause_tag_font_size, t.pause_tag_color)
 	pause_tag.name = "PauseTag%d" % (f.slot + 1)
 	pause_tag.horizontal_alignment = name_label.horizontal_alignment
+	if compact:  # after the ki count, at the panel's inner end
+		pause_tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT if right_side else HORIZONTAL_ALIGNMENT_RIGHT
 	pause_tag.visible = false
 	root.add_child(pause_tag)
 	p["pause_tag"] = pause_tag
@@ -282,9 +322,6 @@ func _layout() -> void:
 	var w := root.size.x
 	var h := root.size.y
 	var bar_w := maxf((w - 2.0 * t.side_margin - t.center_gap) * 0.5, 50.0)
-	var name_h := t.name_font_size + 8.0
-	var bar_y := t.top_margin + name_h
-	var ki_y := bar_y + t.health_bar_height + 8.0
 	var ki_w := bar_w * t.ki_width_ratio
 
 	timer_label.position = Vector2(w * 0.5 - t.center_gap * 0.5, t.top_margin)
@@ -305,41 +342,68 @@ func _layout() -> void:
 			wave_label.size = enemies_label.size
 			wave_label.position = enemies_label.position + Vector2(0.0, enemies_label.size.y)
 
+	var side_rows: Array[int] = [0, 0]  # panel rows on the left / right
+	for p: Dictionary in panels.values():
+		var side := 1 if p["right"] else 0
+		side_rows[side] = maxi(side_rows[side], int(p["row"]) + 1)
 	for slot: int in panels:
 		var p: Dictionary = panels[slot]
 		var right: bool = p["right"]
+		var row: int = p["row"]
+		var compact: bool = p["compact"]
+		var bar_h := t.stack_health_bar_height if compact else t.health_bar_height
+		var ki_h := t.stack_ki_bar_height if compact else t.ki_bar_height
+		var row_y := t.top_margin + row * t.stack_row_height
+		var name_h := (t.stack_name_font_size if compact else t.name_font_size) + 8.0
+		var bar_y := row_y + name_h
+		var ki_y := bar_y + bar_h + 8.0
 		var x0 := w * 0.5 + t.center_gap * 0.5 if right else t.side_margin
 		var hb: HudHealthBar = p["health"]
 		hb.position = Vector2(x0, bar_y)
-		hb.size = Vector2(bar_w, t.health_bar_height)
+		hb.size = Vector2(bar_w, bar_h)
 		var nl: Label = p["name"]
-		nl.position = Vector2(x0, t.top_margin - 4.0)
+		nl.position = Vector2(x0, row_y - 4.0)
 		nl.size = Vector2(bar_w, name_h)
 		var pips: HBoxContainer = p["pips"]
 		pips.size = Vector2(bar_w * 0.4, t.pip_size)
-		pips.position = Vector2(x0 if right else x0 + bar_w - pips.size.x, t.top_margin + name_h * 0.5 - t.pip_size * 0.5)
+		pips.position = Vector2(x0 if right else x0 + bar_w - pips.size.x, row_y + name_h * 0.5 - t.pip_size * 0.5)
 		if right:
 			pips.position.x += t.bar_skew + 4.0
 		else:
 			pips.position.x -= t.bar_skew + 4.0
 		var kg: HudKiGauge = p["ki"]
-		kg.size = Vector2(ki_w, t.ki_bar_height)
+		kg.size = Vector2(ki_w, ki_h)
 		kg.position = Vector2(x0 + bar_w - ki_w if right else x0, ki_y)
 		var kc: Label = p["ki_count"]
-		kc.size = Vector2(40, t.ki_bar_height + 20)
+		kc.size = Vector2(40, ki_h + 20)
 		var kc_x := kg.position.x - 46.0 if right else kg.position.x + ki_w + 6.0
 		kc.position = Vector2(kc_x, ki_y - 12.0)
 		var combo: Label = p["combo"]
-		combo.size = Vector2(bar_w, t.combo_font_size + 20.0)
-		combo.position = Vector2(x0, ki_y + t.ki_bar_height + 24.0)
-		combo.pivot_offset = Vector2(combo.size.x if right else 0.0, combo.size.y * 0.5)
 		var callout: Label = p["callout"]
-		callout.size = Vector2(bar_w, t.callout_font_size + 16.0)
-		callout.position = Vector2(x0, combo.position.y + combo.size.y)
-		callout.pivot_offset = Vector2(callout.size.x if right else 0.0, callout.size.y * 0.5)
 		var pause_tag: Label = p["pause_tag"]
-		pause_tag.size = Vector2(bar_w, t.pause_tag_font_size + 8.0)
-		pause_tag.position = Vector2(x0, ki_y + t.ki_bar_height + 2.0)
+		if compact:
+			# One line per panel under its side's last row: combo at the
+			# outer end, callout at the inner end.
+			var line_h := t.stack_combo_font_size + 12.0
+			var line_y := t.top_margin + side_rows[1 if right else 0] * t.stack_row_height + row * line_h
+			combo.size = Vector2(bar_w, line_h)
+			combo.position = Vector2(x0, line_y)
+			callout.size = combo.size
+			callout.position = combo.position
+			callout.pivot_offset = Vector2(0.0 if right else callout.size.x, callout.size.y * 0.5)
+			# Pause tag: between the ki count and the bar's inner end.
+			var tag_w := bar_w - ki_w - 46.0
+			pause_tag.size = Vector2(tag_w, t.pause_tag_font_size + 8.0)
+			pause_tag.position = Vector2(x0 if right else x0 + bar_w - tag_w, ki_y - t.pause_tag_font_size * 0.5)
+		else:
+			combo.size = Vector2(bar_w, t.combo_font_size + 20.0)
+			combo.position = Vector2(x0, ki_y + ki_h + 24.0)
+			callout.size = Vector2(bar_w, t.callout_font_size + 16.0)
+			callout.position = Vector2(x0, combo.position.y + combo.size.y)
+			callout.pivot_offset = Vector2(callout.size.x if right else 0.0, callout.size.y * 0.5)
+			pause_tag.size = Vector2(bar_w, t.pause_tag_font_size + 8.0)
+			pause_tag.position = Vector2(x0, ki_y + ki_h + 2.0)
+		combo.pivot_offset = Vector2(combo.size.x if right else 0.0, combo.size.y * 0.5)
 
 
 # --- fighter signals -----------------------------------------------------------
@@ -508,8 +572,8 @@ func _on_round_started(round_number: int) -> void:
 	var is_final := false
 	if director.config != null and director.config.rounds_to_win > 1:
 		is_final = true
-		for w in director.wins:
-			if w < director.config.rounds_to_win - 1:
+		for team in _teams():  # wins is indexed by team id (ids may have gaps)
+			if team >= director.wins.size() or director.wins[team] < director.config.rounds_to_win - 1:
 				is_final = false
 	announce(t.text_final_round if is_final else t.text_round % round_number, t.announce_color, t.announce_hold)
 
@@ -536,19 +600,53 @@ func _on_round_ended(winner_slot: int, reason: StringName) -> void:
 
 func _announce_round_winner(winner_slot: int) -> void:
 	if director.phase == MatchDirector.Phase.OUTRO:
-		var t := Tuning.hud
-		var text := t.text_round_winner_name % director.config.player_tag(winner_slot) if _online() \
-			else t.text_round_winner % (winner_slot + 1)
-		announce(text, _slot_color(winner_slot), t.announce_hold)
+		announce(winner_text(winner_slot, false), _slot_color(winner_slot), Tuning.hud.announce_hold)
 
 
 func _on_match_ended(winner_slot: int) -> void:
 	if _coop():
 		return
+	announce(winner_text(winner_slot, true), _slot_color(winner_slot), -1.0)
+
+
+## Round / match winner text for the team led by `winner_slot`: "P1 WINS"
+## (online: the name), a team of 2+ by all its tags ("P1 & P3 WIN").
+func winner_text(winner_slot: int, is_match: bool) -> String:
 	var t := Tuning.hud
-	var text := t.text_match_winner_name % director.config.player_tag(winner_slot) if _online() \
-		else t.text_match_winner % (winner_slot + 1)
-	announce(text, _slot_color(winner_slot), -1.0)
+	var team := team_slots(director, winner_slot)
+	if team.size() > 1:
+		var tags: PackedStringArray = []
+		for s in team:
+			tags.append(director.config.player_tag(s))
+		return (t.text_team_match_winner if is_match else t.text_team_round_winner) % t.text_team_join.join(tags)
+	if _online():
+		return (t.text_match_winner_name if is_match else t.text_round_winner_name) % director.config.player_tag(winner_slot)
+	return (t.text_match_winner if is_match else t.text_round_winner) % (winner_slot + 1)
+
+
+## Slots on the team of the fighter in `slot`, ascending (just `slot` when
+## no fighter has it).
+static func team_slots(d: MatchDirector, slot: int) -> Array[int]:
+	var out: Array[int] = []
+	var f := d.fighter_for_slot(slot) if d != null else null
+	if f == null:
+		out.append(slot)
+		return out
+	for other in d.fighters:
+		if other.team == f.team:
+			out.append(other.slot)
+	out.sort()
+	return out
+
+
+## Team ids of the fighters, ascending.
+func _teams() -> Array[int]:
+	var out: Array[int] = []
+	for f in director.fighters:
+		if not f.team in out:
+			out.append(f.team)
+	out.sort()
+	return out
 
 
 func _online() -> bool:

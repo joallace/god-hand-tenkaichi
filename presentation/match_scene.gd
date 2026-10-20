@@ -132,7 +132,7 @@ func _start_online() -> void:
 	var local := {}
 	for p in config.players:
 		if p.input_kind != PlayerSlotConfig.InputKind.CPU and p.owner_peer == me:
-			local[p.slot] = LocalDeviceInput.new(local.size(), p.device_kind, p.device_id)
+			local[p.slot] = LocalDeviceInput.new(config.binding_profile(p.slot, me), p.device_kind, p.device_id)
 	Net.driver = driver
 	Net.room.driver = driver
 	driver.aborted.connect(_on_net_aborted)

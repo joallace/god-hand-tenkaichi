@@ -128,10 +128,15 @@ func _test_join_screen() -> void:
 	check(j.slots[1].state == Lobby.SlotState.JOINED and j.slots[1].device_kind == Bindings.Kind.KEYBOARD,
 			"Enter joins keyboard into P2")
 
-	# Settings: P1 pad moves past Game to Rounds, then Timer, cycles to infinite.
+	# Settings: P1 pad moves past Team, Game and the Seat rows (its own seat:
+	# Seat, Seat team) to Rounds, then Timer, cycles to infinite.
 	await pad_tap(0, JOY_BUTTON_DPAD_DOWN)
-	check(j.slots[0].cursor == Lobby.Row.MODE, "down from fighter reaches the Game row")
+	check(j.slots[0].cursor == Lobby.Row.TEAM, "down from fighter reaches the Team row")
 	await pad_tap(0, JOY_BUTTON_DPAD_DOWN)
+	check(j.slots[0].cursor == Lobby.Row.MODE, "then the Game row")
+	for i in 3:
+		await pad_tap(0, JOY_BUTTON_DPAD_DOWN)
+	check(j.slots[0].cursor == Lobby.Row.ROUNDS, "past the Seat rows to Rounds")
 	await pad_tap(0, JOY_BUTTON_DPAD_RIGHT)
 	check(j.model.rounds_to_win == mini(Tuning.match_rules.rounds_to_win + 1, 5), "rounds to win changed by P1")
 	await pad_tap(0, JOY_BUTTON_DPAD_DOWN)

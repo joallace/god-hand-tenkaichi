@@ -106,6 +106,9 @@ extends Resource
 ## Headline scale pulse: amplitude (fraction of size) and speed (rad/s).
 @export var results_pulse_amount: float = 0.04
 @export var results_pulse_speed: float = 4.0
+## Versus headline when the winning team has 2+ fighters (their tags joined
+## by Tuning.hud.text_team_join): "P1 & P3 WIN!".
+@export var results_text_team_winner: String = "%s WIN!"
 ## Co-op stats table: min width of the row-label column / each player column,
 ## gaps between cells, and the tallest it may get before it scrolls.
 @export var results_label_col_width: int = 230

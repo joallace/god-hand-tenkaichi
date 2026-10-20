@@ -28,9 +28,14 @@ extends Control
 ##   guest's commands go to the host (OnlineRoom.request) and the screen
 ##   redraws on every state broadcast. The host's countdown
 ##   (Tuning.net.lobby_countdown_frames) starts the match on every peer.
-## Online co-op has up to four player slots: the panels then stack two per
-##   column either side of the settings panel (compact fonts), and with the
-##   CPU ally on, the place it takes (model.human_capacity()) shows the ally.
+## Team versus and co-op have up to four player slots: the panels then stack
+##   two per column either side of the settings panel (compact fonts); in
+##   co-op with the CPU ally on online, the place it takes
+##   (model.human_capacity()) shows the ally. Team versus: each panel shows
+##   its team (the player's TEAM row); the settings panel's Seat rows edit
+##   the marked slot (CPU in an empty one, its team, a CPU's fighter / level).
+## Couch + online: every local device joins its own slot (up to
+##   Tuning.net.max_local_players_online), each sending its own request.
 
 ## Emitted with the finished config right before a local match starts.
 signal match_requested(config: MatchConfig)
@@ -39,6 +44,8 @@ const Cmd := LobbyModel.Cmd
 const Row := LobbyModel.Row
 const SlotType := LobbyModel.SlotType
 const SlotState := LobbyModel.SlotState
+## Rows that edit the slot under model.seat.
+const SEAT_ROWS: Array[int] = [Row.SEAT, Row.SEAT_TYPE, Row.SEAT_TEAM, Row.CPU_CHARACTER, Row.CPU_LEVEL]
 
 ## Set before Game.goto(Game.SCENE_LOBBY) to choose the local mode.
 static var pending_mode: MatchConfig.Mode = MatchConfig.Mode.LOCAL_VERSUS
@@ -106,7 +113,7 @@ func rows() -> Array[int]:
 
 
 func cpu_slot() -> int:
-	return model.cpu_slot()
+	return model.cpu_target()
 
 
 func all_ready() -> bool:
@@ -346,7 +353,7 @@ func _on_key(e: InputEventKey) -> void:
 	# 2) Generic keys.
 	match code:
 		KEY_ENTER, KEY_KP_ENTER, KEY_SPACE:
-			if _can_join_more():
+			if _can_join_more() and kb.size() < Bindings.SLOT_COUNT:
 				join(Bindings.Kind.KEYBOARD, -1)
 			else:
 				for idx in kb:
@@ -418,10 +425,15 @@ func keyboard_slots() -> Array[int]:
 	return out
 
 
-## Keyboard layout / bindings profile of a local slot: its slot number
-## offline, the local player's index online (a guest in slot 2 uses layout A).
+## Keyboard layout / bindings profile of a local slot, as the match will
+## use it (MatchConfig.binding_profile): keyboard players by their order on
+## this machine, pads by player number (a guest in slot 2 uses layout A).
 func binding_slot(idx: int) -> int:
-	return local_slots().find(idx) if is_online() else idx
+	var mine := local_slots()
+	var at := mine.find(idx)
+	if at < 0:
+		return 0
+	return Bindings.profile_for(mine.map(func(i: int) -> int: return _device_kind(i)), at)
 
 
 func _device_kind(idx: int) -> int:
@@ -451,9 +463,10 @@ func _can_join_more() -> bool:
 ## Claim the next free HUMAN slot for a device. Returns the slot (online: -1,
 ## the host answers with the next state) or -1.
 func join(kind: int, device: int) -> int:
-	if kind == Bindings.Kind.PAD and slot_for_device(kind, device) >= 0:
+	if kind == Bindings.Kind.PAD and (slot_for_device(kind, device) >= 0
+			or (is_online() and Net.room.is_pending(kind, device))):
 		return -1
-	if not _can_join_more():
+	if not _can_join_more() or (kind == Bindings.Kind.KEYBOARD and keyboard_slots().size() >= Bindings.SLOT_COUNT):
 		return -1
 	Sfx.play(&"ui_confirm")
 	if is_online():
@@ -719,12 +732,13 @@ func _build_settings_panel() -> Control:
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
 	col.add_theme_constant_override("separation", u.join_row_separation)
 	_settings_scroll.add_child(col)
-	for r in [Row.MODE, Row.CPU_LEVEL]:
+	for r in [Row.MODE, Row.SEAT, Row.SEAT_TYPE, Row.SEAT_TEAM, Row.CPU_LEVEL]:
 		_add_row_label(col, r)
 	_cpu_level_label = _row_labels[Row.CPU_LEVEL]
 	_cpu_blurb_label = MenuHelpers.label("", &"HintLabel", HORIZONTAL_ALIGNMENT_CENTER)
 	_cpu_blurb_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	col.add_child(_cpu_blurb_label)
+	_add_row_label(col, Row.LOCK_TEAMS)
 	_add_row_label(col, Row.ROUNDS)
 	for r in [Row.COOP_STRUCTURE, Row.ENEMY_COUNT, Row.WAVES, Row.ENEMY_LEVEL, Row.ENEMY_ROSTER,
 			Row.ALLY, Row.ALLY_LEVEL, Row.ALLY_CHARACTER, Row.FRIENDLY_FIRE]:
@@ -757,6 +771,17 @@ func _cursor_tags(row: int) -> String:
 	var tags: PackedStringArray = []
 	for i in slots.size():
 		if slots[i].state == SlotState.JOINED and slots[i].cursor == row:
+			tags.append("P%d" % (i + 1))
+	return ("[%s] " % ",".join(tags)) if not tags.is_empty() else ""
+
+
+## "[P1] " for the slot the Seat rows edit while someone's cursor is on them.
+func _seat_tags(idx: int) -> String:
+	if not model.team_mode() or idx != model.seat:
+		return ""
+	var tags: PackedStringArray = []
+	for i in slots.size():
+		if slots[i].state == SlotState.JOINED and slots[i].cursor in SEAT_ROWS:
 			tags.append("P%d" % (i + 1))
 	return ("[%s] " % ",".join(tags)) if not tags.is_empty() else ""
 
@@ -795,6 +820,7 @@ func _refresh() -> void:
 			header.text = s.display_name.to_upper()
 		else:
 			header.text = "PLAYER %d" % (i + 1)
+		header.text = _seat_tags(i) + header.text
 		if s.type == SlotType.CPU:
 			device.text = "Level %d/%d" % [s.cpu_level + 1, Tuning.cpu.level_count()]
 		elif remote:
@@ -802,7 +828,7 @@ func _refresh() -> void:
 		elif s.state != SlotState.EMPTY:
 			device.text = MenuHelpers.device_label(_device_kind(i), _device_id(i), binding_slot(i))
 		else:
-			device.text = "(optional)" if is_coop() and i > 0 else "-"
+			device.text = "(optional)" if (is_coop() and i > 0) or (model.team_mode() and i > 1) else "-"
 		match s.state:
 			SlotState.EMPTY:
 				state.text = "PRESS START\nOR ENTER" if _can_join_more() else "WAITING FOR\nA PLAYER..."
@@ -819,11 +845,13 @@ func _refresh() -> void:
 		var on_char := s.state == SlotState.JOINED and s.cursor == Row.CHARACTER
 		var tags := ""
 		if s.type == SlotType.CPU:
-			hint.text = "Scroll down past your fighter to pick the CPU's fighter and level"
-			tags = _cursor_tags(Row.CPU_CHARACTER)
+			hint.text = "Scroll down past your fighter to pick the CPU's fighter and level" \
+				if not model.team_mode() else "Seat rows: fighter, level, team"
+			tags = _cursor_tags(Row.CPU_CHARACTER) if i == cpu_slot() else ""
 			on_char = tags != ""
 		character.text = ("%s<  %s  >" % [tags, cname]) if on_char else cname
 		character.add_theme_color_override("font_color", ui["color"] if on_char else u.color_text)
+		_refresh_team(i, ui)
 		if i in ally:
 			_show_ally(ui)
 		hint.visible = hint.text != ""
@@ -831,6 +859,22 @@ func _refresh() -> void:
 	_refresh_room()
 	_refresh_status()
 	_scroll_to_cursor.call_deferred()
+
+
+## Team versus: the slot's team after its device line ("<  Team A  >",
+## in the player's colour, while their cursor is on their TEAM row).
+func _refresh_team(i: int, ui: Dictionary) -> void:
+	var s := slots[i]
+	var device: Label = ui["device"]
+	var on_team := s.state == SlotState.JOINED and s.cursor == Row.TEAM
+	if on_team:
+		device.add_theme_color_override("font_color", ui["color"])
+	else:
+		device.remove_theme_color_override("font_color")
+	if not model.team_mode() or s.state == SlotState.EMPTY:
+		return
+	var tname := LobbyModel.team_name(s.team)
+	device.text += "  -  " + ("<  %s  >" % tname if on_team else tname)
 
 
 ## A place the CPU ally takes (ally_slots): its level and fighter from the
@@ -860,8 +904,13 @@ func _refresh_rows() -> void:
 	var ids := MenuHelpers.character_ids()
 	var waves := model.coop_structure == CoopConfig.Structure.WAVES
 	var cpu := cpu_slot()
+	var seat := slots[model.seat] if model.seat < slots.size() else null
 	var values := {
 		Row.MODE: ["Game", LobbyModel.mode_name(model.mode)],
+		Row.SEAT: ["Seat", "P%d  %s" % [model.seat + 1, _seat_label(seat)]],
+		Row.SEAT_TYPE: ["Seat is", "CPU" if seat != null and seat.type == SlotType.CPU else "Open"],
+		Row.SEAT_TEAM: ["Seat team", LobbyModel.team_name(seat.team) if seat != null else ""],
+		Row.LOCK_TEAMS: ["Lock teams", "On" if model.lock_teams else "Off"],
 		Row.CPU_LEVEL: ["CPU level", Tuning.cpu.level_name(slots[cpu].cpu_level) if cpu >= 0 else ""],
 		Row.ROUNDS: ["Rounds to win", str(model.rounds_to_win)],
 		Row.TIMER: ["Time limit" if is_coop() else "Timer",
@@ -890,6 +939,17 @@ func _refresh_rows() -> void:
 	var how := _settings_header.get_parent().get_node("How") as Label
 	how.text = "Rules: the host (up/down row, left/right value)" if is_online() \
 		else "Any player: up/down row, left/right value"
+
+
+## Who sits in a slot, for the Seat row.
+func _seat_label(s: LobbyModel.Slot) -> String:
+	if s == null:
+		return ""
+	if s.type == SlotType.CPU:
+		return "CPU"
+	if s.state == SlotState.EMPTY:
+		return "(empty)"
+	return s.display_name if is_online() and s.display_name != "" else "Player"
 
 
 func _refresh_room() -> void:
@@ -953,8 +1013,12 @@ func _refresh_status() -> void:
 		_status_label.text = "B / ESC: leave the room" if is_online() else "B / ESC: back to menu"
 	elif is_online() and is_coop():
 		_status_label.text = _coop_online_status()
-	elif is_online() and model.first_free_slot() >= 0:
-		_status_label.text = "Waiting for an opponent to join..."
+	elif model.team_mode() and not model.teams_ok():
+		_status_label.text = "Waiting for an opponent to join (or add a CPU on the Seat rows)..." if is_online() \
+			else "Needs two fighters on two teams (Seat rows add a CPU)"
+	elif is_online():
+		var waiting := local_slots().all(func(i: int) -> bool: return slots[i].state == SlotState.READY)
+		_status_label.text = "Waiting for everyone to ready up..." if waiting else ""
 	else:
 		_status_label.text = ""
 

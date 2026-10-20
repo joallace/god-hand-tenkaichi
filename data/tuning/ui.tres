@@ -4,3 +4,4 @@
 
 [resource]
 script = ExtResource("1_si2ee")
+results_text_team_winner = "%s WIN!"

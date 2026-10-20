@@ -12,14 +12,18 @@ extends RefCounted
 ##   {"op": "cmd", "slot", "cmd"}       LobbyModel.Cmd on a slot you own
 ##   {"op": "pause", "on": bool}        pause overlay open / closed (match)
 ##   {"op": "rematch", "on": bool}      results: vote for a rematch
-##   {"op": "forfeit"}                  versus match: your team gives up
+##   {"op": "forfeit"}                  versus match: you give up (RollbackDriver.drop_out:
+##                                      CPUs take your slots; your team loses
+##                                      if no human would be left to play)
 ##   {"op": "leave_run"}                co-op match: your slots become CPUs
 ##   {"op": "to_lobby"}                 host only: results -> lobby
 ## After any change the host broadcasts `state_dict()` (LOBBY_STATE); every
 ## peer emits `changed`. Each peer is limited to
-## Tuning.net.max_local_players_online slot(s). Modes: versus (Mode.ONLINE)
-## and co-op (Mode.COOP, up to Tuning.net.max_humans humans); a mode switch
-## can move a peer's slot, and `local_devices` follows it (_remap_devices).
+## Tuning.net.max_local_players_online slots (couch + online: one join
+## request per local device, answered in order). Modes: versus (Mode.ONLINE,
+## teams / FFA and CPU seats) and co-op (Mode.COOP, up to
+## Tuning.net.max_humans humans); a mode switch can move a peer's slots, and
+## `local_devices` follows them (_remap_devices).
 ##
 ## Starting: when every slot is ready the host counts down
 ## Tuning.net.lobby_countdown_frames (guests count the same frames from the
@@ -69,8 +73,9 @@ var last_config: MatchConfig
 ## The running match's driver (the match scene sets it; host forfeits).
 var driver: RollbackDriver
 
-## Guest: a device waiting for the host to give it a slot.
-var _pending_device: Array = []
+## Devices waiting for the host to give them a slot, in request order
+## (each [Bindings.Kind, device id]).
+var _pending_devices: Array = []
 
 
 func _init(s: Session) -> void:
@@ -120,10 +125,22 @@ func my_slots() -> Array[int]:
 
 ## Guest/host: claim a slot for a local device (one request per device).
 func join_local(kind: int, device: int) -> void:
-	if phase != Phase.LOBBY or my_slots().size() >= Tuning.net.max_local_players_online:
+	if phase != Phase.LOBBY or my_slots().size() + _pending_devices.size() >= Tuning.net.max_local_players_online:
 		return
-	_pending_device = [kind, device]
+	if kind == Bindings.Kind.PAD and (is_pending(kind, device) or slot_of_device(kind, device) >= 0):
+		return
+	if model.first_free_slot() < 0:
+		return  # full as far as we know (a refused join would stay pending)
+	_pending_devices.append([kind, device])
 	request({"op": OP_JOIN})
+
+
+## A device that asked for a slot and has none yet.
+func is_pending(kind: int, device: int) -> bool:
+	for d: Array in _pending_devices:
+		if d[0] == kind and (kind == Bindings.Kind.KEYBOARD or d[1] == device):
+			return true
+	return false
 
 
 ## Slot of a local device, or -1.
@@ -192,12 +209,14 @@ func _apply(peer: int, req: Dictionary) -> void:
 				return
 			var slot := model.join(Bindings.Kind.PAD, -1, peer, session.peer_name(peer))
 			if slot < 0:
+				if peer == local_peer():
+					_pending_devices.pop_front()
 				return
-			if peer == local_peer() and not _pending_device.is_empty():
-				local_devices[slot] = _pending_device
-				model.slots[slot].device_kind = _pending_device[0]
-				model.slots[slot].device_id = _pending_device[1]
-				_pending_device = []
+			if peer == local_peer() and not _pending_devices.is_empty():
+				var d: Array = _pending_devices.pop_front()
+				local_devices[slot] = d
+				model.slots[slot].device_kind = d[0]
+				model.slots[slot].device_id = d[1]
 		OP_CMD:
 			var slot: Variant = req.get("slot")
 			var cmd: Variant = req.get("cmd")
@@ -266,23 +285,15 @@ func _rematch_agreed() -> bool:
 
 
 func _forfeit(peer: int) -> void:
-	if phase != Phase.MATCH or driver == null or driver.director == null:
+	if phase != Phase.MATCH or driver == null or driver.director == null or driver.director.is_coop():
 		return
-	var slots := session.slots_of(peer)
-	if slots.is_empty() or driver.director.is_coop():
-		return
-	var f := driver.director.fighter_for_slot(slots[0])
-	if f != null:
-		driver.issue_command({"kind": MatchDirector.CommandKind.FORFEIT, "team": f.team})
+	driver.drop_out(peer)
 
 
 func _leave_run(peer: int) -> void:
 	if phase != Phase.MATCH or driver == null or driver.director == null or not driver.director.is_coop():
 		return
-	var cfg := driver.director.config
-	for slot in session.slots_of(peer):
-		driver.issue_command({"kind": MatchDirector.CommandKind.CPU_TAKEOVER, "slot": slot,
-			"cpu_level": cfg.coop.ally_level if cfg.coop != null else -1})
+	driver.drop_out(peer)
 
 
 func _on_peer_left(peer: int, _reason: int, _last_tick: int) -> void:
@@ -381,16 +392,17 @@ func _remap_devices() -> void:
 			local_devices[slot] = lost.pop_front()
 
 
-## Guest: a slot the host gave us takes the device we joined with.
+## Guest: slots the host gave us take the devices we joined with, in order.
 func _claim_pending_slot() -> void:
 	_remap_devices()
-	if _pending_device.is_empty():
-		return
 	for slot in my_slots():
-		if not local_devices.has(slot):
-			local_devices[slot] = _pending_device
-			_pending_device = []
+		if _pending_devices.is_empty():
 			return
+		if not local_devices.has(slot):
+			local_devices[slot] = _pending_devices.pop_front()
+	# The host answers joins in order: with the room full, the rest were refused.
+	if model.first_free_slot() < 0 or phase != Phase.LOBBY:
+		_pending_devices.clear()
 
 
 func _on_match_start(config: Dictionary, seed_value: int, _start: Dictionary) -> void:

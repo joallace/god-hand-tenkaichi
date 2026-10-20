@@ -85,6 +85,8 @@ var _pending_guest_hashes: Array = []  # host: [peer, tick, hash] not yet compar
 var _rollback_to: int = -1
 var _frame: int = 0
 var _local_prev: Dictionary = {}  # slot -> held mask of the last sampled frame
+## Host: peers whose slots drop_out_commands already took out.
+var _out_peers: Array[int] = []
 
 
 func start(d: MatchDirector, s: Session, config: MatchConfig, local_sources: Dictionary,
@@ -324,8 +326,9 @@ func _log_command(cmd: Dictionary) -> void:
 		return
 	var kind: int = cmd["kind"]
 	if kind == MatchDirector.CommandKind.CPU_TAKEOVER or kind == MatchDirector.CommandKind.FORFEIT:
+		# A slot cut earlier (a takeover before its team forfeits) stays cut there.
 		for slot in _slots_cut_by(cmd):
-			_cut[slot] = int(cmd["tick"])
+			_cut[slot] = mini(int(_cut.get(slot, cmd["tick"])), int(cmd["tick"]))
 	elif kind == MatchDirector.CommandKind.RECLAIM:
 		_cut.erase(int(cmd["slot"]))
 	_want_rollback(int(cmd["tick"]))
@@ -399,18 +402,55 @@ func _on_resync(tick: int, snapshot: Dictionary) -> void:
 func _on_peer_left(peer: int, _reason: int, last_tick: int) -> void:
 	if not session.is_host():
 		return
-	var slots := session.slots_of(peer)
-	if slots.is_empty():
-		return
 	var cut := maxi(last_tick + 1, confirmed_tick + 1)
+	for cmd in drop_out_commands(peer):
+		cmd["tick"] = cut
+		_issue_at(cmd)
+
+
+## Host: issue (at the earliest tick) the commands taking `peer`'s slots out
+## of the match: a voluntary forfeit / leave run.
+func drop_out(peer: int) -> void:
+	for cmd in drop_out_commands(peer):
+		issue_command(cmd)
+
+
+## Host: the commands (without a tick) that take `peer`'s slots out of the
+## match, once per peer (SPEC_ONLINE.md §13, §17). Every slot of the peer
+## becomes a CPU (co-op: at the ally's level). Versus adds a FORFEIT when the
+## humans still playing (other peers, still here, not out) are on fewer than
+## two teams: one of the peer's teams other than theirs forfeits and their
+## team wins (no human left: the director picks). So a 2v2 partner's drop or
+## one of three FFA players leaving only puts a CPU in their place; a 1v1
+## drop forfeits as before.
+func drop_out_commands(peer: int) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	var slots := session.slots_of(peer)
+	if slots.is_empty() or director == null or peer in _out_peers:
+		return out
+	_out_peers.append(peer)
+	var cfg := director.config
+	var level := cfg.coop.ally_level if cfg.coop != null else -1
+	for slot in slots:
+		out.append({"kind": MatchDirector.CommandKind.CPU_TAKEOVER, "slot": slot, "cpu_level": level})
 	if director.is_coop():
-		for slot in slots:
-			_issue_at({"tick": cut, "kind": MatchDirector.CommandKind.CPU_TAKEOVER,
-				"slot": slot, "cpu_level": director.config.coop.ally_level if director.config.coop != null else -1})
-	else:
-		var f := director.fighter_for_slot(slots[0])
-		if f != null:
-			_issue_at({"tick": cut, "kind": MatchDirector.CommandKind.FORFEIT, "team": f.team})
+		return out
+	var present := session.peer_ids()
+	var human_teams: Array[int] = []
+	for p in cfg.players:
+		var f := director.fighter_for_slot(p.slot)
+		if f != null and p.input_kind != PlayerSlotConfig.InputKind.CPU and p.owner_peer != peer \
+				and p.owner_peer in present and not p.owner_peer in _out_peers and not f.team in human_teams:
+			human_teams.append(f.team)
+	if human_teams.size() >= 2:
+		return out
+	var winner := human_teams[0] if human_teams.size() == 1 else -1
+	for slot in slots:
+		var f := director.fighter_for_slot(slot)
+		if f != null and f.team != winner:
+			out.append({"kind": MatchDirector.CommandKind.FORFEIT, "team": f.team, "winner": winner})
+			break
+	return out
 
 
 ## Host: a command at an exact tick (may be in our past: we roll back too).

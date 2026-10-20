@@ -1,7 +1,11 @@
 class_name ResultsScreen
 extends Control
 ## Post-match screen. Reads Game.last_result:
-##   {"winner_slot": int (-1 = draw), "wins": PackedInt32Array, "config": MatchConfig}
+##   {"winner_slot": int (-1 = draw), "wins": PackedInt32Array (by team),
+##    "config": MatchConfig}
+## Versus: the headline names the winner (a team of 2+ by every tag, "P1 &
+## P3 WIN!") in the winner slot's colour; the tally lists the teams (from
+## the config) with their wins.
 ## Co-op runs (config.mode COOP) show STAGE CLEAR / WIPED OUT: the run is
 ## cleared when the winner slot is one of config.players (team 0; enemies
 ## aren't listed there), or when last_result has "cleared": true. Below it:
@@ -21,6 +25,7 @@ extends Control
 
 const ELLIPSIS := "…"
 const NAME_SEP := ", "
+const TALLY_SEP := "   |   "
 
 var _headline: Label
 var _tally: Label
@@ -61,7 +66,7 @@ func _ready() -> void:
 	if is_coop(res):
 		_headline.add_theme_color_override("font_color", u.color_ready if coop_cleared(res) else u.color_text_dim)
 	elif winner >= 0:
-		_headline.add_theme_color_override("font_color", u.color_p1 if winner == 0 else u.color_p2)
+		_headline.add_theme_color_override("font_color", u.player_color(winner))
 	col.add_child(_headline)
 
 	if is_coop(res):
@@ -101,6 +106,13 @@ static func headline_text(res: Dictionary) -> String:
 	if winner < 0:
 		return "DRAW!"
 	var cfg := res.get("config") as MatchConfig
+	if cfg != null:
+		var team := team_slots(cfg, winner)
+		if team.size() > 1:
+			var tags: PackedStringArray = []
+			for s in team:
+				tags.append(cfg.player_tag(s).to_upper())
+			return UiTheme.tuning().results_text_team_winner % Tuning.hud.text_team_join.join(tags)
 	if cfg != null and cfg.player_tag(winner) == "CPU":
 		return "CPU WINS!"
 	if cfg != null and cfg.is_online():
@@ -239,16 +251,67 @@ static func _tag_color(cfg: MatchConfig, slot: int, taken: PackedInt32Array) -> 
 	return u.player_color(slot)
 
 
+## Versus score line; `wins` is indexed by team. Two teams: "<A>   2  -  1
+## <B>" (the lowest slot's team first, teammates joined by text_team_join);
+## 3+ teams (FFA): every team with its wins, TALLY_SEP between them.
 static func tally_text(wins: PackedInt32Array, cfg: MatchConfig) -> String:
-	if wins.size() < 2:
-		return ""
+	if cfg == null:
+		return "P1   %d  -  %d   P2" % [wins[0], wins[1]] if wins.size() >= 2 else ""
 	var names: PackedStringArray = []
-	for i in wins.size():
-		var n := cfg.player_tag(i) if cfg != null else "P%d" % (i + 1)
-		if cfg != null and i < cfg.players.size():
-			n += " (%s)" % MenuHelpers.character_name(cfg.players[i].character_id)
-		names.append(n)
-	return "%s   %d  -  %d   %s" % [names[0], wins[0], wins[1], names[1]]
+	var scores: Array[int] = []
+	for team: Array[int] in teams(cfg):
+		var tags: PackedStringArray = []
+		for s in team:
+			var p := cfg.players[_player_index(cfg, s)]
+			tags.append("%s (%s)" % [cfg.player_tag(s), MenuHelpers.character_name(p.character_id)])
+		names.append(Tuning.hud.text_team_join.join(tags))
+		var id := _team_of(cfg.players[_player_index(cfg, team[0])])
+		scores.append(wins[id] if id < wins.size() else 0)
+	if names.size() < 2:
+		return ""
+	if names.size() == 2:
+		return "%s   %d  -  %d   %s" % [names[0], scores[0], scores[1], names[1]]
+	var parts: PackedStringArray = []
+	for i in names.size():
+		parts.append("%s  %d" % [names[i], scores[i]])
+	return TALLY_SEP.join(parts)
+
+
+## The config's teams (slot lists, ascending), ordered by their lowest slot.
+static func teams(cfg: MatchConfig) -> Array[Array]:
+	var by_team := {}  # team id -> Array[int] of slots
+	var order: Array[int] = []
+	var slots: Array[int] = []
+	for p in cfg.players:
+		slots.append(p.slot)
+	slots.sort()
+	for s in slots:
+		var id := _team_of(cfg.players[_player_index(cfg, s)])
+		if not by_team.has(id):
+			var empty: Array[int] = []
+			by_team[id] = empty
+			order.append(id)
+		(by_team[id] as Array[int]).append(s)
+	var out: Array[Array] = []
+	for id in order:
+		out.append(by_team[id])
+	return out
+
+
+## Slots on the team of `slot` (ascending; just `slot` if it isn't listed).
+static func team_slots(cfg: MatchConfig, slot: int) -> Array[int]:
+	for team: Array[int] in teams(cfg):
+		if slot in team:
+			return team
+	var out: Array[int] = [slot]
+	return out
+
+
+static func _player_index(cfg: MatchConfig, slot: int) -> int:
+	for i in cfg.players.size():
+		if cfg.players[i].slot == slot:
+			return i
+	return -1
 
 
 func _process(delta: float) -> void:

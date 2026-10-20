@@ -8,12 +8,22 @@ extends RefCounted
 ## the host instead of applying them.
 ##
 ## Modes: `mode` picks the slot layout (configure_for_mode):
-##   LOCAL_VERSUS [HUMAN, HUMAN]; VERSUS_CPU [HUMAN, CPU] (the CPU slot is
-##   pre-joined and ready; humans get "CPU fighter" / "CPU level" rows);
-##   COOP [HUMAN, HUMAN], both optional (SPEC.md §9 rows); ONLINE (versus over
-##   the network) [HUMAN, HUMAN] where each slot records the peer that owns it.
+##   LOCAL_VERSUS and ONLINE (versus over the network): Tuning.net.max_fighters
+##   HUMAN slots (team versus, SPEC_ONLINE.md §15 milestone 5); VERSUS_CPU
+##   [HUMAN, CPU] (the CPU slot is pre-joined and ready; humans get
+##   "CPU fighter" / "CPU level" rows); COOP min(max_humans, max_fighters)
+##   optional HUMAN slots (SPEC.md §9 rows).
 ## The MODE row switches between `modes()` (offline: the three local modes;
 ## online: ONLINE and COOP).
+##
+## Team versus (LOCAL_VERSUS / ONLINE, `team_mode()`): every slot has a team,
+## TEAM_FFA (its own team) or a named team (TEAM_NAMES: A, B); each player
+## picks theirs on the TEAM row. The SEAT rows edit any slot (`seat`): turn
+## an empty slot into a CPU and back (SEAT_TYPE), set its team (SEAT_TEAM) and
+## a CPU's fighter / level. LOCK_TEAMS (online) keeps guests off their TEAM
+## row. A match needs every joined human ready, two fighters and two teams
+## (`teams_ok`); build_config leaves empty slots out (slots keep their lobby
+## index) and numbers the teams (`config_teams`).
 ##
 ## Online: a slot's `owner_peer` is the peer that joined it (0 = free).
 ## Shared rows (rules) belong to the host: a guest's slot only has the
@@ -32,6 +42,7 @@ enum Row {
 	CHARACTER, CPU_CHARACTER, CPU_LEVEL, ROUNDS, TIMER,
 	COOP_STRUCTURE, ENEMY_COUNT, WAVES, ENEMY_LEVEL, ENEMY_ROSTER,
 	ALLY, ALLY_LEVEL, ALLY_CHARACTER, FRIENDLY_FIRE, MODE,
+	TEAM, SEAT, SEAT_TYPE, SEAT_TEAM, LOCK_TEAMS,
 }
 
 ## What a command did (the screen plays sounds / punches panels for it).
@@ -48,6 +59,9 @@ const LOCAL_MODES: Array[MatchConfig.Mode] = [
 const ONLINE_MODES: Array[MatchConfig.Mode] = [MatchConfig.Mode.ONLINE, MatchConfig.Mode.COOP]
 const MIN_ROUNDS := 1
 const MAX_ROUNDS := 5
+## Slot.team: its own team (free for all), or an index into TEAM_NAMES.
+const TEAM_FFA := -1
+const TEAM_NAMES: PackedStringArray = ["A", "B"]
 
 ## Settings/characters remembered across visits (offline; Change Setup).
 static var _memory: Dictionary = {}
@@ -67,6 +81,8 @@ class Slot:
 	var join_order: int = 0
 	## CPU slots: difficulty, an index into Tuning.cpu.level_names.
 	var cpu_level: int = Tuning.cpu.clamp_level(-1)
+	## Team versus: TEAM_FFA or an index into TEAM_NAMES.
+	var team: int = TEAM_FFA
 
 var mode: MatchConfig.Mode = MatchConfig.Mode.LOCAL_VERSUS
 ## Networked lobby (ONLINE modes, owner peers, host-only rules).
@@ -88,6 +104,10 @@ var coop_ally: bool = false
 var coop_ally_level: int = Tuning.cpu.clamp_level(-1)
 var coop_ally_char: int = 0
 var friendly_fire: bool = false
+## Team versus: the slot the SEAT rows edit.
+var seat: int = 0
+## Online team versus: guests can't change their team.
+var lock_teams: bool = false
 
 var _join_counter := 0
 
@@ -126,16 +146,17 @@ func set_mode(m: MatchConfig.Mode) -> void:
 
 ## Slot layout per mode.
 func configure_for_mode() -> void:
-	var types: Array[int]
+	var types: Array[int] = []
 	match mode:
 		MatchConfig.Mode.VERSUS_CPU:
 			types = [SlotType.HUMAN, SlotType.CPU]
+		MatchConfig.Mode.COOP:
+			for i in mini(Tuning.net.max_humans, Tuning.net.max_fighters):
+				types.append(SlotType.HUMAN)
 		_:
-			types = [SlotType.HUMAN, SlotType.HUMAN]
-	if online and is_coop():
-		types = []
-		for i in mini(Tuning.net.max_humans, Tuning.net.max_fighters):
-			types.append(SlotType.HUMAN)
+			for i in Tuning.net.max_fighters:
+				types.append(SlotType.HUMAN)
+	seat = 0
 	slots.clear()
 	for t in types:
 		var s := Slot.new()
@@ -175,6 +196,25 @@ static func mode_name(m: MatchConfig.Mode) -> String:
 
 func is_coop() -> bool:
 	return mode == MatchConfig.Mode.COOP
+
+
+## Team versus: players pick teams and any slot can hold a CPU.
+func team_mode() -> bool:
+	return mode == MatchConfig.Mode.LOCAL_VERSUS or mode == MatchConfig.Mode.ONLINE
+
+
+static func team_name(team: int) -> String:
+	return "Team %s" % TEAM_NAMES[team] if team >= 0 and team < TEAM_NAMES.size() else "Free for all"
+
+
+## The slot the CPU fighter / level rows edit: VERSUS_CPU's CPU slot, the
+## seat when it holds a CPU, else -1.
+func cpu_target() -> int:
+	if mode == MatchConfig.Mode.VERSUS_CPU:
+		return cpu_slot()
+	if team_mode() and seat >= 0 and seat < slots.size() and slots[seat].type == SlotType.CPU:
+		return seat
+	return -1
 
 
 func coop_endless() -> bool:
@@ -311,18 +351,37 @@ func command(idx: int, cmd: int) -> StringName:
 
 
 ## Rows the player in slot `idx` can pick, top to bottom (online guests:
-## their character only; the rules are the host's).
+## their character, and their team unless the host locked teams; the rules
+## are the host's).
 func rows_for(idx: int) -> Array[int]:
 	if online and idx >= 0 and idx < slots.size() and slots[idx].owner_peer != Transport.HOST_PEER:
-		return [Row.CHARACTER]
+		var r: Array[int] = [Row.CHARACTER]
+		if team_mode() and not lock_teams:
+			r.append(Row.TEAM)
+		return r
 	return rows()
 
 
 ## Every row this mode shows, top to bottom.
 func rows() -> Array[int]:
 	var r: Array[int] = [Row.CHARACTER]
+	if team_mode():
+		r.append(Row.TEAM)
 	if modes().size() > 1:
 		r.append(Row.MODE)
+	if team_mode():
+		r.append(Row.SEAT)
+		var st := slots[seat]
+		if st.type == SlotType.CPU or st.state == SlotState.EMPTY:
+			r.append(Row.SEAT_TYPE)
+		if st.type == SlotType.CPU or st.state != SlotState.EMPTY:
+			r.append(Row.SEAT_TEAM)
+		if st.type == SlotType.CPU:
+			r.append_array([Row.CPU_CHARACTER, Row.CPU_LEVEL])
+		if online:
+			r.append(Row.LOCK_TEAMS)
+		r.append_array([Row.ROUNDS, Row.TIMER])
+		return r
 	if is_coop():
 		r.append_array([Row.COOP_STRUCTURE, Row.ENEMY_COUNT])
 		if coop_structure == CoopConfig.Structure.WAVES:
@@ -353,14 +412,26 @@ func _change_row(idx: int, dir: int) -> void:
 		Row.CHARACTER:
 			s.char_index = posmod(s.char_index + dir, maxi(n, 1))
 			return
+		Row.SEAT:
+			seat = posmod(seat + dir, slots.size())
+			fix_cursors()
+			return
+		Row.TEAM:
+			s.team = _next_team(s.team, dir)
+		Row.SEAT_TEAM:
+			slots[seat].team = _next_team(slots[seat].team, dir)
+		Row.SEAT_TYPE:
+			_toggle_cpu_seat(seat)
+		Row.LOCK_TEAMS:
+			lock_teams = not lock_teams
 		Row.MODE:
 			var ms := modes()
 			set_mode(ms[posmod(maxi(ms.find(mode), 0) + dir, ms.size())])
 		Row.CPU_CHARACTER:
-			var cpu := slots[cpu_slot()]
+			var cpu := slots[cpu_target()]
 			cpu.char_index = posmod(cpu.char_index + dir, maxi(n, 1))
 		Row.CPU_LEVEL:
-			var cpu := slots[cpu_slot()]
+			var cpu := slots[cpu_target()]
 			cpu.cpu_level = clampi(cpu.cpu_level + dir, 0, Tuning.cpu.level_count() - 1)
 		Row.ROUNDS:
 			rounds_to_win = clampi(rounds_to_win + dir, MIN_ROUNDS, MAX_ROUNDS)
@@ -392,9 +463,28 @@ func _change_row(idx: int, dir: int) -> void:
 	fix_cursors()
 
 
+static func _next_team(team: int, dir: int) -> int:
+	return posmod(team + 1 + dir, TEAM_NAMES.size() + 1) - 1
+
+
+## SEAT_TYPE: an empty human slot becomes a ready CPU, a CPU slot an empty
+## human one (joined humans are never replaced).
+func _toggle_cpu_seat(idx: int) -> void:
+	var s := slots[idx]
+	if s.type == SlotType.CPU:
+		s.type = SlotType.HUMAN
+		s.state = SlotState.EMPTY
+	elif s.state == SlotState.EMPTY:
+		s.type = SlotType.CPU
+		s.state = SlotState.READY
+		s.owner_peer = 0
+		s.display_name = ""
+		s.device_id = -1
+
+
 ## Rows hidden by a change (Waves in Brawl, ally rows without an ally, CPU
-## rows after a mode switch) send any cursor on them back to the row that
-## controls them.
+## rows after a mode switch, seat rows of another seat, a locked TEAM row)
+## send any cursor on them back to the row that controls them.
 func fix_cursors() -> void:
 	for i in slots.size():
 		var s := slots[i]
@@ -406,19 +496,54 @@ func fix_cursors() -> void:
 				s.cursor = Row.COOP_STRUCTURE
 			Row.ALLY_LEVEL, Row.ALLY_CHARACTER:
 				s.cursor = Row.ALLY
+			Row.SEAT_TYPE, Row.SEAT_TEAM, Row.CPU_CHARACTER, Row.CPU_LEVEL when Row.SEAT in r:
+				s.cursor = Row.SEAT
 			_:
 				s.cursor = Row.MODE if Row.MODE in r else Row.CHARACTER
 
 
-## The match can start: co-op needs one joined human with every joined one
-## ready; versus needs every slot ready.
+## The match can start: one joined human, every joined one ready; versus
+## also needs two fighters on two teams (teams_ok).
 func all_ready() -> bool:
-	if is_coop():
-		return not nobody_joined() and slots.all(func(s: Slot) -> bool: return s.state != SlotState.JOINED)
+	if nobody_joined() or not slots.all(func(s: Slot) -> bool: return s.state != SlotState.JOINED):
+		return false
+	return is_coop() or teams_ok()
+
+
+## Versus: at least two fighters (humans + CPUs) on at least two teams.
+func teams_ok() -> bool:
+	var fighters := 0
 	for s in slots:
-		if s.state != SlotState.READY:
-			return false
-	return not slots.is_empty()
+		if s.state != SlotState.EMPTY:
+			fighters += 1
+	var teams := {}
+	var ct := config_teams()
+	for slot: int in ct:
+		teams[ct[slot] if ct[slot] >= 0 else slot] = true  # -1 = own team
+	return fighters >= 2 and teams.size() >= 2
+
+
+## Versus: config team of every non-empty slot (slot -> team). Free-for-all
+## slots are their own team; ids count up from 0 in slot order. With no
+## named team at all every value is -1 (= own team, as a plain 1v1 config).
+func config_teams() -> Dictionary:
+	var out := {}
+	var named := false
+	for s in slots:
+		named = named or (s.state != SlotState.EMPTY and s.team != TEAM_FFA)
+	var ids := {}  # group key -> team id
+	for i in slots.size():
+		var s := slots[i]
+		if s.state == SlotState.EMPTY:
+			continue
+		if not named:
+			out[i] = -1
+			continue
+		var key := "t%d" % s.team if s.team != TEAM_FFA else "s%d" % i
+		if not ids.has(key):
+			ids[key] = ids.size()
+		out[i] = ids[key]
+	return out
 
 
 # --- config ----------------------------------------------------------------------
@@ -434,10 +559,14 @@ func build_config(seed_value: int) -> MatchConfig:
 	cfg.round_time_seconds = time_options[time_index]
 	cfg.rng_seed = seed_value
 	var ids := MenuHelpers.character_ids()
+	var teams := config_teams()
 	for i in slots.size():
 		var s := slots[i]
+		if s.state == SlotState.EMPTY:
+			continue
 		var p := PlayerSlotConfig.new()
 		p.slot = i
+		p.team = teams[i]
 		p.character_id = ids[s.char_index] if s.char_index < ids.size() else ids[0]
 		match s.type:
 			SlotType.CPU:
@@ -523,12 +652,13 @@ func to_dict() -> Dictionary:
 	var ss: Array = []
 	for s in slots:
 		ss.append({"type": s.type, "state": s.state, "char": s.char_index, "cursor": s.cursor,
-			"owner": s.owner_peer, "name": s.display_name, "order": s.join_order, "cpu_level": s.cpu_level})
+			"owner": s.owner_peer, "name": s.display_name, "order": s.join_order, "cpu_level": s.cpu_level,
+			"team": s.team})
 	return {
 		"mode": mode, "online": online, "slots": ss, "rounds": rounds_to_win, "time": time_index,
 		"coop": [coop_structure, coop_enemy_count, coop_waves, coop_enemy_level, coop_roster,
 			coop_ally, coop_ally_level, coop_ally_char],
-		"ff": friendly_fire,
+		"ff": friendly_fire, "seat": seat, "lock": lock_teams,
 	}
 
 
@@ -555,6 +685,7 @@ func apply_dict(d: Dictionary) -> bool:
 			s.display_name = PlayerSlotConfig.sanitize_name(str(sd.get("name", "")))
 			s.join_order = _int(sd, "order", 0)
 			s.cpu_level = Tuning.cpu.clamp_level(_int(sd, "cpu_level", -1))
+			s.team = clampi(_int(sd, "team", TEAM_FFA), TEAM_FFA, TEAM_NAMES.size() - 1)
 		s.device_id = -1
 		slots.append(s)
 	rounds_to_win = clampi(_int(d, "rounds", rounds_to_win), MIN_ROUNDS, MAX_ROUNDS)
@@ -570,6 +701,8 @@ func apply_dict(d: Dictionary) -> bool:
 		coop_ally_level = Tuning.cpu.clamp_level(_int_at(c, 6, coop_ally_level))
 		coop_ally_char = clampi(_int_at(c, 7, coop_ally_char), 0, n - 1)
 	friendly_fire = d.get("ff", friendly_fire) == true
+	seat = clampi(_int(d, "seat", 0), 0, maxi(slots.size() - 1, 0))
+	lock_teams = d.get("lock", lock_teams) == true
 	return true
 
 
@@ -586,8 +719,10 @@ static func _int_at(a: Array, i: int, fallback: int) -> int:
 
 func remember() -> void:
 	var chars: Array[int] = []
+	var teams: Array[int] = []
 	for s in slots:
 		chars.append(s.char_index)
+		teams.append(s.team)
 	if is_coop():
 		_coop_memory = {
 			"chars": chars, "time": time_options[time_index], "structure": coop_structure,
@@ -596,7 +731,7 @@ func remember() -> void:
 			"ally_char": coop_ally_char, "friendly_fire": friendly_fire,
 		}
 		return
-	_memory = {"rounds": rounds_to_win, "time": time_options[time_index], "chars": chars}
+	_memory = {"rounds": rounds_to_win, "time": time_options[time_index], "chars": chars, "teams": teams}
 	var cpu := cpu_slot()
 	if cpu >= 0:
 		_memory["cpu_level"] = slots[cpu].cpu_level
@@ -614,6 +749,9 @@ func restore() -> void:
 	for i in mini(chars.size(), slots.size()):
 		slots[i].char_index = clampi(int(chars[i]), 0, n - 1)
 	if not is_coop():
+		var teams: Array = m.get("teams", [])
+		for i in mini(teams.size(), slots.size()):
+			slots[i].team = clampi(int(teams[i]), TEAM_FFA, TEAM_NAMES.size() - 1)
 		rounds_to_win = int(m.get("rounds", rounds_to_win))
 		var cpu := cpu_slot()
 		if cpu >= 0 and m.has("cpu_level"):

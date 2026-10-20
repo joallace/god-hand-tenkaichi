@@ -1,10 +1,15 @@
 class_name ViewLayout
 extends Control
 ## Builds the on-screen views for a match.
-##   SPLIT_SCREEN: two SubViewportContainers side by side (left = first local
-##                 slot, right = second), both sharing the main World3D.
+##   SPLIT_SCREEN: one view per local slot (config.local_view_slots(), in
+##                 slot order, up to Tuning.net.max_fighters), all sharing the
+##                 main World3D. Two views sit side by side (left = lowest
+##                 slot); 3-4 views fill a 2x2 grid row-major (a 3-view grid
+##                 leaves a plain filler in the 4th cell). Dividers between
+##                 views are the divider colour showing through the gaps.
 ##   SINGLE_VIEW:  one full-screen view for config.local_view_slots()[0]
 ##                 (VERSUS_CPU, ONLINE and any future mode).
+## Only the first view listens for 3D audio (one listener per machine).
 ## Each view = Control(clip) > SubViewportContainer(stretch) > SubViewport >
 ## FighterCamera, plus a full-rect tint ColorRect for per-view flashes.
 ##
@@ -19,6 +24,9 @@ extends Control
 ## Also routes presentation events (MatchEventHub) to the cameras. In co-op
 ## an ultimate's orbit cinematic plays only on its caster's view (the other
 ## views get CoopViewHud's banner instead); in versus every view orbits.
+
+## Split screen with 3-4 views: a GRID_COLUMNS x GRID_COLUMNS grid.
+const GRID_COLUMNS := 2
 
 var cameras: Dictionary = {}  # slot -> FighterCamera
 ## slot -> that view's clip Control (overlays like CoopViewHud go inside).
@@ -39,37 +47,72 @@ func build(config: MatchConfig, fighters: Array[Fighter], world: World3D, hub: M
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_coop = config.mode == MatchConfig.Mode.COOP
 	var slots: Array[int] = config.local_view_slots()
+	slots.sort()
 	var is_split := config.layout() == MatchConfig.Layout.SPLIT_SCREEN and slots.size() >= 2
 	if not is_split:
 		slots = [slots[0] if not slots.is_empty() else 0]
 	else:
-		slots = [slots[0], slots[1]]
+		slots = slots.slice(0, mini(slots.size(), Tuning.net.max_fighters))
+	# Side by side views are half width / full height: the camera widens its
+	# FOV for that. Grid cells keep the screen's aspect (full-screen FOV).
+	var half_width := slots.size() == 2
 
-	var row := HBoxContainer.new()
-	row.name = "Views"
-	row.add_theme_constant_override("separation", 0)
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(row)
-	row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-
+	var views := _views_container(slots.size())
 	for i in slots.size():
-		if i > 0:
+		if i > 0 and views is HBoxContainer:
 			var div := ColorRect.new()
 			div.name = "Divider"
 			div.color = Tuning.hud.divider_color
 			div.custom_minimum_size.x = Tuning.hud.divider_width
 			div.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			row.add_child(div)
+			views.add_child(div)
 		var f := _fighter_for(fighters, slots[i])
 		if f != null:
-			var view := _make_view(f, is_split, world)
-			row.add_child(view)
+			var view := _make_view(f, half_width, i == 0, world)
+			views.add_child(view)
 			panels[f.slot] = view
+	if views is GridContainer:
+		for i in range(slots.size(), GRID_COLUMNS * GRID_COLUMNS):
+			var filler := ColorRect.new()
+			filler.name = "Filler"
+			filler.color = Tuning.hud.split_filler_color
+			filler.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			filler.size_flags_vertical = Control.SIZE_EXPAND_FILL
+			filler.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			views.add_child(filler)
 
 	if hub != null:
 		hub.fighter_event.connect(_on_fighter_event.bind(hub))
 	get_viewport().size_changed.connect(_refit_all)
 	Settings.video_applied.connect(_on_video_applied)
+
+
+## A row for one or two views, else a 2x2 grid over a divider-coloured
+## backdrop (its gaps are the dividers).
+func _views_container(count: int) -> Container:
+	var views: Container
+	if count <= 2:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 0)
+		views = row
+	else:
+		var backdrop := ColorRect.new()
+		backdrop.name = "Dividers"
+		backdrop.color = Tuning.hud.divider_color
+		backdrop.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(backdrop)
+		backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		var grid := GridContainer.new()
+		grid.columns = GRID_COLUMNS
+		var gap := roundi(Tuning.hud.divider_width)
+		grid.add_theme_constant_override("h_separation", gap)
+		grid.add_theme_constant_override("v_separation", gap)
+		views = grid
+	views.name = "Views"
+	views.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(views)
+	views.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	return views
 
 
 func _fighter_for(fighters: Array[Fighter], slot: int) -> Fighter:
@@ -79,7 +122,7 @@ func _fighter_for(fighters: Array[Fighter], slot: int) -> Fighter:
 	return fighters[0] if not fighters.is_empty() else null
 
 
-func _make_view(f: Fighter, is_split: bool, world: World3D) -> Control:
+func _make_view(f: Fighter, half_width: bool, listener: bool, world: World3D) -> Control:
 	var panel := Control.new()
 	panel.name = "View%d" % (f.slot + 1)
 	panel.clip_contents = true
@@ -98,7 +141,7 @@ func _make_view(f: Fighter, is_split: bool, world: World3D) -> Control:
 	var vp := SubViewport.new()
 	vp.name = "SubViewport"
 	vp.world_3d = world
-	vp.audio_listener_enable_3d = f.slot == 0 or not is_split
+	vp.audio_listener_enable_3d = listener
 	vp.handle_input_locally = false
 	vp.msaa_3d = Viewport.MSAA_2X
 	vp.positional_shadow_atlas_size = 0
@@ -106,7 +149,7 @@ func _make_view(f: Fighter, is_split: bool, world: World3D) -> Control:
 	container.add_child(vp)
 
 	var cam := FighterCamera.new()
-	cam.setup(f, is_split)
+	cam.setup(f, half_width)
 	vp.add_child(cam)
 	cameras[f.slot] = cam
 

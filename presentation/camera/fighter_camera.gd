@@ -15,7 +15,8 @@ extends Camera3D
 ## Effects API: add_trauma(), fov_punch(), play_ultimate_cinematic().
 
 var fighter: Fighter
-## True when this camera renders a half of a split screen.
+## True when this camera renders a half-width view (two-player split
+## screen; fov_split). 2x2 grid cells keep the screen's aspect: false.
 var split := false
 
 var trauma := 0.0

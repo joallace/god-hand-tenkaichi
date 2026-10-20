@@ -170,6 +170,17 @@ func _test_forfeit_ffa_winner() -> void:
 	d2.add_command({"tick": d2.tick + 1, "kind": CK.FORFEIT, "team": 0})
 	d2.step()
 	_check(d2.last_winner_team == 2, "FFA forfeit: round wins beat health")
+	var d3 := _new_match(3)
+	_run_to(d3, 100)
+	d3.fighters[2].health *= 0.5
+	d3.add_command({"tick": d3.tick + 1, "kind": CK.FORFEIT, "team": 0, "winner": 2})
+	d3.step()
+	_check(d3.last_winner_team == 2, "FFA forfeit: a named winner (the host's remaining humans) wins")
+	var d4 := _new_match(3)
+	_run_to(d4, 100)
+	d4.add_command({"tick": d4.tick + 1, "kind": CK.FORFEIT, "team": 0, "winner": 0})
+	d4.step()
+	_check(d4.last_winner_team == 1, "FFA forfeit: the forfeiting team can't be named winner")
 
 
 func _test_forfeit_coop_ignored() -> void:

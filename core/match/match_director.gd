@@ -75,7 +75,7 @@ enum CommandKind { CPU_TAKEOVER, RECLAIM, JOIN, FORFEIT, RESYNC_INPUTS }
 ## source, or source_factory's) or a takeover CpuInput (CPU).
 enum Controller { PLAYER, CPU }
 ## Optional command args (the rest are required).
-const COMMAND_DEFAULTS := {"cpu_level": -1, "team": -1, "peer": 0}
+const COMMAND_DEFAULTS := {"cpu_level": -1, "team": -1, "peer": 0, "winner": -1}
 
 var config: MatchConfig
 var fighters: Array[Fighter] = []
@@ -568,7 +568,7 @@ func _controlled_source(pi: int) -> InputSource:
 func _player_source(p: PlayerSlotConfig) -> InputSource:
 	if source_factory.is_valid():
 		return source_factory.call(p)
-	return p.create_input_source()
+	return p.create_input_source(config.binding_profile(p.slot))
 
 
 ## Index in config.players of `slot`, or -1 (co-op enemies, unknown slots).
@@ -592,7 +592,7 @@ func controller_for_slot(slot: int) -> int:
 #   CPU_TAKEOVER  slot, cpu_level (-1 = default)   slot's source -> CpuInput
 #   RECLAIM       slot, peer (informational)       slot -> its player source
 #   JOIN          slot, peer, team, character, name   (milestone 4, no-op now)
-#   FORFEIT       team                              versus: that team loses
+#   FORFEIT       team, winner (-1 = best other)    versus: that team loses
 #   RESYNC_INPUTS -                                 every source resyncs
 # The log is kept outside save_state (like the network input log), and step()
 # applies every command logged for the tick it is about to simulate, in log
@@ -649,7 +649,7 @@ static func sanitize_command(cmd: Variant) -> Dictionary:
 			ints = ["slot", "peer", "team"]
 			strs = ["character", "name"]
 		CommandKind.FORFEIT:
-			ints = ["team"]
+			ints = ["team", "winner"]
 	for key in ints:
 		var v: Variant = cmd.get(key, COMMAND_DEFAULTS.get(key))
 		if not v is int:
@@ -674,7 +674,7 @@ func _apply_commands(t: int) -> void:
 			CommandKind.RECLAIM:
 				_set_controller(c["slot"], Controller.PLAYER, -1)
 			CommandKind.FORFEIT:
-				_forfeit(c["team"])
+				_forfeit(c["team"], c["winner"])
 			CommandKind.RESYNC_INPUTS:
 				for s in sources:
 					s.resync(t)
@@ -702,11 +702,13 @@ func _set_controller(slot: int, controller: int, level: int) -> void:
 	slot_controller_changed.emit(slot, controller)
 
 
-## Versus: `team` gives up; the match ends now. Winner among the other teams:
-## most rounds won, then best mean health ratio, then lowest team id (with
-## one other team, simply that team). -1 when no other team is left.
+## Versus: `team` gives up; the match ends now. Winner: `winner` when it is
+## another team still in the match (the host names the team its remaining
+## humans are on), else among the other teams: most rounds won, then best
+## mean health ratio, then lowest team id (with one other team, simply that
+## team). -1 when no other team is left.
 ## No-op in co-op (a dropped player becomes CPU instead) or once over.
-func _forfeit(team: int) -> void:
+func _forfeit(team: int, p_winner: int = -1) -> void:
 	if coop != null or phase == Phase.MATCH_OVER or phase == Phase.NONE or not team in _teams():
 		push_warning("MatchDirector: FORFEIT ignored (team %d, phase %d)" % [team, phase])
 		return
@@ -722,6 +724,8 @@ func _forfeit(team: int) -> void:
 			winner = t
 			best_wins = w
 			best_ratio = r
+	if p_winner != team and p_winner in _teams():
+		winner = p_winner
 	for f in fighters:
 		f.set_control_enabled(false)
 	last_winner_team = winner
