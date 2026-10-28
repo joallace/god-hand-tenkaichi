@@ -542,19 +542,27 @@ func _defend_blast(m: MoveData, a: Fighter) -> void:
 				_pose_stick(_guard_pose_for(m.spawn_move)))
 
 
-## Beams out-damage a guard; sway off the line as it fires and keep strafing.
+## Beams out-damage a guard; sway off the line as the head arrives (it grows
+## out at travel_speed and homes, so an early sway gets tracked) and keep
+## strafing.
 func _defend_beam(m: MoveData, a: Fighter) -> void:
 	if not _roll(cfg.projectile_defend_chance):
 		return
 	var fire_in := m.spawn_frame - a.state_frame() - 1
+	var shot := m.spawn_move
+	var hit_in := fire_in
+	if shot.travel_speed > 0.0:
+		var speed := shot.travel_speed / Tuning.match_rules.tick_rate
+		var gap := minf(maxf(_dist_to(a) - shot.hitbox_offset.z - shot.hitbox_radius, 0.0), shot.hitbox_length)
+		hit_in += ceili(gap / speed)
 	_clear_plan()
 	if not (me.state in CAN_DODGE or me.state == S.CHARGE) or not _roll(cfg.smart_dodge_chance):
-		_hold(B.GUARD, _clock, maxi(fire_in, 0) + m.spawn_move.active, _pose_stick(_guard_pose_for(m.spawn_move)))
+		_hold(B.GUARD, _clock, maxi(fire_in, 0) + shot.active, _pose_stick(_guard_pose_for(shot)))
 		return
 	var dir := D.LEFT if rng.randf() < 0.5 else D.RIGHT
-	_dodge(dir, _clock + fire_in)
+	_dodge(dir, _clock + hit_in)
 	_walk = Vector2(-1.0 if dir == D.LEFT else 1.0, 0.0)
-	_walk_until = _clock + maxi(fire_in, 0) + cfg.beam_strafe_frames
+	_walk_until = _clock + maxi(hit_in, 0) + cfg.beam_strafe_frames
 
 
 ## Fire a dodge aimed at the perfect-dodge window of a hit landing at `hit_at`.

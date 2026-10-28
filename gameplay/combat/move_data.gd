@@ -83,6 +83,7 @@ enum GuardResult { PLAIN, KI_GUARD, PUSH_OFF, PUSH_STOP, UNBLOCKABLE }
 @export var hitbox_offset: Vector3 = Vector3(0, 1.4, 0.9)
 @export var hitbox_radius: float = 0.45
 ## >0 makes a capsule extending forward (+z) from hitbox_offset by this length.
+## Beams: the maximum length the head travels out to (see `travel_speed`).
 @export var hitbox_length: float = 0.0
 
 @export_group("Movement")
@@ -139,9 +140,21 @@ enum GuardResult { PLAIN, KI_GUARD, PUSH_OFF, PUSH_STOP, UNBLOCKABLE }
 @export var spawn_frame: int = 0
 @export var spawn_move: MoveData
 ## Projectiles: travel speed (m/s) and lifetime (frames). Beams use `active`
-## as their duration.
+## as their duration (travel out + sustain at full length) and
+## `travel_speed` as the speed of the beam's head growing out from the
+## caster's hands (<= 0: full `hitbox_length` on the first frame).
 @export var travel_speed: float = 0.0
 @export var lifetime_frames: int = 0
+## Beams: the head turns toward the caster's target by up to this many
+## degrees per frame while it grows (0 = flies straight).
+@export var beam_homing_deg: float = 0.0
+## Beams: homing stops for good once the head is within this distance (m)
+## of the target or has passed it, so a late sidestep gets out of the line.
+@export var beam_homing_stop_distance: float = 0.0
+## Beams: while homing bends the head, its position is kept as a trail point
+## every N frames; the beam (hitbox and mesh) is the polyline hands -> trail
+## points -> head.
+@export var beam_trail_sample_frames: int = 4
 
 
 func total() -> int:

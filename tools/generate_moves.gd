@@ -268,7 +268,11 @@ func _brawler() -> Resource:
 	}))
 	# --- Super 2: beam (forward + SPECIAL) -----------------------------------------
 	var beam_hit := _mk({}, {
-		"id": &"brawler_beam_shot", "active": 60, "damage": 18.0, "hitstun": 18,
+		# Head grows out at 25 m/s (full 18 m in ~43 f, mid range in ~20 f),
+		# bending up to 1.5 deg/f toward the target until 4 m from it; 72 f
+		# active = travel + ~29 f at full length (caster recovery is 80).
+		"id": &"brawler_beam_shot", "active": 72, "damage": 18.0, "hitstun": 18,
+		"travel_speed": 25.0, "beam_homing_deg": 1.5, "beam_homing_stop_distance": 4.0,
 		"knockback": Vector3(0, 0, 1.0), "guard_stun": 12, "guard_ki_cost": 12.0, "hitstop": 1,
 		"multi_hit_interval": 6, "grants_hit_ki": false, "is_heavy": true, "guard_results": G_KI,
 		"hitbox_offset": Vector3(0, 1.35, 0.6), "hitbox_radius": 0.7, "hitbox_length": 18.0,
@@ -281,7 +285,10 @@ func _brawler() -> Resource:
 	}))
 	# --- Ultimate: bigger beam (back + SPECIAL, full gauge) -----------------
 	var ult_hit := _mk({}, {
-		"id": &"brawler_ultimate_shot", "active": 100, "damage": 22.0, "hitstun": 18,
+		# Slower, fatter, homes less: 20 m/s (full 22 m in ~66 f), 1 deg/f
+		# until 5 m out; 110 f active (caster recovery is 120).
+		"id": &"brawler_ultimate_shot", "active": 110, "damage": 22.0, "hitstun": 18,
+		"travel_speed": 20.0, "beam_homing_deg": 1.0, "beam_homing_stop_distance": 5.0,
 		"knockback": Vector3(0, 0, 1.0), "guard_stun": 14, "guard_ki_cost": 25.0, "hitstop": 1,
 		"multi_hit_interval": 5, "grants_hit_ki": false, "is_heavy": true, "guard_results": G_KI,
 		"hitbox_offset": Vector3(0, 1.3, 0.6), "hitbox_radius": 1.4, "hitbox_length": 22.0,

@@ -92,3 +92,9 @@ extends Resource
 ## KO'd co-op enemies stay solid for this fraction of Tuning.coop.enemy_fade_frames,
 ## then fade out over the rest.
 @export_range(0.0, 1.0) var ko_fade_delay_ratio: float = 0.4
+
+@export_group("Beams")
+## Emission strength of beam supers (Beam / BeamVisual).
+@export var beam_glow_energy: float = 4.0
+## Head ball radius as a multiple of the beam radius.
+@export var beam_head_scale: float = 1.35
