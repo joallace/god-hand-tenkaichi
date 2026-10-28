@@ -14,7 +14,9 @@ extends RefCounted
 ##      perfect-dodge counters, throw breaks, mashing out of a guard crash)
 ##   2. defense against a noticed attack, throw, ki blast or beam (guard in
 ##      the pose that suits the move, timed dodge, guard vanish, counter
-##      guard, throw pre-break)
+##      guard, throw pre-break); out of hitstun at frame disadvantage it
+##      guards first (wary_chance) instead of pressing into the next strike,
+##      and a habit it has learned is read ahead of time (see Adaptation)
 ##   3. follow-ups for the move it is performing (string links, finishers,
 ##      super cancels, teleport chases)
 ##   4. punishes, then the neutral game every think_interval frames (spacing,
@@ -47,6 +49,15 @@ extends RefCounted
 ## to its partner, regroups when it strays past ally_leash_distance, and
 ## (friendly fire on) steps out of a partner's beam line. Versus never has a
 ## downed teammate or a co-op ally, so none of it runs there.
+##
+## Adaptation: the brain remembers the opponent's habit (the melee string
+## opener it keeps starting in reach, its delay after their previous attack, how
+## often it lands), as heat that builds per repeat and fades over
+## habit_memory_frames. Heat makes it guard out of hitstun more often, swing
+## less at close range, and past habit_read_heat it answers the predicted next
+## opener before seeing it (timed dodge, counter guard, back off, guard). It
+## only learns from what it perceived (reaction delay included) and keeps the
+## habit across rounds.
 ##
 ## Determinism: seeded RandomNumberGenerator; every decision variable
 ## round-trips through save_state()/load_state().
@@ -82,7 +93,11 @@ const SAVED: Array[StringName] = [
 	&"_want_slot", &"_want_since", &"_last_hit_by", &"_side_slot", &"_side_serial",
 	&"_side_known_at", &"_side_answered_slot", &"_side_answered_serial", &"_had_token",
 	&"_down_slot", &"_down_known_at", &"_reviving", &"_revive_threat_at",
+	&"_recovered_at", &"_wary_until", &"_habit_move", &"_habit_heat", &"_habit_serial",
+	&"_opp_attack_end", &"_habit_delay", &"_read_hit_at", &"_read_until",
 ]
+## Kept by reset() between rounds: what was learned about the opponent.
+const KEPT_ON_RESET: Array[StringName] = [&"_habit_move", &"_habit_heat", &"_habit_delay"]
 
 var level: int
 ## 0 (weakest) .. 1 (strongest), from the level.
@@ -156,6 +171,22 @@ var _reviving: bool = false
 ## Clock of the last tick a revive threat was seen (the coast must stay clear
 ## for revive_clear_frames before a revive starts).
 var _revive_threat_at: int = -(1 << 30)
+## Clock of the first actionable tick after the last hitstun, and the end of
+## the guard-first window it may have opened.
+var _recovered_at: int = -(1 << 30)
+var _wary_until: int = 0
+## Adaptation: the opponent's habitual opener (move id, &"" = none), heat
+## 0..1, the last opener serial counted, when the target's last attack ended
+## (my clock), and the habit's usual delay after that end (-1 = unknown).
+var _habit_move: StringName = &""
+var _habit_heat: float = 0.0
+var _habit_serial: int = -1
+var _opp_attack_end: int = -(1 << 30)
+var _habit_delay: int = -1
+## Predicted habit hit already handled, and the end of a read being played
+## (the habit's own perceived start doesn't re-plan the defense meanwhile).
+var _read_hit_at: int = -(1 << 30)
+var _read_until: int = 0
 
 
 func _init(p_level: int = -1, seed_value: int = 0) -> void:
@@ -176,7 +207,8 @@ func reset() -> void:
 	var keep := [director, slot, me, opp]
 	var fresh := CpuBrain.new(level)
 	for k in SAVED:
-		set(k, fresh.get(k))
+		if k not in KEPT_ON_RESET:
+			set(k, fresh.get(k))
 	rng.state = rng_state
 	director = keep[0]
 	slot = keep[1]
@@ -194,6 +226,7 @@ func think() -> InputFrame:
 	if me.hitstop_left() > 0 or director.world_freeze > 0:
 		return _frozen_frame()
 	_clock += 1
+	_habit_heat = maxf(_habit_heat - 1.0 / maxf(_p(cfg.habit_memory_frames), 1.0), 0.0)
 	if has_opp:
 		_perceive()
 		_perceive_side()
@@ -249,11 +282,16 @@ func _perceive() -> void:
 	var st := opp.state
 	var serial := opp.current_move_serial()
 	if st != _opp_state or (st == S.ATTACK and serial != _opp_serial):
+		if _opp_state == S.ATTACK and st != S.ATTACK:
+			_opp_attack_end = _clock
 		_opp_state = st
 		_opp_serial = serial
 		_opp_known_at = _clock + _reaction()
 	if _clock >= _opp_known_at:
 		_opp_seen_state = _opp_state
+		if _opp_state == S.ATTACK and _habit_serial != _opp_serial:
+			_habit_serial = _opp_serial
+			_note_opener()
 
 
 func _seen() -> bool:
@@ -262,6 +300,8 @@ func _seen() -> bool:
 
 func _track_my_state() -> void:
 	var st := me.state
+	if _my_state == S.HITSTUN and st != S.HITSTUN:
+		_recovered_at = _clock
 	if st != _my_state or me.state_frame() < _my_frame:
 		_my_state = st
 		_reflex_done = false
@@ -270,6 +310,8 @@ func _track_my_state() -> void:
 			_clear_plan()
 			_followup = false
 			_chase = false
+			_wary_until = 0
+			_read_until = 0
 	_my_frame = me.state_frame()
 
 
@@ -278,6 +320,8 @@ func _on_my_event(kind: StringName, data: Dictionary) -> void:
 		_counter_until = _clock + me.tuning.perfect_dodge_counter_frames
 	elif kind == &"hit" and data.get("slot", -1) == slot:
 		_last_hit_by = data.get("attacker_slot", -1)
+		if not data.get("blocked", false) and data.get("combo", 0) == 1:
+			_note_habit_hit(director.fighter_for_slot(_last_hit_by))
 
 
 func _on_opp_event(kind: StringName, data: Dictionary) -> void:
@@ -307,7 +351,11 @@ func _decide() -> void:
 		S.ATTACK:
 			_follow_up()
 		S.GUARD_STUN:
+			if not _reflex_done:
+				_reflex_done = true
+				_on_blocked()
 			_defend()
+			_keep_wary(true)
 		S.REVIVE:
 			_revive_hold()
 		_:
@@ -318,7 +366,13 @@ func _decide() -> void:
 				_stop_revive()
 			if me.state == S.CHARGE and mate == null and _keep_charging():
 				return
+			if mate == null and not _read_habit() and _recovered_at == _clock:
+				_on_recover()
+			_keep_wary(false)
 			if _defend():
+				# Only the guard-first window is up: a seen opening still gets punished.
+				if _wary_only() and _punish():
+					_wary_until = 0
 				return
 			if me.state == S.DASH or me.state == S.CHARGE_END:
 				return  # only a dodge / guard (above) gets out of these
@@ -431,7 +485,14 @@ func _dodge_counter() -> void:
 func _defend() -> bool:
 	if _opp_state == S.ATTACK and _seen() and _threat_serial != _opp_serial:
 		_threat_serial = _opp_serial
-		_answer(opp, false)
+		var m := opp.current_move()
+		# A read of this very opener (on time) is already playing out: let it.
+		var hit_at := _clock + (m.startup - opp.state_frame() - 1 if m != null else 0)
+		if not (_clock < _read_until and m != null and m.id == _habit_move
+				and absi(hit_at - _read_hit_at) <= cfg.habit_read_slack_frames):
+			if _clock < _read_until:
+				_read_until = 0  # off-beat: defend for real
+			_answer(opp, false)
 	elif _side_slot >= 0 and _clock >= _side_known_at and not _defending() \
 			and (_side_answered_slot != _side_slot or _side_answered_serial != _side_serial):
 		_side_answered_slot = _side_slot
@@ -715,7 +776,7 @@ func _punish() -> bool:
 	# Taunts and recoils last long enough to dash in on, like attack recovery.
 	var recovering := _opp_seen_state == S.TAUNT or _opp_seen_state == S.RECOIL \
 			or (_opp_seen_state == S.ATTACK and m != null and opp.attack_phase() == 2
-				and m.total() - opp.state_frame() > _jab().startup)
+				and m.total() - opp.state_frame() > _jab().startup and not _string_continues(m))
 	if not open and not recovering:
 		return false
 	var d := _dist()
@@ -750,7 +811,8 @@ func _neutral() -> void:
 		_tap(B.TAUNT, _clock)
 		return
 	if d <= _reach(_jab()):
-		if _roll(cfg.aggression):
+		# A known habit (they keep hitting first up close) makes it swing less.
+		if rng.randf() < _p(cfg.aggression) * (1.0 - _habit_bias()):
 			_close_attack()
 		elif rng.randf() < cfg.close_guard_share:
 			_hold(B.GUARD, _clock, roundi(_p(cfg.think_interval)) + cfg.guard_tail_frames)
@@ -934,6 +996,182 @@ func _special(at: int, stick_y: float) -> void:
 func _walk_for(v: Vector2) -> void:
 	_walk = v
 	_walk_until = _next_think
+
+
+# --- 4b. Frame disadvantage and adaptation --------------------------------------
+
+## First actionable tick after hitstun. With the attacker still in reach and
+## not seen punishable, they act first: guard (wary_chance, raised by a known
+## habit) rather than walk or swing into their next strike. Whatever was seen
+## of them before the hitstun is stale for punishing.
+func _on_recover() -> void:
+	var a := director.fighter_for_slot(_last_hit_by)
+	if a == null or a.team == me.team or a.is_ko() or a.def == null or a.def.light_string.is_empty():
+		return
+	if _dist_to(a) > _reach(a.def.move(a.def.light_string[0])) + cfg.reach_margin:
+		return
+	if a == opp and _punishable():
+		return
+	_punish_key = _opp_known_at
+	if rng.randf() >= _p(cfg.wary_chance) + _habit_bias():
+		return
+	_clear_plan()
+	_wary_until = _clock + roundi(_p(cfg.wary_frames))
+	_next_think = maxi(_next_think, _wary_until)
+
+
+## The target is seen recovering from the move it is still in, with more
+## frames left than my jab needs: no need to be wary, punish it.
+func _punishable() -> bool:
+	var m := opp.current_move()
+	if not _seen() or _opp_state != S.ATTACK or _opp_serial != opp.current_move_serial() or m == null:
+		return false
+	return opp.attack_phase() == 2 and m.total() - opp.state_frame() > _jab().startup \
+		and not _string_continues(m)
+
+
+## The target's move `m` can still be cancelled into a follow-up that starts
+## as fast as my jab (a jab after a jab): pressing now trades at best, so
+## its "recovery" is no opening. A follow-up slower than my jab is beaten.
+func _string_continues(m: MoveData) -> bool:
+	if m.cancel_into.is_empty() or m.cancel_requires_hit or opp.state_frame() >= m.cancel_end:
+		return false
+	for id in m.cancel_into:
+		var next := opp.def.move(id) if opp.def else null
+		if next != null and next.startup <= _jab().startup:
+			return true
+	return false
+
+
+## Just started blocking: the attacker may be stringing, so (wary_chance)
+## keep guarding past the guard stun instead of letting go into the next hit.
+func _on_blocked() -> void:
+	if _clock < _wary_until or _clock < _read_until:
+		return
+	if rng.randf() >= _p(cfg.wary_chance) + _habit_bias():
+		return
+	_wary_until = _clock + roundi(_p(cfg.wary_frames))
+	_next_think = maxi(_next_think, _wary_until)
+
+
+## Keep the guard-first window's guard held (re-pressed after a defense that
+## replaced it); a blocked hit (`blocked`: in guard stun) extends the window.
+func _keep_wary(blocked: bool) -> void:
+	if _clock >= _wary_until:
+		return
+	if blocked:
+		_wary_until = maxi(_wary_until, _clock + roundi(_p(cfg.wary_frames)))
+		_next_think = maxi(_next_think, _wary_until)
+	if _dodge_at >= _clock or _clock < _read_until or me.state not in [S.IDLE, S.WALK, S.GUARD, S.GUARD_STUN]:
+		return
+	# Extend the hold without a release in between (a fresh press could vanish).
+	var held_until := _clock
+	for p in _plan:
+		if p[2] == B.GUARD and p[0] <= _clock:
+			held_until = maxi(held_until, p[1])
+	if held_until < _wary_until:
+		_walk_until = 0
+		_hold(B.GUARD, maxi(held_until, _clock), _wary_until - maxi(held_until, _clock))
+
+
+## Only the guard-first window's guard is up (no planned dodge or read).
+func _wary_only() -> bool:
+	return _clock < _wary_until and _dodge_at < _clock and _clock >= _read_until
+
+
+## 0..habit_max_bias: how strongly the known habit sways decisions.
+func _habit_bias() -> float:
+	return _habit_heat * _p(cfg.habit_max_bias)
+
+
+## A perceived target attack: a melee string opener started in reach. The
+## same opener again soon after their previous attack ended (a loop: jab,
+## wait, jab) heats the habit and refines its delay; another opener takes
+## over (keeping part of the heat).
+func _note_opener() -> void:
+	var m := opp.current_move()
+	if m == null or not opp.move_opens_string() or m.spawn_kind != &"" or m.is_throw \
+			or _dist() > _reach(m) + cfg.reach_margin:
+		return
+	var delay := _clock - opp.state_frame() - _opp_attack_end
+	if m.id != _habit_move:
+		_habit_heat *= cfg.habit_switch_keep
+		_habit_move = m.id
+		_habit_delay = -1
+	elif delay <= cfg.habit_delay_max_frames:
+		_habit_delay = delay if _habit_delay < 0 else (_habit_delay + delay) / 2
+		_habit_heat = minf(_habit_heat + _p(cfg.habit_gain), 1.0)
+
+
+## The habit landed as a fresh combo on me: it works, so it heats faster.
+func _note_habit_hit(a: Fighter) -> void:
+	if a == null or a != opp or _habit_move == &"":
+		return
+	var m := a.current_move()
+	if m != null and m.id == _habit_move:
+		_habit_heat = minf(_habit_heat + _p(cfg.habit_hit_gain), 1.0)
+
+
+## A hot habit with a known delay: the next opener is expected at the end of
+## their attack + delay (the end as seen, or, while their move is seen in
+## recovery, where its frame data puts it). If that would hit within
+## habit_read_horizon_frames and I'm in its reach, answer it ahead of time
+## (once per predicted hit). True if a read was planned this tick.
+func _read_habit() -> bool:
+	if _habit_delay < 0 or _habit_bias() < cfg.habit_read_heat or _clock < _read_until \
+			or me.state not in CAN_DODGE or opp.def == null or not _seen():
+		return false
+	var m := opp.def.move(_habit_move)
+	if m == null:
+		return false
+	var ends_at := _opp_attack_end
+	if _opp_seen_state == S.ATTACK:
+		var cur := opp.current_move()
+		if cur == null or opp.attack_phase() != 2 or _opp_serial != opp.current_move_serial():
+			return false
+		ends_at = _clock - opp.state_frame() + cur.total()
+	# Ticks to the first active frame of an opener starting at `start`
+	# follow _defend_melee's hit_in (start + startup - 1).
+	var hit_at := ends_at + _habit_delay + m.startup - 1
+	if hit_at <= _clock or hit_at == _read_hit_at or hit_at - _clock > cfg.habit_read_horizon_frames:
+		return false
+	if _dist() > _reach(m) + cfg.reach_margin:
+		return false
+	_read_hit_at = hit_at
+	if not _roll(cfg.habit_read_chance):
+		return false
+	var lead := hit_at - _clock
+	var options := {&"dodge": cfg.habit_dodge_weight, &"guard": cfg.habit_guard_weight,
+		&"backoff": cfg.habit_backoff_weight}
+	if lead >= 2:
+		options[&"counter"] = cfg.habit_counter_guard_weight
+	var pick := _pick(options)
+	_clear_plan()
+	_wary_until = 0
+	_release(B.CHARGE)
+	var t := me.tuning
+	var end := hit_at + m.active
+	match pick:
+		&"dodge":
+			_dodge(_dodge_for(m), hit_at)
+		&"counter":
+			var early := rng.randi_range(0, maxi(t.counter_guard_window_frames - 1, 0))
+			_hold(B.GUARD, _clock, lead + m.active + m.guard_stun)
+			_tap(B.LIGHT, maxi(hit_at - early, _clock + 1), 1.0)
+		&"backoff":
+			var per_frame := t.walk_speed / Tuning.match_rules.tick_rate
+			var need := ceili((_reach(m) + cfg.reach_margin - _dist()) / per_frame)
+			if need <= lead:
+				_walk = Vector2(0.0, -1.0)
+				_walk_until = end
+			else:
+				_dodge(D.BACK, hit_at)
+		_:
+			end += m.guard_stun + cfg.guard_tail_frames
+			_hold(B.GUARD, _clock, end - _clock)
+	_read_until = end
+	_next_think = maxi(_next_think, end)
+	return true
 
 
 # --- 5. Crowds (co-op / teams) --------------------------------------------------
