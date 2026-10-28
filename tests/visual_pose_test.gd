@@ -15,7 +15,8 @@ const STANDING: Array[StringName] = [
 	&"guard", &"guard_high", &"guard_low", &"counter_guard", &"recoil", &"throw",
 	&"throw_windup", &"throw_hold", &"throw_toss", &"taunt", &"uppercut_windup",
 	&"hammer", &"hammer_windup", &"smash_left", &"smash_left_windup", &"smash_right",
-	&"smash_right_windup", &"duck_kick", &"duck_kick_windup",
+	&"smash_right_windup", &"duck_kick", &"duck_kick_windup", &"dash_start", &"dash_stop",
+	&"charge_end",
 ]
 const FOOT_TOLERANCE := 0.12
 ## Attack poses that must have a "<pose>_windup" for their startup.

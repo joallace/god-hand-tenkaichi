@@ -60,8 +60,8 @@ const K := EncounterDirector.Kind
 const NO_STICK := 1 << 16
 ## Buttons that start an attack from neutral (co-op: need a token).
 const ATTACK_BUTTONS := B.LIGHT | B.HEAVY | B.THROW | B.BLAST | B.SPECIAL
-const CAN_ACT: Array[int] = [S.IDLE, S.WALK, S.GUARD, S.DASH, S.CHARGE]
-const CAN_DODGE: Array[int] = [S.IDLE, S.WALK, S.GUARD, S.DASH]
+const CAN_ACT: Array[int] = [S.IDLE, S.WALK, S.GUARD, S.DASH, S.CHARGE, S.CHARGE_END]
+const CAN_DODGE: Array[int] = [S.IDLE, S.WALK, S.GUARD, S.DASH, S.CHARGE_END]
 ## Entering these drops every plan: whatever was queued no longer applies.
 const INTERRUPTED: Array[int] = [
 	S.HITSTUN, S.KNOCKDOWN, S.GUARD_BREAK, S.KO, S.WAKEUP, S.VANISH_WAIT, S.THROWN, S.RECOIL,
@@ -320,8 +320,8 @@ func _decide() -> void:
 				return
 			if _defend():
 				return
-			if me.state == S.DASH:
-				return
+			if me.state == S.DASH or me.state == S.CHARGE_END:
+				return  # only a dodge / guard (above) gets out of these
 			if _clear_partner_beam():
 				return
 			if mate != null:
@@ -720,8 +720,8 @@ func _punish() -> bool:
 		return false
 	var d := _dist()
 	var in_reach := d <= _reach(_jab())
-	var dash_reach := _reach(me.def.move(me.def.dash_attack)) + me.tuning.dash_speed * me.tuning.dash_frames / Tuning.match_rules.tick_rate
-	if not in_reach and (not recovering or d > dash_reach):
+	var dash_reach := _dash_attack_range()
+	if not in_reach and (not recovering or d > dash_reach or not me.can_dash()):
 		return false
 	if not _may_attack(K.MELEE):
 		return false  # asked for a token; retry while the opening lasts
@@ -803,9 +803,9 @@ func _do_option(option: StringName, d: float) -> void:
 	var bar := t.ki_bar_size
 	match option:
 		&"approach":
-			if d > cfg.dash_distance:
+			if d > cfg.dash_distance and me.can_dash():
 				_tap(B.DASH, _clock)
-			elif d <= _dash_attack_range() and rng.randf() < _p(cfg.mixup_chance):
+			elif d <= _dash_attack_range() and me.can_dash() and rng.randf() < _p(cfg.mixup_chance):
 				_dash_attack(d)
 			else:
 				_walk_for(Vector2(_strafe_sign() * rng.randf_range(0.0, cfg.approach_strafe), 1.0))
@@ -813,7 +813,7 @@ func _do_option(option: StringName, d: float) -> void:
 			_tap(B.BLAST, _clock)
 		&"charge":
 			var need := (roundi(_p(cfg.charge_target_bars)) * bar - me.ki) / t.ki_charge_per_frame
-			_hold(B.CHARGE, _clock, maxi(ceili(need), 1))
+			_hold(B.CHARGE, _clock, t.charge_windup_frames + maxi(ceili(need), 1))
 		&"beam":
 			_special(_clock, 1.0)
 		&"ultimate":
@@ -915,16 +915,14 @@ func _charge_strike(btn: int) -> void:
 
 
 func _dash_attack(d: float) -> void:
-	var t := me.tuning
-	var per_frame := t.dash_speed / Tuning.match_rules.tick_rate
 	var travel := maxf(d - _reach(me.def.move(me.def.dash_attack)) * cfg.dash_attack_reach_share, 0.0)
 	_tap(B.DASH, _clock)
-	_tap(B.LIGHT, _clock + clampi(ceili(travel / per_frame), 2, t.dash_frames - 1))
+	# LIGHT on the dash frame that covers `travel` (inside the dash attack window).
+	_tap(B.LIGHT, _clock + me.dash_frames_to_cover(travel))
 
 
 func _dash_attack_range() -> float:
-	var t := me.tuning
-	return _reach(me.def.move(me.def.dash_attack)) + t.dash_speed * t.dash_frames / Tuning.match_rules.tick_rate
+	return _reach(me.def.move(me.def.dash_attack)) + me.dash_travel_distance()
 
 
 ## CHARGE held with HEAVY pressed: rush (0), beam (forward), ultimate (back).
@@ -963,9 +961,9 @@ func _tokened_neutral(d: float) -> bool:
 	if enc.holds_token(me, K.MELEE):
 		if d <= _reach(_jab()):
 			_close_attack()
-		elif d > cfg.dash_distance:
+		elif d > cfg.dash_distance and me.can_dash():
 			_tap(B.DASH, _clock)
-		elif d <= _dash_attack_range() and rng.randf() < _p(cfg.mixup_chance):
+		elif d <= _dash_attack_range() and me.can_dash() and rng.randf() < _p(cfg.mixup_chance):
 			_dash_attack(d)
 		else:
 			_walk_for(Vector2(_strafe_sign() * rng.randf_range(0.0, cfg.approach_strafe), 1.0))

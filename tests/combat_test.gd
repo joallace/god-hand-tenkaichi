@@ -431,7 +431,9 @@ func _test_charge() -> void:
 	_check(p1.current_state_name() == &"charge", "holding CHARGE enters charge state")
 	_run(d, 40)
 	_check(p1.ki > before + 50.0, "charging increases ki (%.1f -> %.1f)" % [before, p1.ki])
-	_check(p1.current_state_name() == &"idle", "releasing CHARGE exits")
+	_check(p1.current_state_name() == &"charge_end", "releasing CHARGE enters the release lag")
+	_run(d, p1.tuning.charge_release_lag_frames)
+	_check(p1.current_state_name() == &"idle", "the release lag ends in idle")
 
 
 func _test_teleport() -> void:
