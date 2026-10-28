@@ -47,7 +47,8 @@ already converted to **60 Hz frames** unless marked `@30`.
 | Stun | 30/60/90f, each press −6f | dizzy 300f, each press −10f | guard crash 75f / charge stagger 36–60f, each press −6f |
 | Attack tracking | turn max(1.8°, 30% of diff) per frame @30 | enemies 5.6°/f during windup, **locked at commit**, then a 10f fast slide | ~~12°/f through startup~~ → **done:** 6°/f, locks 2f before active |
 | Ki on being hit | none (attacker gains per-move kiGain) | tension + dmg/maxHP×10 (max 10) | +3 per hit taken |
-| Ki charge | constant rate; slowest possible = full gauge in 16.7 s | — | 1 bar per 72f, full in 6 s |
+| Ki charge | constant rate; slowest possible = full gauge in 16.7 s | — | 1 bar per 72f, full in 6 s; 10f wind-up before ki fills (specials work in it), 12f release lag (dodge / guard only), so a tap gains nothing |
+| Forward dash | per-character speed, turn-arounds add speed | — | 6f ramp-up startup (dodge only), 7f at 16 m/s (dash attack window), 10f braking end lag (dodge only), 10f cooldown; ~4 m |
 | Trades | higher-priority move wins; tie = both cancel + shake | — | both hit |
 | Rush vs rush | attacker mid-rush auto-guards incoming rush hits | — | trade |
 | Low-HP guts | — | hit leaves 1 HP if HP was ≥11 | — |

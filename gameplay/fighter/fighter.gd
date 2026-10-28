@@ -33,7 +33,11 @@ extends CombatEntity
 ##            retarget_auto(), is_target_locked() -> bool,
 ##            is_downed() -> bool, is_out() -> bool, revive_progress() -> float,
 ##            bleed_out_ratio() -> float, revive_now(health_ratio: float),
-##            reviving_slot() -> int, restore(health_ratio: float, ki_amount: float)
+##            reviving_slot() -> int, restore(health_ratio: float, ki_amount: float),
+##            is_gaining_ki() -> bool, charge_lag_left() -> int,
+##            can_dash() -> bool, dash_cooldown_left() -> int, dash_phase() -> int,
+##            dash_speed_at(f) -> float, dash_distance(frames) -> float,
+##            dash_travel_distance() -> float, dash_frames_to_cover(dist) -> int
 ##
 ## `event` kinds (payload keys; every payload also has "slot" = emitter slot):
 ##   &"hit"            {attacker_slot, damage, position, heavy, blocked, combo,
@@ -129,6 +133,17 @@ extends CombatEntity
 ## Knocked down: a flick in the air flips back onto the feet (air tech); on
 ## the floor a button rises at once and a flick rolls.
 ##
+## Ki charge (CHARGE held, BT3 style): a charge_windup_frames wind-up before
+## ki fills (CHARGE + HEAVY / SPECIAL specials already work in it), then
+## letting go = CHARGE_END, charge_release_lag_frames where only a dodge or a
+## guard is possible (a guard let go early resumes the lag). A tap costs
+## time and gains nothing.
+##
+## Forward dash (DASH): startup ramping up (dodge only), travel at full speed
+## (LIGHT/HEAVY = dash attack; a press in the startup waits for it), end lag
+## braking (dodge only, punishable), then dash_cooldown_frames before DASH
+## works again (dash_phase(), can_dash()).
+##
 ## Teams: `target` is always on another team (picked by the MatchDirector),
 ## but nothing assumes target.target == self: throws, vanish battles, combos
 ## and teleports track their partner fighter by slot.
@@ -176,7 +191,7 @@ enum State {
 	IDLE, WALK, DASH, JUMP, ATTACK, DODGE, GUARD, GUARD_STUN, GUARD_BREAK,
 	CHARGE, HITSTUN, KNOCKDOWN, WAKEUP, TELEPORT, VANISH_WAIT, KO,
 	THROW, THROWN, TAUNT, COUNTER, RECOIL,
-	DOWNED, OUT, ENTERING, REVIVE,
+	DOWNED, OUT, ENTERING, REVIVE, CHARGE_END,
 }
 enum TeleportKind { OFFENSE, ESCAPE }
 ## DODGE state flavors: a normal dodge, an air recovery flip, a get-up roll.
@@ -187,7 +202,7 @@ const STATE_NAMES: Array[StringName] = [
 	&"guard_stun", &"guard_break", &"charge", &"hitstun", &"knockdown",
 	&"wakeup", &"teleport", &"vanish_wait", &"ko",
 	&"throw", &"thrown", &"taunt", &"counter_guard", &"recoil",
-	&"downed", &"out", &"entering", &"revive",
+	&"downed", &"out", &"entering", &"revive", &"charge_end",
 ]
 const GUARD_POSE_NAMES: Array[StringName] = [&"guard", &"guard_high", &"guard_low"]
 const SMASH_DIR_NAMES: Array[StringName] = [&"forward", &"back", &"left", &"right"]
@@ -296,6 +311,10 @@ var _heavy_height: MoveData.Height = MoveData.Height.MID
 var _charging: bool = false
 var _charge: int = 0
 var _charge_btn: int = 0
+## Ki charge release lag left (CHARGE_END, or GUARD entered from it).
+var _charge_lag: int = 0
+## Frames until DASH works again after a dash.
+var _dash_cooldown: int = 0
 ## Guard pose (MoveData.Height) and a pending stick pose with its hold time.
 var _guard_pose: int = MoveData.Height.MID
 var _guard_pose_want: int = MoveData.Height.MID
@@ -372,6 +391,7 @@ func sim_tick(_tick: int) -> void:
 		State.GUARD_STUN: _tick_guard_stun()
 		State.GUARD_BREAK: _tick_guard_break()
 		State.CHARGE: _tick_charge()
+		State.CHARGE_END: _tick_charge_end()
 		State.HITSTUN: _tick_hitstun()
 		State.KNOCKDOWN, State.KO, State.OUT: _tick_knockdown()
 		State.DOWNED: _tick_downed()
@@ -408,6 +428,8 @@ func reset_for_round(xform: Transform3D) -> void:
 	_charging = false
 	_charge = 0
 	_charge_btn = 0
+	_charge_lag = 0
+	_dash_cooldown = 0
 	_heavy_height = MoveData.Height.MID
 	_guard_pose = MoveData.Height.MID
 	_guard_pose_want = MoveData.Height.MID
@@ -448,6 +470,7 @@ func reset_for_round(xform: Transform3D) -> void:
 	clear_contacts()
 	_clear_buffer()
 	_enter(State.IDLE)
+	_dash_cooldown = 0  # _enter(IDLE) out of a DASH restarted it
 	health_changed.emit(health, tuning.max_health)
 	ki_changed.emit(ki, ki_max())
 	combo_changed.emit(combo_hits)
@@ -653,6 +676,73 @@ func charge_ratio() -> float:
 	return clampf(_charge / float(_move.charge_max_frames), 0.0, 1.0)
 
 
+## Ki charge: past the wind-up, ki is filling.
+func is_gaining_ki() -> bool:
+	return state == State.CHARGE and _state_frame > tuning.charge_windup_frames
+
+
+## Frames left of the ki charge release lag (0 = none).
+func charge_lag_left() -> int:
+	return _charge_lag
+
+
+## Frames until DASH works again (0 = ready).
+func dash_cooldown_left() -> int:
+	return _dash_cooldown
+
+
+## DASH would start a dash from neutral now (cooldown over, no release lag).
+func can_dash() -> bool:
+	return _dash_cooldown == 0 and _charge_lag == 0
+
+
+## 0 startup, 1 travel (dash attack window), 2 end lag; -1 when not dashing.
+func dash_phase() -> int:
+	if state != State.DASH:
+		return -1
+	if _state_frame <= tuning.dash_startup_frames:
+		return 0
+	return 1 if _state_frame <= tuning.dash_startup_frames + tuning.dash_frames else 2
+
+
+## Dash speed (m/s) on dash state frame `f` (frame 0 = the entry tick).
+func dash_speed_at(f: int) -> float:
+	var t := tuning
+	if f <= 0:
+		return 0.0
+	if f <= t.dash_startup_frames:
+		return t.dash_speed * f / float(t.dash_startup_frames)
+	var lag_from := t.dash_startup_frames + t.dash_frames
+	if f <= lag_from:
+		return t.dash_speed
+	if f > lag_from + t.dash_end_lag_frames:
+		return 0.0
+	return t.dash_speed * (lag_from + t.dash_end_lag_frames - f) / float(t.dash_end_lag_frames)
+
+
+## Ground covered (m) by the first `frames` dash frames.
+func dash_distance(frames: int) -> float:
+	var d := 0.0
+	for f in range(1, frames + 1):
+		d += dash_speed_at(f)
+	return d / Tuning.match_rules.tick_rate
+
+
+## Ground covered when the dash attack window closes (its latest start).
+func dash_travel_distance() -> float:
+	return dash_distance(tuning.dash_startup_frames + tuning.dash_frames)
+
+
+## Earliest dash frame in the dash attack window by which `dist` is covered
+## (the window's last frame if it never is).
+func dash_frames_to_cover(dist: float) -> int:
+	var last := tuning.dash_startup_frames + tuning.dash_frames
+	for f in range(tuning.dash_startup_frames + 1, last + 1):
+		if dash_distance(f) >= dist:
+			return f
+	return last
+
+
 ## True while holding a charge strike at its charge frame.
 func is_charging_strike() -> bool:
 	return state == State.ATTACK and _charging and _state_frame >= _move.charge_frame
@@ -831,6 +921,10 @@ func _enter(s: State) -> void:
 		_guard_crashed = false
 	if prev == State.REVIVE and s != State.REVIVE and _revive_target_slot >= 0:
 		_stop_reviving()
+	if s != State.CHARGE_END and s != State.GUARD:
+		_charge_lag = 0
+	if prev == State.DASH and s != State.DASH:
+		_dash_cooldown = tuning.dash_cooldown_frames
 	if prev != s or s == State.ATTACK or s == State.HITSTUN:
 		state_changed.emit(STATE_NAMES[s])
 
@@ -850,9 +944,12 @@ func _tick_neutral() -> void:
 
 
 ## Shared action table for Idle/Walk/Guard. Returns true if a new state began.
+## During a ki charge release lag only a dodge is allowed (see _tick_charge_end).
 func _try_actions(allow_guard: bool) -> bool:
 	if _try_dodge():
 		return true
+	if _charge_lag > 0:
+		return false
 	if _try_teleport():
 		return true
 	if _consume(InputFrame.Btn.THROW):
@@ -879,7 +976,7 @@ func _try_actions(allow_guard: bool) -> bool:
 	if _consume(InputFrame.Btn.JUMP):
 		_start_jump()
 		return true
-	if _consume(InputFrame.Btn.DASH):
+	if _dash_cooldown == 0 and _consume(InputFrame.Btn.DASH):
 		_enter(State.DASH)
 		return true
 	if _input.is_held(InputFrame.Btn.CHARGE):
@@ -891,17 +988,24 @@ func _try_actions(allow_guard: bool) -> bool:
 	return false
 
 
+## Startup (ramping up) -> travel (dash attack window) -> end lag (braking,
+## dodge only); see dash_speed_at. Leaving it starts the dash cooldown.
 func _tick_dash() -> void:
 	_face_target(_turn_step())
 	if _try_dodge():
 		return
-	if _consume(InputFrame.Btn.LIGHT) or _consume(InputFrame.Btn.HEAVY):
+	# LIGHT/HEAVY pressed in the startup stay buffered for the travel.
+	if dash_phase() == 1 and (_consume(InputFrame.Btn.LIGHT) or _consume(InputFrame.Btn.HEAVY)):
 		if _start_move_id(def.dash_attack):
 			return
-	if _state_frame > tuning.dash_frames:
+	if _state_frame > _dash_total_frames():
 		_enter(State.IDLE)
 		return
-	_set_ground_velocity(_fwd() * tuning.dash_speed)
+	_set_ground_velocity(_fwd() * dash_speed_at(_state_frame))
+
+
+func _dash_total_frames() -> int:
+	return tuning.dash_startup_frames + tuning.dash_frames + tuning.dash_end_lag_frames
 
 
 func _start_jump() -> void:
@@ -1247,10 +1351,10 @@ func _update_guard_pose() -> void:
 func _tick_guard() -> void:
 	_face_target(_turn_step())
 	if not _input.is_held(InputFrame.Btn.GUARD):
-		_enter(State.IDLE)
+		_enter(State.CHARGE_END if _charge_lag > 0 else State.IDLE)
 		return
 	_update_guard_pose()
-	if _input.move().y > tuning.strike_dir_threshold and _consume(InputFrame.Btn.LIGHT):
+	if _charge_lag == 0 and _input.move().y > tuning.strike_dir_threshold and _consume(InputFrame.Btn.LIGHT):
 		_enter(State.COUNTER)
 		return
 	_try_actions(false)
@@ -1455,14 +1559,31 @@ func _execute_throw() -> void:
 	on_hitbox_contact(hb, victim, Contact.HIT)
 
 
+## Wind-up (no ki for charge_windup_frames; specials already work), then
+## ki fills while CHARGE is held. Letting go -> CHARGE_END (release lag).
 func _tick_charge() -> void:
 	_face_target(_turn_step())
 	if not _input.is_held(InputFrame.Btn.CHARGE):
-		_enter(State.IDLE)
+		_charge_lag = tuning.charge_release_lag_frames
+		_enter(State.CHARGE_END if _charge_lag > 0 else State.IDLE)
 		return
 	if _consume_special() and _try_special():
 		return
-	_add_ki(tuning.ki_charge_per_frame)
+	if is_gaining_ki():
+		_add_ki(tuning.ki_charge_per_frame)
+
+
+## Ki charge release lag: rooted; only a dodge or a guard (which resumes the
+## lag if let go before it runs out, see _tick_guard).
+func _tick_charge_end() -> void:
+	_face_target(_turn_step())
+	if _charge_lag <= 0:
+		_enter(State.IDLE)
+		return
+	if _try_dodge():
+		return
+	if _input.is_held(InputFrame.Btn.GUARD):
+		_enter_guard()
 
 
 func _tick_hitstun() -> void:
@@ -2125,6 +2246,10 @@ func _end_attacker_combo() -> void:
 func _tick_timers() -> void:
 	if _counter_frames > 0:
 		_counter_frames -= 1
+	if _charge_lag > 0:
+		_charge_lag -= 1
+	if _dash_cooldown > 0:
+		_dash_cooldown -= 1
 	if _invuln_frames > 0:
 		_invuln_frames -= 1
 	if _since_hit_landed < NEVER:
@@ -2408,6 +2533,7 @@ func save_state() -> Dictionary:
 		"down_frames": _down_frames, "reviver": _reviver_slot, "revive_done": _revive_done,
 		"revive_target": _revive_target_slot,
 		"target_request": _target_request,
+		"charge_lag": _charge_lag, "dash_cooldown": _dash_cooldown,
 	})
 	save_contacts(s)
 	return s
@@ -2494,6 +2620,8 @@ func load_state(s: Dictionary) -> void:
 	_reviver_slot = s["reviver"]
 	_revive_done = s["revive_done"]
 	_revive_target_slot = s["revive_target"]
+	_charge_lag = s["charge_lag"]
+	_dash_cooldown = s["dash_cooldown"]
 	health_changed.emit(health, tuning.max_health)
 	ki_changed.emit(ki, ki_max())
 	combo_changed.emit(combo_hits)

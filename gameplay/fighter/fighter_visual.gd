@@ -115,6 +115,19 @@ const POSES := {
 		&"hip_r": Vector3(-45, 0, 0), &"kn_r": Vector3(-45, 0, 0), &"root": Vector3(0, -0.45, 0)},
 	&"dash": {&"torso": Vector3(30, 0, 0), &"sh_l": Vector3(-45, 0, -10), &"sh_r": Vector3(-45, 0, 10),
 		&"el_l": Vector3(30, 0, 0), &"el_r": Vector3(30, 0, 0)},
+	# Dash startup (crouched push-off) and end lag (braking, leaning back).
+	&"dash_start": {&"torso": Vector3(20, 0, 0), &"sh_l": Vector3(-20, 0, -15), &"sh_r": Vector3(-20, 0, 15),
+		&"el_l": Vector3(45, 0, 0), &"el_r": Vector3(45, 0, 0), &"hip_l": Vector3(40, 0, 0),
+		&"kn_l": Vector3(-60, 0, 0), &"hip_r": Vector3(-10, 0, 0), &"kn_r": Vector3(-30, 0, 0),
+		&"root": Vector3(0, -0.04, 0)},
+	&"dash_stop": {&"torso": Vector3(-12, 0, 0), &"head": Vector3(-8, 0, 0), &"sh_l": Vector3(30, 0, -40),
+		&"el_l": Vector3(20, 0, 0), &"sh_r": Vector3(30, 0, 40), &"el_r": Vector3(20, 0, 0),
+		&"hip_l": Vector3(-30, 0, 0), &"kn_l": Vector3(-20, 0, 0), &"hip_r": Vector3(35, 0, 0),
+		&"kn_r": Vector3(-50, 0, 0), &"root": Vector3(0, -0.08, 0)},
+	# Ki charge release lag: exhaling, arms dropping out of the charge.
+	&"charge_end": {&"torso": Vector3(15, 0, 0), &"head": Vector3(10, 0, 0), &"sh_l": Vector3(5, 0, -20),
+		&"el_l": Vector3(20, 0, 0), &"sh_r": Vector3(5, 0, 20), &"el_r": Vector3(20, 0, 0),
+		&"hip_l": Vector3(0, 0, -10), &"hip_r": Vector3(0, 0, 10), &"root": Vector3(0, -0.02, 0)},
 	&"jump": {&"hip_l": Vector3(70, 0, 0), &"kn_l": Vector3(-100, 0, 0), &"hip_r": Vector3(40, 0, 0),
 		&"kn_r": Vector3(-80, 0, 0)},
 	&"vanish_wait": {&"head": Vector3(0, 40, 0), &"torso": Vector3(-5, 20, 0)},
@@ -280,6 +293,13 @@ static func pose_id_for(id: StringName, state_name: StringName, frame: int, tuni
 			return &"knockdown"  # lying on the floor
 		&"revive":
 			return &"charge"  # crouched over the downed teammate, powering up
+		&"dash":
+			# Fighter.dash_phase() from the state frame: startup / travel / end lag.
+			if tuning == null:
+				return &"dash"
+			if frame <= tuning.dash_startup_frames:
+				return &"dash_start"
+			return &"dash" if frame <= tuning.dash_startup_frames + tuning.dash_frames else &"dash_stop"
 		&"throw":
 			# Holding the victim through the break window, then the toss.
 			var hold := tuning.throw_break_frames if tuning != null else 0
@@ -362,7 +382,7 @@ func _update_flash(delta: float) -> void:
 
 
 func _update_aura() -> void:
-	var on := _fighter.current_state_name() == &"charge"
+	var on := _fighter.is_gaining_ki()  # not in the wind-up
 	_aura.visible = on and _body.visible
 	if on:
 		var s := 1.0 + sin(_time * 12.0) * 0.08

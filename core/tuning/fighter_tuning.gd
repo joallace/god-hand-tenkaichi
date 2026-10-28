@@ -11,14 +11,36 @@ extends Resource
 @export var ki_start: float = 100.0
 ## Ki gained per frame while holding charge (≈1 bar / 1.2 s).
 @export var ki_charge_per_frame: float = 100.0 / 72.0
+## Charge wind-up (BT3 style): frames after CHARGE starts before ki fills.
+## Specials (CHARGE + HEAVY / SPECIAL) already work during it; releasing
+## early still pays the release lag, so a CHARGE tap costs time, gains nothing.
+@export var charge_windup_frames: int = 10
+## Release lag: frames after letting go of CHARGE (or in the wind-up) where
+## the fighter can only dodge or guard (no walk, attack, jump, dash, charge).
+## Guarding doesn't skip it: letting go of GUARD early resumes the lag.
+@export var charge_release_lag_frames: int = 12
 @export var ki_gain_on_hit_dealt: float = 4.0
 @export var ki_gain_on_hit_taken: float = 3.0
 @export var ki_gain_on_perfect_dodge: float = 15.0
 
 @export_group("Movement")
 @export var walk_speed: float = 6.0
+## Forward dash (DASH): startup ramping up to dash_speed, travel at full
+## speed, then a punishable end lag braking to a stop. LIGHT/HEAVY = dash
+## attack in the travel only (a press in the startup is buffered for it);
+## a dodge cancels any phase. ~4 m in total.
 @export var dash_speed: float = 16.0
-@export var dash_frames: int = 14
+## Startup: speed ramps linearly from dash_speed / dash_startup_frames up to
+## dash_speed on its last frame. No dash attack yet.
+@export var dash_startup_frames: int = 6
+## Travel at full dash_speed (the dash attack window).
+@export var dash_frames: int = 7
+## End lag: speed falls linearly to 0; only a dodge gets out of it.
+@export var dash_end_lag_frames: int = 10
+## After a dash ends (any way: finished, attack, dodge, hit), DASH is ignored
+## this many frames, so dashes can't be chained back to back (a press in
+## its last InputTuning.input_buffer_frames is buffered and fires at the end).
+@export var dash_cooldown_frames: int = 10
 @export var jump_velocity: float = 7.5
 @export var gravity: float = 24.0
 @export var body_radius: float = 0.45
