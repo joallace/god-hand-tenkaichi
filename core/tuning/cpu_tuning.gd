@@ -69,6 +69,32 @@ extends Resource
 @export var stun_mash_chance: Vector2 = Vector2(0.1, 0.95)
 ## ...and frames between mash presses (2 = every other frame, the fastest).
 @export var stun_mash_interval_frames: Vector2 = Vector2(12, 3)
+## Out of hitstun with the attacker still in reach and not punishable (they
+## are the ones at frame advantage): chance to guard first instead of
+## pressing a button into their next strike (a jab looped after a gap)...
+@export var wary_chance: Vector2 = Vector2(0.05, 0.95)
+## ...and for how many frames (each blocked hit extends it again). Seen
+## recovery inside it is still punished.
+@export var wary_frames: Vector2 = Vector2(8, 24)
+
+@export_group("Adaptation")
+## The CPU remembers the opponent's habit: the melee string opener it keeps
+## starting in reach, its usual delay after their previous attack ends, and
+## how often it lands.
+## Heat (0..1) gained each time that opener starts again within
+## habit_delay_max_frames of their previous attack ending (jab, wait, jab)...
+@export var habit_gain: Vector2 = Vector2(0.04, 0.35)
+## ...and extra heat each time it lands as a fresh combo on this CPU.
+@export var habit_hit_gain: Vector2 = Vector2(0.03, 0.3)
+## Frames for full heat to fade away when the habit stops (longer memory up top).
+@export var habit_memory_frames: Vector2 = Vector2(300, 1500)
+## How far full heat pushes the CPU toward answers: added to wary_chance and
+## taken off close-range aggression (heat x this).
+@export var habit_max_bias: Vector2 = Vector2(0.25, 1.0)
+## Once heat x habit_max_bias reaches habit_read_heat and the delay is known:
+## chance to act on the predicted next opener (timed dodge, counter guard,
+## back off out of reach, or guard) before it is even seen.
+@export var habit_read_chance: Vector2 = Vector2(-0.1, 0.9)
 
 @export_group("Offense")
 ## Neutral game: chance to press forward / attack rather than wait or guard.
@@ -127,7 +153,26 @@ extends Resource
 ## Taunting is considered with the opponent (not attacking) this far away.
 @export var taunt_safe_distance: float = 10.0
 
+## Habit: an opener starting later than this after their previous attack
+## ended isn't a loop (no heat, delay not learned).
+@export var habit_delay_max_frames: int = 90
+## Habit: a seen opener this many frames off the read's predicted hit is
+## off-beat: the read is dropped and the CPU defends as usual.
+@export var habit_read_slack_frames: int = 3
+## Habit: heat x habit_max_bias needed before the predicted opener is read.
+@export_range(0.0, 1.0) var habit_read_heat: float = 0.35
+## Habit: only a predicted hit at most this many frames ahead is read.
+@export var habit_read_horizon_frames: int = 40
+## Habit: share of the heat kept when the opponent switches to another opener.
+@export_range(0.0, 1.0) var habit_switch_keep: float = 0.5
+
 @export_group("Option weights (all levels)")
+## Reading a habit (see habit_read_chance): timed dodge (perfect dodge ->
+## counter), counter guard, back off out of reach (whiff -> punish), guard.
+@export var habit_dodge_weight: float = 1.0
+@export var habit_counter_guard_weight: float = 0.6
+@export var habit_backoff_weight: float = 0.6
+@export var habit_guard_weight: float = 0.4
 ## Neutral-game pick weights, each multiplied by the level's chance for it.
 @export var charge_weight: float = 2.0
 @export var beam_weight: float = 0.4
