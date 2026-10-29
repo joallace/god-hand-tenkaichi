@@ -22,7 +22,7 @@ extends CombatEntity
 ##            is_vanished() -> bool, is_airborne() -> bool,
 ##            current_move() -> MoveData, current_pose() -> StringName,
 ##            state_frame() -> int, attack_phase() -> int,
-##            dodge_direction() -> int, tint() -> Color,
+##            dodge_direction() -> int, duck_variant() -> int, tint() -> Color,
 ##            guard_pose() -> MoveData.Height, in_vanish_battle() -> bool,
 ##            charge_ratio() -> float, is_charging_strike() -> bool,
 ##            move_opens_string() -> bool, guard_vanish_window() -> int,
@@ -227,6 +227,9 @@ const SMASH_DIR_NAMES: Array[StringName] = [&"forward", &"back", &"left", &"righ
 const MASH_BUTTONS: Array[int] = [InputFrame.Btn.LIGHT, InputFrame.Btn.HEAVY, InputFrame.Btn.GUARD, InputFrame.Btn.JUMP]
 const DODGE_NAMES: Array[StringName] = [&"none", &"duck", &"backflip", &"sway_l", &"sway_r"]
 const DODGE_KIND_NAMES: Array[StringName] = [&"dodge", &"air_tech", &"roll"]
+## God Hand ducks into one of three low poses (G3 footage: wide-legged drop,
+## curl to one side, forward hunch), never the same one twice in a row.
+const DUCK_VARIANTS := 3
 ## Number of InputFrame.Btn bits tracked by the press buffer.
 const BUFFER_SIZE := 12
 const NEVER := 1 << 20
@@ -268,6 +271,9 @@ var _dodge_dir: int = InputFrame.Dodge.NONE
 var _dodge_kind: int = DodgeKind.DODGE
 ## Dodges chained in a row (0 for the first).
 var _dodge_chain: int = 0
+## Which of the DUCK_VARIANTS low poses the current/last duck uses (visual
+## only, but sim state so every peer and replay shows the same one).
+var _duck_variant: int = 0
 ## LIGHT/HEAVY queued during a dodge (0 = none).
 var _dodge_queued_btn: int = 0
 var _counter_frames: int = 0
@@ -483,6 +489,7 @@ func reset_for_round(xform: Transform3D) -> void:
 	_dodge_dir = InputFrame.Dodge.NONE
 	_dodge_kind = DodgeKind.DODGE
 	_dodge_chain = 0
+	_duck_variant = 0
 	_dodge_queued_btn = 0
 	_counter_frames = 0
 	_invuln_frames = 0
@@ -838,6 +845,11 @@ func attack_phase() -> int:
 
 func dodge_direction() -> int:
 	return _dodge_dir if state == State.DODGE else InputFrame.Dodge.NONE
+
+
+## Low pose (0..DUCK_VARIANTS-1) of the current or last duck.
+func duck_variant() -> int:
+	return _duck_variant
 
 
 func current_move_serial() -> int:
@@ -1322,6 +1334,8 @@ func _try_dodge(kind: DodgeKind = DodgeKind.DODGE) -> bool:
 	_dodge_kind = kind
 	_dodge_chain = _dodge_chain + 1 if chained else 0
 	_dodge_queued_btn = 0
+	if _dodge_dir == InputFrame.Dodge.FORWARD:
+		_duck_variant = _next_duck_variant()
 	_vel.x = 0.0
 	_vel.z = 0.0
 	if kind == DodgeKind.AIR_TECH:
@@ -1358,6 +1372,14 @@ func _tick_dodge() -> void:
 		return
 	if f >= _per_dodge(tuning.duck_total_frames, tuning.sway_total_frames, tuning.backflip_total_frames):
 		_enter(State.IDLE)
+
+
+## Steps 1 or 2 variants on (picked by a hash of the tick): looks random,
+## never repeats.
+func _next_duck_variant() -> int:
+	var tick := director.tick if director else 0
+	var step := 1 + (((tick * 0x9E3779B1) >> 16) & 1)
+	return (_duck_variant + step) % DUCK_VARIANTS
 
 
 ## Pick the duck / sway / backflip value for the current dodge direction.
@@ -2605,7 +2627,7 @@ func save_state() -> Dictionary:
 		"move_opens_string": _move_opens_string, "combo_moves_taken": _combo_moves_taken.duplicate(),
 		"combo_relaunches": _combo_relaunches, "combo_last_melee": _combo_last_melee,
 		"combo_hits_taken": _combo_hits_taken,
-		"dodge_kind": _dodge_kind, "dodge_chain": _dodge_chain, "dodge_queued_btn": _dodge_queued_btn,
+		"dodge_kind": _dodge_kind, "dodge_chain": _dodge_chain, "duck_variant": _duck_variant, "dodge_queued_btn": _dodge_queued_btn,
 		"guard_pose": _guard_pose, "guard_pose_want": _guard_pose_want,
 		"guard_pose_frames": _guard_pose_frames, "guard_crashed": _guard_crashed,
 		"throw_breakable": _throw_breakable, "throw_back": _throw_back,
@@ -2683,6 +2705,7 @@ func load_state(s: Dictionary) -> void:
 	_combo_hits_taken = s["combo_hits_taken"]
 	_dodge_kind = s["dodge_kind"]
 	_dodge_chain = s["dodge_chain"]
+	_duck_variant = s["duck_variant"]
 	_dodge_queued_btn = s["dodge_queued_btn"]
 	_guard_pose = s["guard_pose"]
 	_guard_pose_want = s["guard_pose_want"]

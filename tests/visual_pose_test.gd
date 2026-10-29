@@ -16,9 +16,12 @@ const STANDING: Array[StringName] = [
 	&"throw_windup", &"throw_hold", &"throw_toss", &"taunt", &"uppercut_windup",
 	&"hammer", &"hammer_windup", &"smash_left", &"smash_left_windup", &"smash_right",
 	&"smash_right_windup", &"duck_kick", &"duck_kick_windup", &"dash_start", &"dash_stop",
-	&"charge_end",
+	&"charge_end", &"duck", &"duck_curl", &"duck_wide",
 ]
 const FOOT_TOLERANCE := 0.12
+## Highest point (m) a duck pose may reach: the original single duck pose's
+## (the primitive rig's head can't get under FighterTuning.duck_height).
+const DUCK_MAX_TOP := 1.25
 ## Attack poses that must have a "<pose>_windup" for their startup.
 const NEEDS_WINDUP: Array[StringName] = [&"throw", &"uppercut", &"hammer", &"smash_left", &"smash_right",
 	&"dive_kick", &"duck_kick"]
@@ -55,6 +58,7 @@ func _ready() -> void:
 		_check(absf(low) <= GROUND_TOLERANCE, "wakeup %s on the floor (lowest y %.3f)" % [j, low])
 	_test_states_resolve()
 	_test_move_poses()
+	_test_duck_variants()
 	for id in STANDING:
 		_apply(id)
 		var low := _lowest(_visual._body)
@@ -98,6 +102,41 @@ func _test_move_poses() -> void:
 	for id in NEEDS_WINDUP:
 		_check(FighterVisual.POSES.has(id), "pose %s defined" % id)
 		_check(FighterVisual.POSES.has(StringName(String(id) + "_windup")), "pose %s_windup defined" % id)
+
+
+## One duck pose per Fighter duck variant, none taller than the original
+## duck, rising once the duck can chain.
+func _test_duck_variants() -> void:
+	var t := Tuning.fighter
+	_check(FighterVisual.DUCK_POSES.size() == Fighter.DUCK_VARIANTS, "one duck pose per variant")
+	for v in Fighter.DUCK_VARIANTS:
+		var id := FighterVisual.pose_id_for(&"duck", &"dodge", 0, t, v)
+		_check(id == FighterVisual.DUCK_POSES[v] and FighterVisual.POSES.has(id), "duck variant %d -> %s" % [v, id])
+		_apply(id)
+		var top := _highest(_visual._body)
+		print("%s highest point y = %.3f" % [id, top])
+		_check(top <= DUCK_MAX_TOP, "%s crouches low (top y %.3f)" % [id, top])
+	_check(FighterVisual.pose_id_for(&"duck", &"dodge", t.duck_chain_from_frame + 1, t, 1) == &"idle",
+		"duck rises after its chain frame")
+	_check(FighterVisual.pose_id_for(&"sway_l", &"dodge", 0, t, 1) == &"sway_l", "sways keep their pose")
+
+
+## Exact highest world-space y of every primitive mesh under `node`.
+func _highest(node: Node) -> float:
+	var high := -INF
+	for mi in node.find_children("*", "MeshInstance3D", true, false):
+		var t: Transform3D = (mi as MeshInstance3D).global_transform
+		var m: Mesh = (mi as MeshInstance3D).mesh
+		if m is CapsuleMesh:
+			var half := (m as CapsuleMesh).height * 0.5 - (m as CapsuleMesh).radius
+			high = maxf(high, maxf((t * Vector3(0, half, 0)).y, (t * Vector3(0, -half, 0)).y) + (m as CapsuleMesh).radius)
+		elif m is SphereMesh:
+			high = maxf(high, t.origin.y + (m as SphereMesh).radius)
+		elif m is BoxMesh:
+			var h := (m as BoxMesh).size * 0.5
+			for i in 8:
+				high = maxf(high, (t * Vector3(h.x if i & 1 else -h.x, h.y if i & 2 else -h.y, h.z if i & 4 else -h.z)).y)
+	return high
 
 
 ## Snap the visual straight to a named pose (no blending).

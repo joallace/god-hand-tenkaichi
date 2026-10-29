@@ -22,7 +22,7 @@ func _ready() -> void:
 		_test_guard_teleport, _test_guard_vanish_escape, _test_guard_vanish, _test_guard_vanish_mash,
 		_test_guard_vanish_first_hit, _test_guard_vanish_window_hp, _test_attack_tracking,
 		_test_combo_scaling, _test_anti_loop_repeat, _test_anti_loop_relaunch, _test_air_tech,
-		_test_quick_rise, _test_wakeup_roll, _test_stay_down, _test_dodge_chain, _test_dodge_lengths, _test_dodge_queued_attack,
+		_test_quick_rise, _test_wakeup_roll, _test_stay_down, _test_dodge_chain, _test_duck_variants, _test_dodge_lengths, _test_dodge_queued_attack,
 		_test_determinism, _test_determinism_bt3, _test_determinism_air,
 	]
 	for t in tests:
@@ -1085,6 +1085,36 @@ func _test_stay_down() -> void:
 	var down := p2.current_state_name() == &"knockdown"
 	_run(d, 2)
 	_check(down and p2.current_state_name() == &"wakeup", "no input stays down knockdown_frames, then gets up")
+
+
+## Chained ducks cycle God Hand's low poses: never the same one twice in a
+## row, every one shows up, and the pick round-trips through save/load.
+func _test_duck_variants() -> void:
+	var d := _new_match(3.0)
+	var p1 := d.fighters[0]
+	var t := p1.tuning
+	var s := _src(d, 0)
+	var n := 12
+	for i in n:
+		s.flick(i * (t.duck_chain_from_frame + 1), InputFrame.Dodge.FORWARD)
+	var seen: Array[int] = []
+	for f in n * (t.duck_chain_from_frame + 1) + 2:
+		var before := _event_count(&"dodge", 0)
+		_run(d, 1)
+		if _event_count(&"dodge", 0) > before:
+			seen.append(p1.duck_variant())
+	_check(seen.size() == n, "%d ducks started (%d)" % [n, seen.size()])
+	var repeats := 0
+	for i in range(1, seen.size()):
+		repeats += int(seen[i] == seen[i - 1])
+	_check(repeats == 0, "consecutive ducks change pose (%s)" % [seen])
+	for v in Fighter.DUCK_VARIANTS:
+		_check(v in seen, "duck variant %d used (%s)" % [v, seen])
+	var snap := p1.save_state()
+	var kept := p1.duck_variant()
+	p1._duck_variant = (kept + 1) % Fighter.DUCK_VARIANTS
+	p1.load_state(snap)
+	_check(p1.duck_variant() == kept, "duck variant round-trips through save/load")
 
 
 func _test_dodge_chain() -> void:

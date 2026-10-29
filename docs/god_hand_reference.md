@@ -91,7 +91,10 @@ Notes:
 (chain from 10), side sway 26f (chain at 26), back-sway 36f (travels over
 26f, chain from 30), no chain cap. Invuln (6 / 12 / 20f from frame 1) is
 still our pick and always ends before the chain frame, so chains stay
-punishable. Previously one 24f dodge for all directions, chain from 16,
+punishable. Ducks pick one of three low poses after G3's (forward
+hunch, curl to the left, wide-knee drop; `Fighter.duck_variant()`, never
+the same twice in a row, chosen by a tick hash so every peer agrees) and
+rise to stance after the chain frame. Previously one 24f dodge for all directions, chain from 16,
 max 2 in a row.
 
 ## Invulnerability ("muteki")

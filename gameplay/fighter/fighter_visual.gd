@@ -87,8 +87,25 @@ const POSES := {
 		&"kn_r": Vector3(-25, 0, 0), &"root": Vector3(0, -0.12, 0)},
 	&"beam_windup": {&"torso": Vector3(0, 60, 0), &"sh_l": Vector3(-20, 0, -30), &"el_l": Vector3(100, 0, 0),
 		&"sh_r": Vector3(-30, 0, 20), &"el_r": Vector3(100, 0, 0), &"root": Vector3(0, -0.15, 0)},
-	&"duck": {&"torso": Vector3(45, 0, 0), &"hip_l": Vector3(110, 0, 0), &"kn_l": Vector3(-140, 0, 0),
+	# Duck low poses (DUCK_POSES, picked by Fighter.duck_variant()), after
+	# God Hand's three: a forward hunch behind raised forearms...
+	&"duck": {&"torso": Vector3(45, 0, 0), &"head": Vector3(-30, 0, 0),
+		&"sh_l": Vector3(115, 0, -15), &"el_l": Vector3(120, 0, 0),
+		&"sh_r": Vector3(105, 0, 15), &"el_r": Vector3(125, 0, 0),
+		&"hip_l": Vector3(110, 0, 0), &"kn_l": Vector3(-140, 0, 0),
 		&"hip_r": Vector3(100, 0, 0), &"kn_r": Vector3(-140, 0, 0), &"root": Vector3(0, -0.5, 0)},
+	# ...a deep curl dropping the head and shoulders off to the left...
+	&"duck_curl": {&"torso": Vector3(60, 15, 35), &"head": Vector3(-15, 0, 15),
+		&"sh_l": Vector3(35, 0, -10), &"el_l": Vector3(135, 0, 0),
+		&"sh_r": Vector3(95, 0, 25), &"el_r": Vector3(130, 0, 0),
+		&"hip_l": Vector3(100, 0, -15), &"kn_l": Vector3(-145, 0, 0),
+		&"hip_r": Vector3(115, 0, 10), &"kn_r": Vector3(-150, 0, 0), &"root": Vector3(0, -0.52, 0)},
+	# ...and a drop onto wide-spread knees.
+	&"duck_wide": {&"torso": Vector3(50, 0, 0), &"head": Vector3(-25, 0, 0),
+		&"sh_l": Vector3(40, 0, -30), &"el_l": Vector3(100, 0, 0),
+		&"sh_r": Vector3(40, 0, 30), &"el_r": Vector3(100, 0, 0),
+		&"hip_l": Vector3(85, 0, -35), &"kn_l": Vector3(-150, 0, 0),
+		&"hip_r": Vector3(85, 0, 35), &"kn_r": Vector3(-150, 0, 0), &"root": Vector3(0, -0.55, 0)},
 	&"sway_l": {&"torso": Vector3(5, 0, 30), &"head": Vector3(0, 0, 15), &"root": Vector3(0, -0.1, 0)},
 	&"sway_r": {&"torso": Vector3(5, 0, -30), &"head": Vector3(0, 0, -15), &"root": Vector3(0, -0.1, 0)},
 	&"backflip": {&"hip_l": Vector3(100, 0, 0), &"kn_l": Vector3(-120, 0, 0), &"hip_r": Vector3(100, 0, 0),
@@ -210,6 +227,8 @@ const POSES := {
 	&"smash_right_windup": {&"torso": Vector3(5, 40, 0), &"sh_r": Vector3(80, 0, -40), &"el_r": Vector3(120, 0, 0),
 		&"kn_l": Vector3(-30, 0, 0), &"kn_r": Vector3(-30, 0, 0), &"root": Vector3(0, -0.05, 0)},
 }
+## Duck low pose per Fighter.duck_variant() (Fighter.DUCK_VARIANTS long).
+const DUCK_POSES: Array[StringName] = [&"duck", &"duck_curl", &"duck_wide"]
 ## Taunt overlay: beckoning forearm wave and a cocky bob.
 const TAUNT_WAVE_HZ := 2.5
 const TAUNT_WAVE_DEG := 35.0
@@ -278,13 +297,22 @@ func _target_pose() -> Dictionary:
 		var m := f.current_move()
 		if f.state_frame() > m.startup + m.active + m.recovery / 2:
 			return POSES[&"idle"]
-	return POSES.get(pose_id_for(id, f.current_state_name(), f.state_frame(), f.tuning), POSES[&"idle"])
+	var pose_id := pose_id_for(id, f.current_state_name(), f.state_frame(), f.tuning, f.duck_variant())
+	return POSES.get(pose_id, POSES[&"idle"])
 
 
 ## Maps a non-attack current_pose() to a POSES key (states sharing a name
 ## with a move pose, or with phases of their own).
-static func pose_id_for(id: StringName, state_name: StringName, frame: int, tuning: FighterTuning) -> StringName:
+static func pose_id_for(id: StringName, state_name: StringName, frame: int, tuning: FighterTuning,
+		duck_variant := 0) -> StringName:
 	match state_name:
+		&"dodge":
+			if id != &"duck":
+				return id
+			# Low until the duck can chain (GH: low +2..+10), then rise.
+			if tuning != null and frame > tuning.duck_chain_from_frame:
+				return &"idle"
+			return DUCK_POSES[duck_variant % DUCK_POSES.size()]
 		&"walk", &"teleport":
 			return &"idle"  # teleporting fighters are hidden anyway
 		&"entering":
