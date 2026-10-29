@@ -711,7 +711,7 @@ func _follow_up() -> void:
 	var super_cost := t.super1_cost_bars * t.ki_bar_size
 	if landed and m.special_cancelable and me.ki >= super_cost and _roll(cfg.special_chance) \
 			and rng.randf() < cfg.super_cancel_share:
-		_link_special(m, 0.0 if rng.randf() < cfg.super_cancel_rush_share else 1.0)
+		_link_special(m, 1.0 if rng.randf() < cfg.super_cancel_rush_share else 0.0)
 		return
 	if _string_left > 0 and _cancels_with(m, B.LIGHT):
 		_string_left -= 1
@@ -877,11 +877,11 @@ func _do_option(option: StringName, d: float) -> void:
 			var need := (roundi(_p(cfg.charge_target_bars)) * bar - me.ki) / t.ki_charge_per_frame
 			_hold(B.CHARGE, _clock, t.charge_windup_frames + maxi(ceili(need), 1))
 		&"beam":
-			_special(_clock, 1.0)
+			_special(_clock, 0.0)
 		&"ultimate":
 			_special(_clock, -1.0)
 		&"rush":
-			_special(_clock, 0.0)
+			_special(_clock, 1.0)
 		_:
 			_walk_for(Vector2(_strafe_sign(), 0.0))
 
@@ -909,7 +909,7 @@ func _close_attack() -> void:
 		else:
 			_tap(B.HEAVY, _clock, _rand_height_stick())
 	elif me.ki >= t.super1_cost_bars * t.ki_bar_size and _roll(cfg.special_chance) and rng.randf() < cfg.close_rush_share:
-		_special(_clock, 0.0)
+		_special(_clock, 1.0)
 	else:
 		_start_string(_clock)
 

@@ -358,7 +358,7 @@ func _test_beam_pierces() -> void:
 	var d := _new_match([0, 1, 1, 1])
 	_place(d, [Vector3(0, 0, 6), Vector3(0, 0, 3), Vector3(0, 0, 1), Vector3(0, 0, -1)])
 	d.fighters[0].ki = d.fighters[0].ki_max()
-	_src(d, 0).stick(2, 4, Vector2(0, 1)).press(2, B.SPECIAL)
+	_src(d, 0).press(2, B.SPECIAL)
 	_run(d, 150)
 	var all := _hurt(d.fighters[1]) and _hurt(d.fighters[2]) and _hurt(d.fighters[3])
 	_check(all, "beam pierces three enemies in a line (hp %.1f / %.1f / %.1f)" % [

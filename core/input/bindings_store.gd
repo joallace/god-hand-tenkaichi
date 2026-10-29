@@ -13,15 +13,20 @@ extends Node
 ##
 ## Defaults follow Budokai Tenkaichi: GUARD also teleports/vanishes when timed,
 ## CHARGE + HEAVY is the special, HEAVY at range is a ki blast (see Fighter).
-## BLAST / SPECIAL / TELEPORT are optional dedicated shortcuts, unbound ({})
-## by default. THROW (RB) grabs through guard; TAUNT (RT) taunts for ki;
+## BLAST / SPECIAL / TELEPORT / DASH are optional dedicated shortcuts, unbound
+## ({}) by default; forward tapped twice dashes (LocalDeviceInput). THROW (RB) grabs through guard; TAUNT (RT) taunts for ki;
 ## TARGET (LB) cycles / locks the target among several enemies.
 
 signal changed(slot: int)
 
 const SAVE_PATH := "user://controls.cfg"
 ## Bump when the defaults change incompatibly; older saves are discarded.
-const SAVE_VERSION := 2
+const SAVE_VERSION := 3
+## Oldest save still loaded; saves older than SAVE_VERSION drop the actions
+## in DROPPED_SINCE whose default changed after they were written.
+const MIN_SAVE_VERSION := 2
+## Version -> actions whose saved binding is ignored in older saves.
+const DROPPED_SINCE := {3: ["DASH"]}
 const SLOT_COUNT := 2
 
 enum Kind { PAD, KEYBOARD }
@@ -46,7 +51,7 @@ const DEFAULT_PAD := {
 	"CHARGE": {"t": "axis", "i": JOY_AXIS_TRIGGER_LEFT, "s": 1},
 	"SPECIAL": {},
 	"TELEPORT": {},
-	"DASH": {"t": "btn", "i": JOY_BUTTON_LEFT_STICK},
+	"DASH": {},
 	"PAUSE": {"t": "btn", "i": JOY_BUTTON_START},
 	"THROW": {"t": "btn", "i": JOY_BUTTON_RIGHT_SHOULDER},
 	"TAUNT": {"t": "axis", "i": JOY_AXIS_TRIGGER_RIGHT, "s": 1},
@@ -63,7 +68,7 @@ const DEFAULT_KEYBOARD: Array[Dictionary] = [
 		"BLAST": {}, "JUMP": {"t": "key", "i": KEY_K},
 		"GUARD": {"t": "key", "i": KEY_L}, "CHARGE": {"t": "key", "i": KEY_U},
 		"SPECIAL": {}, "TELEPORT": {},
-		"DASH": {"t": "key", "i": KEY_SHIFT}, "PAUSE": {"t": "key", "i": KEY_ESCAPE},
+		"DASH": {}, "PAUSE": {"t": "key", "i": KEY_ESCAPE},
 		"THROW": {"t": "key", "i": KEY_O}, "TAUNT": {"t": "key", "i": KEY_Y},
 		"TARGET": {"t": "key", "i": KEY_Q},
 	},
@@ -76,7 +81,7 @@ const DEFAULT_KEYBOARD: Array[Dictionary] = [
 		"BLAST": {}, "JUMP": {"t": "key", "i": KEY_KP_0},
 		"GUARD": {"t": "key", "i": KEY_KP_3}, "CHARGE": {"t": "key", "i": KEY_KP_7},
 		"SPECIAL": {}, "TELEPORT": {},
-		"DASH": {"t": "key", "i": KEY_KP_ENTER}, "PAUSE": {"t": "key", "i": KEY_BACKSPACE},
+		"DASH": {}, "PAUSE": {"t": "key", "i": KEY_BACKSPACE},
 		"THROW": {"t": "key", "i": KEY_KP_9}, "TAUNT": {"t": "key", "i": KEY_KP_ADD},
 		"TARGET": {"t": "key", "i": KEY_KP_SUBTRACT},
 	},
@@ -167,8 +172,13 @@ func load_from_disk() -> void:
 	var cfg := ConfigFile.new()
 	if cfg.load(SAVE_PATH) != OK:
 		return
-	if cfg.get_value("meta", "version", 1) < SAVE_VERSION:
+	var version: int = cfg.get_value("meta", "version", 1)
+	if version < MIN_SAVE_VERSION:
 		return  # saved against old defaults; start fresh
+	var dropped: Array = []
+	for v: int in DROPPED_SINCE:
+		if version < v:
+			dropped.append_array(DROPPED_SINCE[v])
 	# Saved keys overlay the defaults, so actions added after the file was
 	# written (e.g. TARGET) keep their default binding.
 	for slot in SLOT_COUNT:
@@ -177,6 +187,8 @@ func load_from_disk() -> void:
 			if not cfg.has_section(section):
 				continue
 			for action in cfg.get_section_keys(section):
+				if action in dropped:
+					continue
 				var b = cfg.get_value(section, action)
 				if b is Dictionary:
 					_maps[slot][kind][action] = b

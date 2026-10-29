@@ -16,12 +16,12 @@ const ROWS := [
 	["Guard (Fwd: high, Back: low)", "B", "L"],
 	["Teleport (timed guard)", "B on hit / just before one", "L"],
 	["Charge Ki", "LT (hold)", "U"],
-	["Special (Fwd: Super 2, Back: Ultimate)", "LT + Y", "U + I"],
+	["Special (Fwd: Super 1, Back: Ultimate)", "LT + Y", "U + I"],
 	["Throw (break: guard)", "RB", "O"],
 	["Taunt (gains ki)", "RT", "Y"],
 	["Target / cycle lock", "LB", "Q"],
 	["Revive a downed ally (co-op)", "Hold RT near them", "Hold Y near them"],
-	["Dash", "L3", "Shift"],
+	["Dash", "Left Stick forward twice", "W W"],
 	["Pause", "Start", "Esc"],
 ]
 

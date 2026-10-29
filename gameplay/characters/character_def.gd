@@ -35,9 +35,9 @@ extends Resource
 ## Counter guard: forced counter attack after a stick-forward + LIGHT guard
 ## catches the first hit of a string.
 @export var counter: StringName = &""
-## Neutral SPECIAL (CHARGE + HEAVY).
+## Forward + SPECIAL (CHARGE + HEAVY).
 @export var super1: StringName = &""
-## Forward + SPECIAL.
+## Neutral SPECIAL (CHARGE + HEAVY).
 @export var super2: StringName = &""
 ## Back + SPECIAL with a full gauge.
 @export var ultimate: StringName = &""

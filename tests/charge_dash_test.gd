@@ -14,6 +14,7 @@ func _ready() -> void:
 		_test_charge_windup, _test_charge_tap, _test_release_lag_blocks, _test_release_lag_guard,
 		_test_release_lag_dodge, _test_windup_special, _test_hit_interrupts_charge,
 		_test_dash_profile, _test_dash_attack_window, _test_dash_dodge, _test_dash_cooldown,
+		_test_double_tap_dash,
 		_test_round_trip_windup, _test_round_trip_cooldown,
 	]
 	for t in tests:
@@ -160,7 +161,7 @@ func _test_windup_special() -> void:
 	p1.ki = p1.ki_max()
 	_src(d, 0).press(0, B.CHARGE, 20).press(2, B.HEAVY)
 	_run(d, 4)
-	_check(p1.current_move() != null and p1.current_move().id == p1.def.super1,
+	_check(p1.current_move() != null and p1.current_move().id == p1.def.super2,
 		"CHARGE + HEAVY during the wind-up fires the special at once")
 
 
@@ -257,6 +258,44 @@ func _test_dash_cooldown() -> void:
 	s.press(at, B.DASH)
 	_run(d, 2)
 	_check(p1.current_state_name() == &"dash", "dashes again after the cooldown")
+
+
+## Ticks on which LocalDeviceInput's forward double tap fires for forward
+## stick values `ys` (one per tick).
+func _double_taps(ys: Array) -> Array[int]:
+	var src := LocalDeviceInput.new(0, Bindings.Kind.KEYBOARD)
+	var fired: Array[int] = []
+	for tick in ys.size():
+		var f := InputFrame.new()
+		f.set_move(Vector2(0, ys[tick]))
+		if src._forward_double_tap(f, tick, Tuning.input):
+			fired.append(tick)
+	return fired
+
+
+func _test_double_tap_dash() -> void:
+	var t: InputTuning = Tuning.input
+	var gap := t.dash_tap_window_frames - 2
+	var quick: Array = []
+	quick.resize(gap)
+	quick.fill(0.0)
+	quick[0] = 1.0
+	quick[1] = 1.0
+	quick.append_array([1.0, 1.0, 1.0])
+	_check(_double_taps(quick) == [gap], "forward tapped twice fires DASH once, on the second tap")
+	var slow: Array = [1.0]
+	slow.resize(t.dash_tap_window_frames + 2)
+	slow.fill(0.0)
+	slow[0] = 1.0
+	slow.append(1.0)
+	_check(_double_taps(slow).is_empty(), "taps further apart than the window don't dash")
+	var held: Array = []
+	held.resize(40)
+	held.fill(1.0)
+	_check(_double_taps(held).is_empty(), "holding forward doesn't dash")
+	_check(_double_taps([1.0, 0.0, 1.0, 0.0, 1.0]) == [2], "a third tap starts a new pair")
+	_check(Bindings.DEFAULT_PAD["DASH"].is_empty() and Bindings.DEFAULT_KEYBOARD[0]["DASH"].is_empty(),
+		"DASH has no default button (double tap instead)")
 
 
 # --- save / load -------------------------------------------------------------

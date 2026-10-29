@@ -34,7 +34,7 @@ const SCENE_PATH := "res://scenes/menus/controls_screen.tscn"
 const ACTION_NAMES := {
 	"LIGHT": "Light Attack", "HEAVY": "Heavy Attack", "BLAST": "Ki Blast (shortcut)",
 	"JUMP": "Jump", "GUARD": "Guard / Teleport", "CHARGE": "Charge Ki / Special",
-	"SPECIAL": "Special (shortcut)", "TELEPORT": "Teleport (shortcut)", "DASH": "Dash",
+	"SPECIAL": "Special (shortcut)", "TELEPORT": "Teleport (shortcut)", "DASH": "Dash (shortcut)",
 	"PAUSE": "Pause", "THROW": "Throw", "TAUNT": "Taunt",
 	"TARGET": "Target / cycle lock",
 	"MOVE_FORWARD": "Move Forward", "MOVE_BACK": "Move Back",
@@ -51,7 +51,8 @@ const COMBO_ROWS := [
 	["Ki Blast", "Heavy at range (also while jumping)"],
 	["Jump attacks", "Jump + Light / Heavy / Special"],
 	["Duck kick", "Heavy during a forward dodge (duck)"],
-	["Special", "Charge + Heavy  (+Fwd: Super 2, +Back: Ultimate)"],
+	["Dash", "Forward twice"],
+	["Special", "Charge + Heavy  (+Fwd: Super 1, +Back: Ultimate)"],
 	["Teleport", "Guard right after a hit / just before one"],
 	["Guard height", "Guard + Fwd: high, Back: low"],
 	["Counter stance", "Guard + Fwd + Light"],

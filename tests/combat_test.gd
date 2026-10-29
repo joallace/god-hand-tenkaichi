@@ -510,7 +510,7 @@ func _test_beam() -> void:
 	var p1 := d.fighters[0]
 	var p2 := d.fighters[1]
 	p1.ki = p1.ki_max()
-	_src(d, 0).stick(0, 2, Vector2(0, 1)).press(0, B.SPECIAL)
+	_src(d, 0).press(0, B.SPECIAL)
 	_run(d, 2)
 	_check(is_equal_approx(p1.ki, p1.ki_max() - p1.tuning.super2_cost_bars * p1.tuning.ki_bar_size), "beam costs 2 bars")
 	_run(d, 30)
@@ -524,9 +524,9 @@ func _test_rush() -> void:
 	var d := _new_match(3.0)
 	var p1 := d.fighters[0]
 	p1.ki = p1.ki_max()
-	_src(d, 0).press(0, B.SPECIAL)
+	_src(d, 0).stick(0, 2, Vector2(0, 1)).press(0, B.SPECIAL)
 	var best := _max_combo(d, 0, 120)
-	_check(_last_event(&"super_start").get("kind") == &"rush", "neutral SPECIAL starts the rush super")
+	_check(_last_event(&"super_start").get("kind") == &"rush", "forward SPECIAL starts the rush super")
 	_check(best >= 5, "rush plays its auto combo (combo %d)" % best)
 
 
@@ -576,7 +576,7 @@ func _test_heavy_at_range_blast() -> void:
 
 
 func _test_charge_heavy_special() -> void:
-	var cases := [[Vector2.ZERO, &"rush"], [Vector2(0, 1), &"beam"], [Vector2(0, -1), &"ultimate"]]
+	var cases := [[Vector2.ZERO, &"beam"], [Vector2(0, 1), &"rush"], [Vector2(0, -1), &"ultimate"]]
 	for c: Array in cases:
 		var d := _new_match(6.0)
 		var p1 := d.fighters[0]
@@ -591,7 +591,7 @@ func _test_charge_heavy_special() -> void:
 	d.fighters[0].ki = d.fighters[0].ki_max()
 	_src(d, 0).press(0, B.CHARGE, 5).press(0, B.HEAVY)
 	_run(d, 3)
-	_check(_last_event(&"super_start").get("kind") == &"rush", "CHARGE + HEAVY on the same frame")
+	_check(_last_event(&"super_start").get("kind") == &"beam", "CHARGE + HEAVY on the same frame")
 
 
 func _test_guard_teleport() -> void:
@@ -695,8 +695,8 @@ func _test_air_specials() -> void:
 	var p1 := d.fighters[0]
 	var p2 := d.fighters[1]
 	p1.ki = p1.ki_max()
-	_src(d, 0).press(0, B.JUMP).press(6, B.CHARGE, 4).stick(6, 10, Vector2(0, 1)).press(8, B.HEAVY)
-	_check(_run_until(d, func() -> bool: return _move_id(p1) == &"brawler_beam", 12), "jump + CHARGE + fwd HEAVY = air beam")
+	_src(d, 0).press(0, B.JUMP).press(6, B.CHARGE, 4).press(8, B.HEAVY)
+	_check(_run_until(d, func() -> bool: return _move_id(p1) == &"brawler_beam", 12), "jump + CHARGE + HEAVY = air beam")
 	var y0 := p1.global_position.y
 	_check(_run_until(d, func() -> bool: return not d.entities.is_empty(), 30), "air beam fires")
 	var beam := d.entities[0] as Beam
@@ -706,11 +706,11 @@ func _test_air_specials() -> void:
 	_check(_event_count(&"hit", 1) >= 3, "air beam hits the grounded opponent (%d hits)" % _event_count(&"hit", 1))
 	_check(_run_until(d, func() -> bool: return p1.global_position.y == 0.0 and p1.current_move() == null, 200),
 		"lands after the air beam")
-	# Rush: SPECIAL in the air dives in and plays its auto combo.
+	# Rush: forward + SPECIAL in the air dives in and plays its auto combo.
 	d = _new_match(3.0)
 	p1 = d.fighters[0]
 	p1.ki = p1.ki_max()
-	_src(d, 0).press(0, B.JUMP).press(8, B.SPECIAL)
+	_src(d, 0).press(0, B.JUMP).stick(8, 10, Vector2(0, 1)).press(8, B.SPECIAL)
 	var best := _max_combo(d, 0, 140)
 	_check(_last_event(&"super_start").get("kind") == &"rush", "SPECIAL in the air starts the rush")
 	_check(best >= 5, "air rush dives in and combos (combo %d)" % best)

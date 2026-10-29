@@ -4,6 +4,7 @@ extends InputSource
 ## rebindable profile of `slot` from the Bindings autoload.
 ##
 ## Gamepad: left stick / d-pad = move, right stick flick = dodge.
+## Both: forward tapped twice = DASH (see InputTuning.dash_tap_*).
 ## Stick "up" maps to +Y = toward the opponent (cameras sit behind the fighter
 ## looking at the opponent, so screen-up and fighter-forward agree).
 
@@ -11,8 +12,13 @@ var slot: int
 var kind: int  # Bindings.Kind
 var device_id: int
 
+const NO_TAP := -1 << 30
+
 var _dodge_armed := true
 var _prev_dodge_keys := 0
+## Forward double tap: armed once forward was let go, tick of the first tap.
+var _fwd_armed := true
+var _fwd_tap_tick := NO_TAP
 
 
 func _init(p_slot: int, p_kind: int, p_device_id: int = -1) -> void:
@@ -21,7 +27,7 @@ func _init(p_slot: int, p_kind: int, p_device_id: int = -1) -> void:
 	device_id = p_device_id
 
 
-func _sample(_tick: int) -> InputFrame:
+func _sample(tick: int) -> InputFrame:
 	var t: InputTuning = Tuning.input
 	var f := InputFrame.new()
 
@@ -34,7 +40,26 @@ func _sample(_tick: int) -> InputFrame:
 		_sample_pad(f, t)
 	else:
 		_sample_keyboard(f, t)
+	if _forward_double_tap(f, tick, t):
+		f.held |= InputFrame.Btn.DASH
 	return f
+
+
+## True on the tick forward is pressed for the second time within
+## dash_tap_window_frames (press to press); a pair consumes both taps.
+func _forward_double_tap(f: InputFrame, tick: int, t: InputTuning) -> bool:
+	var y := f.move().y
+	if not _fwd_armed:
+		_fwd_armed = y <= t.dash_tap_rearm
+		return false
+	if y < t.dash_tap_threshold:
+		return false
+	_fwd_armed = false
+	if tick - _fwd_tap_tick <= t.dash_tap_window_frames:
+		_fwd_tap_tick = NO_TAP
+		return true
+	_fwd_tap_tick = tick
+	return false
 
 
 func _sample_pad(f: InputFrame, t: InputTuning) -> void:
@@ -99,3 +124,5 @@ func reset() -> void:
 	super.reset()
 	_dodge_armed = true
 	_prev_dodge_keys = 0
+	_fwd_armed = true
+	_fwd_tap_tick = NO_TAP

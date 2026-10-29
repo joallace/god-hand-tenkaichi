@@ -93,9 +93,9 @@ func _count(d: MatchDirector, type: StringName) -> int:
 	return d.entities.filter(func(e: SimEntity) -> bool: return e.spawn_type() == type).size()
 
 
-## P1 fires a beam (SPECIAL + stick up), P2 throws ki blasts meanwhile.
+## P1 fires a beam (neutral SPECIAL), P2 throws ki blasts meanwhile.
 func _script_projectiles(d: MatchDirector) -> void:
-	_src(d, 0).stick(0, 2, Vector2(0, 1)).press(0, B.SPECIAL)
+	_src(d, 0).press(0, B.SPECIAL)
 	_src(d, 1).press(1, B.BLAST)
 
 

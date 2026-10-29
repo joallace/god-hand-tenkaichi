@@ -86,10 +86,10 @@ func _run_until(d: MatchDirector, cond: Callable, max_ticks: int) -> bool:
 	return cond.call()
 
 
-## P1 fires super 2 (forward + SPECIAL; `back` = ultimate); returns the beam
+## P1 fires super 2 (neutral SPECIAL; `back` = ultimate); returns the beam
 ## the tick it spawns.
 func _fire(d: MatchDirector, back: bool = false) -> Beam:
-	_src(d, 0).stick(0, 2, Vector2(0, -1 if back else 1)).press(0, B.SPECIAL)
+	_src(d, 0).stick(0, 2, Vector2(0, -1 if back else 0)).press(0, B.SPECIAL)
 	_run_until(d, func() -> bool: return not d.entities.is_empty(), 200)
 	return d.entities[0] as Beam if not d.entities.is_empty() else null
 

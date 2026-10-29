@@ -107,7 +107,7 @@ extends CombatEntity
 ## Budokai Tenkaichi button overloads (the BLAST / SPECIAL / TELEPORT buttons
 ## still work as optional dedicated shortcuts):
 ##   - HEAVY outside close_combat_range (from neutral) = ki blast.
-##   - CHARGE held + HEAVY = special: neutral = super1, forward = super2,
+##   - CHARGE held + HEAVY = special: neutral = super2, forward = super1,
 ##     back = ultimate.
 ##   - GUARD pressed at the right time = teleport / vanish: right after
 ##     landing a hit (offensive teleport), in hitstun (vanish escape), in a
@@ -1850,13 +1850,13 @@ func _reappear_dir(anchor: Fighter) -> Vector3:
 func _try_special() -> bool:
 	var y := _input.move().y
 	var t := tuning
-	var move_id := def.super1
-	var cost := t.super1_cost_bars
-	var kind := &"rush"
+	var move_id := def.super2
+	var cost := t.super2_cost_bars
+	var kind := &"beam"
 	if y > t.special_dir_threshold:
-		move_id = def.super2
-		cost = t.super2_cost_bars
-		kind = &"beam"
+		move_id = def.super1
+		cost = t.super1_cost_bars
+		kind = &"rush"
 	elif y < -t.special_dir_threshold:
 		move_id = def.ultimate
 		cost = t.ultimate_cost_bars

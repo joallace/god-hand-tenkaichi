@@ -266,7 +266,7 @@ func _brawler() -> Resource:
 		"damage": 120.0, "hitstun": 40, "knockback": Vector3(0, 8.0, 9.0), "knockdown": true,
 		"is_heavy": true, "hitstop": 14, "hitbox_offset": Vector3(0, 1.3, 0.85),
 	}))
-	# --- Super 2: beam (forward + SPECIAL) -----------------------------------------
+	# --- Super 2: beam (neutral SPECIAL) ------------------------------------------
 	var beam_hit := _mk({}, {
 		# Head grows out at 25 m/s (full 18 m in ~43 f, mid range in ~20 f),
 		# bending up to 1.5 deg/f toward the target until 4 m from it; 72 f
