@@ -12,7 +12,7 @@ var slot: int
 var kind: int  # Bindings.Kind
 var device_id: int
 
-const NO_TAP := -1 << 30
+const NO_TAP := -(1 << 30)
 
 var _dodge_armed := true
 var _prev_dodge_keys := 0
