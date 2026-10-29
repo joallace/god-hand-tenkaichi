@@ -28,6 +28,9 @@ extends Resource
 ## HEAVY pressed during a duck (forward dodge): God Hand low kick out of the
 ## crouch; falls back to the stick's HEAVY when empty.
 @export var duck_heavy: StringName = &""
+## LIGHT while lying after a knockdown: God Hand get-up strike (rises
+## attacking); empty = LIGHT is a plain quick rise.
+@export var getup_attack: StringName = &""
 @export var dash_attack: StringName = &""
 @export var ki_blast: StringName = &""
 ## THROW: grab that beats guard (stick back = throw behind you).

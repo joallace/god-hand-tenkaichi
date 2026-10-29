@@ -85,6 +85,10 @@ enum GuardResult { PLAIN, KI_GUARD, PUSH_OFF, PUSH_STOP, UNBLOCKABLE }
 ## >0 makes a capsule extending forward (+z) from hitbox_offset by this length.
 ## Beams: the maximum length the head travels out to (see `travel_speed`).
 @export var hitbox_length: float = 0.0
+## Hits all around (spinning sweeps): knockback, push-off recoil and loop
+## push-outs point from the attacker's center toward each victim instead of
+## along the attacker's facing. Center the hitbox on the body (z = 0).
+@export var radial: bool = false
 
 @export_group("Movement")
 ## Forward speed (m/s) applied for `lunge_frames` frames from `lunge_start`.

@@ -186,8 +186,9 @@ extends Resource
 @export var hitstop_heavy: int = 8
 ## Longest a fighter stays lying on the ground (no input) before getting up.
 @export var knockdown_frames: int = 40
-## From this many frames lying, a button gets up at once (quick rise) and a
-## dodge flick rolls (sway left/right, backflip back; up = quick rise).
+## From this many frames lying, a button gets up at once (quick rise; LIGHT
+## = get-up strike) and a dodge flick rolls (sway left/right, backflip back;
+## up = quick rise).
 @export var knockdown_min_frames: int = 8
 ## Airborne knockdown: from this frame after the last hit, a dodge flick
 ## flips back and lands on the feet (God Hand style air recovery).
@@ -197,6 +198,9 @@ extends Resource
 @export var wakeup_invuln_frames: int = 20
 ## Length of the get-up (Wakeup) state; invuln may outlast it.
 @export var wakeup_frames: int = 12
+## Get-up strike (LIGHT while lying): invulnerable from its first frame for
+## this long (through the spin's active frames; the recovery is punishable).
+@export var getup_attack_invuln_frames: int = 16
 ## Combo damage scaling (BT3-style): the first N hits of a combo deal full
 ## damage, then each further hit loses `combo_scaling_step`, down to the floor.
 @export var combo_scaling_start_hit: int = 4

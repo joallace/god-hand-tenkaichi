@@ -79,7 +79,8 @@ extends CombatEntity
 ##   &"ultimate_start" {freeze_frames}
 ##   &"not_enough_ki"  {needed, have}
 ##   &"knockdown"      {position}
-##   &"wakeup"         {}                             (also on a quick rise)
+##   &"wakeup"         {}                             (also on a quick rise
+##                                                     and a get-up strike)
 ##   &"ko"             {position}
 ##   &"downed"         {position}                     (co-op: 0 HP while downable)
 ##   &"out"            {}                             (bled out while downed)
@@ -132,7 +133,8 @@ extends CombatEntity
 ## pressed during one is queued for its attack_from frame, except HEAVY in a
 ## duck: the duck kick (CharacterDef.duck_heavy) from duck_heavy_from_frame.
 ## Knocked down: a flick in the air flips back onto the feet (air tech); on
-## the floor a button rises at once and a flick rolls.
+## the floor a button rises at once and a flick rolls; LIGHT rises into the
+## get-up strike (CharacterDef.getup_attack, hits all around).
 ##
 ## Ki charge (CHARGE held, BT3 style): a charge_windup_frames wind-up before
 ## ki fills (CHARGE + HEAVY / SPECIAL specials already work in it), then
@@ -891,6 +893,7 @@ func get_active_hitboxes() -> Array[Hitbox]:
 	hb.is_throw = m.is_throw
 	hb.is_melee = not m.is_throw
 	hb.single_target = m.is_throw or m.single_target
+	hb.radial = m.radial
 	hb.opens_string = _move_opens_string and sub == 0
 	if m.is_charge_strike():
 		var t := tuning
@@ -1722,6 +1725,8 @@ func _tick_knockdown() -> void:
 			_try_dodge(DodgeKind.ROLL)
 			_invuln_frames = tuning.wakeup_invuln_frames
 			return
+		if _try_getup_attack():
+			return
 		if _consume_rise():
 			_wake_up()
 			return
@@ -1739,6 +1744,18 @@ func _consume_rise() -> bool:
 	for btn: int in [InputFrame.Btn.LIGHT, InputFrame.Btn.HEAVY, InputFrame.Btn.GUARD, InputFrame.Btn.JUMP]:
 		any = _consume(btn) or any
 	return any
+
+
+## Get-up strike (God Hand): LIGHT while lying rises straight into
+## CharacterDef.getup_attack, invulnerable for getup_attack_invuln_frames.
+func _try_getup_attack() -> bool:
+	if def.getup_attack == &"" or not _consume(InputFrame.Btn.LIGHT):
+		return false
+	_end_attacker_combo()
+	event.emit(&"wakeup", {"slot": slot})
+	_start_move_id(def.getup_attack)
+	_invuln_frames = tuning.getup_attack_invuln_frames
+	return true
 
 
 func _wake_up() -> void:
@@ -2053,7 +2070,7 @@ func _take_blocked(hb: Hitbox, res: int) -> void:
 	var m := hb.move
 	var chip := m.damage * hb.damage_mult * tuning.guard_chip_ratio
 	_set_health(maxf(health - chip, minf(health, tuning.chip_min_health)))  # chip can't KO
-	var push := hb.world_knockback() * tuning.guard_pushback_ratio
+	var push := hb.world_knockback(global_position) * tuning.guard_pushback_ratio
 	push.y = 0.0
 	var crash := hb.breaks_guard
 	match res:
@@ -2066,7 +2083,8 @@ func _take_blocked(hb: Hitbox, res: int) -> void:
 			_add_ki(tuning.ki_gain_on_push_off)
 			var stop := res == MoveData.GuardResult.PUSH_STOP
 			if hb.is_melee and hb.attacker != null and not crash:
-				hb.attacker._recoil(tuning.push_off_recoil_frames, hb.forward * -tuning.push_off_recoil_speed)
+				hb.attacker._recoil(tuning.push_off_recoil_frames,
+						hb.forward_at(global_position) * -tuning.push_off_recoil_speed)
 			if stop and director:
 				director.request_world_freeze(tuning.push_stop_freeze_frames)
 			event.emit(&"push_off", {"slot": slot, "attacker_slot": hb.attacker.slot if hb.attacker else -1,
@@ -2112,7 +2130,7 @@ func _take_hit(hb: Hitbox) -> void:
 		_end_vanish_battle(attacker.slot if attacker else -1)
 	if attacker != null:
 		attacker._on_hit_dealt(m, self)
-	var kb := hb.world_knockback()
+	var kb := hb.world_knockback(global_position)
 	var was_juggle := state == State.KNOCKDOWN
 	var loop := _is_loop_hit(hb, was_juggle)
 	if health <= 0.0:
@@ -2173,7 +2191,8 @@ func _is_loop_hit(hb: Hitbox, was_juggle: bool) -> bool:
 func _push_out(hb: Hitbox) -> void:
 	_enter(State.KNOCKDOWN)
 	_land_frame = -1
-	var away := Vector3(hb.forward.x, 0.0, hb.forward.z).normalized() * tuning.loop_pushout_speed
+	var fwd := hb.forward_at(global_position)
+	var away := Vector3(fwd.x, 0.0, fwd.z).normalized() * tuning.loop_pushout_speed
 	_vel = Vector3(away.x, minf(_vel.y, 0.0), away.z)
 	event.emit(&"knockdown", {"slot": slot, "position": global_position})
 

@@ -56,6 +56,9 @@ extends Resource
 @export var wakeup_option_chance: Vector2 = Vector2(0.1, 0.9)
 ## Of those early get-ups, the share that roll away.
 @export var wakeup_roll_chance: Vector2 = Vector2(0.2, 0.6)
+## Of the rest, the share that rise with the get-up strike (LIGHT) when the
+## target is within its reach; the others quick rise.
+@export var wakeup_attack_chance: Vector2 = Vector2(0.15, 0.6)
 ## Chance to read a guarded attack and hold the guard pose its guard results
 ## favour (low vs low kicks repels them, etc.); a miss keeps a mid guard.
 @export var guard_pose_chance: Vector2 = Vector2(0.1, 0.95)

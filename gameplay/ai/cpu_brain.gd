@@ -401,7 +401,8 @@ func _hitstun_reflex() -> void:
 		_tap(B.GUARD, _clock + _reaction())
 
 
-## Knocked down: flip out in the air, or pick a get-up once on the floor.
+## Knocked down: flip out in the air, or pick a get-up once on the floor
+## (roll, get-up strike with an enemy in its reach, or quick rise).
 func _knockdown_reflex() -> void:
 	var t := me.tuning
 	if me.is_airborne():
@@ -421,6 +422,8 @@ func _knockdown_reflex() -> void:
 	if _roll(cfg.wakeup_roll_chance):
 		_dodge_dir = [D.LEFT, D.RIGHT, D.BACK][rng.randi_range(0, 2)]
 		_dodge_at = at
+	elif opp != null and _dist() <= _reach(me.def.move(me.def.getup_attack)) and _roll(cfg.wakeup_attack_chance):
+		_tap(B.LIGHT, at)  # get-up strike
 	else:
 		_tap(B.GUARD, at)
 

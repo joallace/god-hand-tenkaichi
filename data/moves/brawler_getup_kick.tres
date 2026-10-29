@@ -1,0 +1,26 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_s4yoy"]
+
+[resource]
+script = ExtResource("1_s4yoy")
+id = &"brawler_getup_kick"
+button = 1
+pose = &"getup_kick"
+height = 2
+startup = 6
+active = 10
+recovery = 20
+damage = 45.0
+hitstun = 26
+guard_stun = 12
+knockback = Vector3(0, 3, 4)
+knockdown = true
+guard_ki_cost = 15.0
+guard_results = Array[int]([1, 4, 2])
+is_heavy = true
+hitbox_offset = Vector3(0, 0.4, 0)
+hitbox_radius = 1.25
+radial = true
+track_frames = 0
+low_profile = true

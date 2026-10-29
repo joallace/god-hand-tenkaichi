@@ -16,7 +16,7 @@ const STANDING: Array[StringName] = [
 	&"throw_windup", &"throw_hold", &"throw_toss", &"taunt", &"uppercut_windup",
 	&"hammer", &"hammer_windup", &"smash_left", &"smash_left_windup", &"smash_right",
 	&"smash_right_windup", &"duck_kick", &"duck_kick_windup", &"dash_start", &"dash_stop",
-	&"charge_end", &"duck", &"duck_curl", &"duck_wide",
+	&"charge_end", &"duck", &"duck_curl", &"duck_wide", &"getup_kick", &"getup_kick_windup",
 ]
 const FOOT_TOLERANCE := 0.12
 ## Highest point (m) a duck pose may reach: the original single duck pose's
@@ -24,7 +24,7 @@ const FOOT_TOLERANCE := 0.12
 const DUCK_MAX_TOP := 1.25
 ## Attack poses that must have a "<pose>_windup" for their startup.
 const NEEDS_WINDUP: Array[StringName] = [&"throw", &"uppercut", &"hammer", &"smash_left", &"smash_right",
-	&"dive_kick", &"duck_kick"]
+	&"dive_kick", &"duck_kick", &"getup_kick"]
 const MOVES_DIR := "res://data/moves/"
 
 var _ok := true
@@ -56,6 +56,13 @@ func _ready() -> void:
 	for j in [&"kn_l", &"kn_r"]:
 		var low := _lowest(_visual._joints[j])
 		_check(absf(low) <= GROUND_TOLERANCE, "wakeup %s on the floor (lowest y %.3f)" % [j, low])
+	# Get-up strike: spinning on both hands planted on the floor.
+	for id in [&"getup_kick", &"getup_kick_windup"]:
+		_apply(id)
+		for j in [&"el_l", &"el_r"]:
+			var low := _lowest(_visual._joints[j])
+			print("%s %s lowest point y = %.3f" % [id, j, low])
+			_check(absf(low) <= FOOT_TOLERANCE, "%s %s hand on the floor (lowest y %.3f)" % [id, j, low])
 	_test_states_resolve()
 	_test_move_poses()
 	_test_duck_variants()

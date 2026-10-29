@@ -11,7 +11,7 @@ var _events: Array = []  # [slot, kind, data]
 func _ready() -> void:
 	var tests: Array[Callable] = [
 		_test_fights, _test_levels_ordered, _test_defense_scales, _test_perfect_dodge,
-		_test_vanish_battle_response, _test_knockdown_options, _test_guard_pose, _test_throw_break,
+		_test_vanish_battle_response, _test_knockdown_options, _test_getup_attack_choice, _test_guard_pose, _test_throw_break,
 		_test_throws_turtle, _test_determinism, _test_save_load, _test_full_match,
 	]
 	for t in tests:
@@ -223,6 +223,41 @@ func _test_knockdown_options() -> void:
 	var rises := _knockdown_options(top, false, 8)
 	var weak_rises := _knockdown_options(0, false, 8)
 	_check(rises >= 4 and weak_rises < rises, "top CPU gets up early more often (%d/8 vs %d/8)" % [rises, weak_rises])
+
+
+## Floored right next to its target, the top CPU sometimes rises with the
+## get-up strike; the weakest does it less.
+func _getup_attacks(lvl: int, trials: int) -> int:
+	var d := _new_match([-1, lvl], 70 + lvl, 1.4)
+	_make_passive(d, 1)
+	var f := d.fighters[1]
+	var homes: Array[Transform3D] = [d.fighters[0].global_transform, f.global_transform]
+	var n := 0
+	for i in trials:
+		for k in 2:
+			d.fighters[k].reset_for_round(homes[k])
+		f._enter(Fighter.State.KNOCKDOWN)
+		f._land_frame = -1
+		f._vel = Vector3.ZERO
+		for k in 150:
+			d.step()
+			var m := f.current_move()
+			if m != null and m.id == f.def.getup_attack:
+				n += 1
+				break
+			if f.current_state_name() == &"idle":
+				break
+		for k in 120:
+			if f.current_state_name() == &"idle":
+				break
+			d.step()
+	return n
+
+
+func _test_getup_attack_choice() -> void:
+	var top := _getup_attacks(Tuning.cpu.level_count() - 1, 12)
+	var weak := _getup_attacks(0, 12)
+	_check(top >= 2 and weak <= top, "top CPU uses the get-up strike up close (%d/12 vs weakest %d/12)" % [top, weak])
 
 
 func _test_vanish_battle_response() -> void:

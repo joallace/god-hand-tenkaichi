@@ -204,6 +204,17 @@ func _brawler() -> Resource:
 		"hitbox_offset": Vector3(0.1, 0.3, 0.95), "hitbox_radius": 0.5, "lunge_speed": 3.0, "lunge_frames": 6,
 		"special_cancelable": true, "cancel_requires_hit": true, "cancel_start": 8, "cancel_end": 26,
 	}))
+	# --- Get-up strike: LIGHT while lying. Capoeira-style spin on the hands,
+	# legs sweeping a full circle low around the body (hits on every side,
+	# pushing each victim away). Invulnerable through the spin
+	# (FighterTuning.getup_attack_invuln_frames); a blocked one is punishable.
+	moves.append(_mk({}, {
+		"id": &"brawler_getup_kick", "button": LIGHT, "pose": &"getup_kick", "height": LOW,
+		"guard_results": G_HEAVY_LOW, "low_profile": true, "is_heavy": true, "radial": true,
+		"startup": 6, "active": 10, "recovery": 20, "damage": 45.0, "hitstun": 26,
+		"knockback": Vector3(0, 3.0, 4.0), "knockdown": true, "guard_stun": 12, "guard_ki_cost": 15.0,
+		"hitbox_offset": Vector3(0, 0.4, 0), "hitbox_radius": 1.25,
+	}))
 	moves.append(_mk({}, {
 		"id": &"brawler_dash_punch", "button": LIGHT, "pose": &"dash_punch", "guard_results": G_KI,
 		"startup": 6, "active": 5, "recovery": 18, "damage": 60.0, "hitstun": 26,
@@ -319,6 +330,7 @@ func _brawler() -> Resource:
 	d.jump_attack = &"brawler_jump_kick"
 	d.jump_heavy = &"brawler_dive_kick"
 	d.duck_heavy = &"brawler_duck_kick"
+	d.getup_attack = &"brawler_getup_kick"
 	d.dash_attack = &"brawler_dash_punch"
 	d.ki_blast = &"brawler_ki_blast"
 	d.throw = &"brawler_throw"

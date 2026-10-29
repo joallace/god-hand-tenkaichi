@@ -78,6 +78,19 @@ const POSES := {
 		&"root": Vector3(0, -0.5, 0)},
 	&"duck_kick_windup": {&"torso": Vector3(45, 15, 0), &"hip_l": Vector3(110, 0, 0), &"kn_l": Vector3(-140, 0, 0),
 		&"hip_r": Vector3(105, 0, 0), &"kn_r": Vector3(-145, 0, 0), &"root": Vector3(0, -0.5, 0)},
+	# Get-up strike: pushes off the floor onto both hands, legs tucked...
+	&"getup_kick_windup": {&"torso": Vector3(70, 0, 0), &"head": Vector3(-35, 0, 0),
+		&"sh_l": Vector3(-40, 0, -15), &"el_l": Vector3(10, 0, 0),
+		&"sh_r": Vector3(-40, 0, 15), &"el_r": Vector3(10, 0, 0),
+		&"hip_l": Vector3(110, 0, -10), &"kn_l": Vector3(-140, 0, 0),
+		&"hip_r": Vector3(110, 0, 10), &"kn_r": Vector3(-140, 0, 0), &"root": Vector3(0, -0.5, 0)},
+	# ...then, hands planted, one leg swings out straight and low (capoeira
+	# style) while the body spins a full circle (procedural, GETUP_SPIN_DEG).
+	&"getup_kick": {&"torso": Vector3(75, 0, -10), &"head": Vector3(-40, 0, 10),
+		&"sh_l": Vector3(-45, 0, -10), &"el_l": Vector3(5, 0, 0),
+		&"sh_r": Vector3(-45, 0, 10), &"el_r": Vector3(5, 0, 0),
+		&"hip_l": Vector3(100, 0, -15), &"kn_l": Vector3(-135, 0, 0),
+		&"hip_r": Vector3(10, 0, 80), &"kn_r": Vector3(0, 0, 0), &"root": Vector3(0, -0.5, 0)},
 	&"dash_punch": {&"torso": Vector3(35, -15, 0), &"sh_r": Vector3(90, 0, 0), &"el_r": Vector3(0, 0, 0),
 		&"sh_l": Vector3(-35, 0, -10), &"hip_l": Vector3(45, 0, 0), &"hip_r": Vector3(-35, 0, 0)},
 	&"ki_blast": {&"torso": Vector3(0, -25, 0), &"sh_r": Vector3(90, 0, 0), &"el_r": Vector3(0, 0, 0)},
@@ -234,6 +247,9 @@ const TAUNT_WAVE_HZ := 2.5
 const TAUNT_WAVE_DEG := 35.0
 const TAUNT_BOB_HZ := 1.5
 const TAUNT_BOB_HEIGHT := 0.03
+## Get-up strike (pose &"getup_kick"): body turns this much over the
+## move's active frames, so the extended leg sweeps all around.
+const GETUP_SPIN_DEG := -360.0
 ## Held (thrown) fighters dangle a little.
 const THROWN_SWAY_HZ := 3.0
 const THROWN_SWAY_DEG := 8.0
@@ -374,6 +390,12 @@ func _apply_procedural() -> void:
 				var spin: Node3D = _joints[&"spin"]
 				spin.rotation_degrees.x = 360.0 * p
 				_body.position.y += sin(PI * p) * 0.8
+		&"attack":
+			var m := f.current_move()
+			if m != null and m.pose == &"getup_kick" and f.attack_phase() == 1:
+				var p := clampf((f.state_frame() - m.startup) / float(maxi(m.active, 1)), 0.0, 1.0)
+				var spin: Node3D = _joints[&"spin"]
+				spin.rotation_degrees.y = GETUP_SPIN_DEG * p
 		&"charge":
 			_body.position.x += sin(_time * 60.0) * 0.01
 		&"taunt":

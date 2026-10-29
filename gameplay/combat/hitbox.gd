@@ -36,8 +36,22 @@ var is_melee: bool = true
 var opens_string: bool = true
 ## Grab (MoveData.is_throw): can't be blocked, only broken.
 var is_throw: bool = false
+## Hits all around (MoveData.radial): each victim is pushed away from `origin`.
+var radial: bool = false
 
 
-func world_knockback() -> Vector3:
+## Attack direction as seen by a victim at `at` (ground plane): `forward`,
+## or from `origin` toward the victim for a radial hitbox.
+func forward_at(at: Vector3) -> Vector3:
+	if not radial:
+		return forward
+	var d := Vector3(at.x - origin.x, 0.0, at.z - origin.z)
+	return d.normalized() if d.length_squared() > 0.0001 else forward
+
+
+## Knockback for a victim at `at`, attacker space -> world.
+func world_knockback(at: Vector3) -> Vector3:
 	var k := move.knockback
-	return right * k.x + Vector3.UP * k.y + forward * k.z
+	var fwd := forward_at(at)
+	var rgt := right if not radial else Vector3(-fwd.z, 0.0, fwd.x)
+	return rgt * k.x + Vector3.UP * k.y + fwd * k.z

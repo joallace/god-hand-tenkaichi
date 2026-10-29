@@ -22,7 +22,7 @@ func _ready() -> void:
 		_test_guard_teleport, _test_guard_vanish_escape, _test_guard_vanish, _test_guard_vanish_mash,
 		_test_guard_vanish_first_hit, _test_guard_vanish_window_hp, _test_attack_tracking,
 		_test_combo_scaling, _test_anti_loop_repeat, _test_anti_loop_relaunch, _test_air_tech,
-		_test_quick_rise, _test_wakeup_roll, _test_stay_down, _test_dodge_chain, _test_duck_variants, _test_dodge_lengths, _test_dodge_queued_attack,
+		_test_quick_rise, _test_getup_attack, _test_getup_attack_radial, _test_wakeup_roll, _test_stay_down, _test_dodge_chain, _test_duck_variants, _test_dodge_lengths, _test_dodge_queued_attack,
 		_test_determinism, _test_determinism_bt3, _test_determinism_air,
 	]
 	for t in tests:
@@ -1054,11 +1054,60 @@ func _test_quick_rise() -> void:
 	var t := p2.tuning
 	_knock_down(p2, false)
 	_run(d, 2)
-	_src(d, 1).press(t.knockdown_min_frames + 2, B.LIGHT)
+	_src(d, 1).press(t.knockdown_min_frames + 2, B.HEAVY)
 	var rose := _run_until(d, func() -> bool: return p2.current_state_name() == &"wakeup", t.knockdown_frames)
 	_check(rose and p2.state_frame() <= 1 and _event_count(&"wakeup", 1) == 1, "button while lying rises early")
 	_run(d, 30)
 	_check(p2.current_move() == null, "quick-rise button doesn't also attack")
+
+
+## LIGHT while lying: rises straight into the spinning get-up strike,
+## invulnerable through its spin; it knocks a close attacker down.
+func _test_getup_attack() -> void:
+	var d := _new_match()
+	var p1 := d.fighters[0]
+	var p2 := d.fighters[1]
+	var t := p2.tuning
+	_knock_down(p2, false)
+	_run(d, 2)
+	_src(d, 1).press(t.knockdown_min_frames + 2, B.LIGHT)
+	var started := _run_until(d, func() -> bool: return p2.current_move() != null, t.knockdown_frames)
+	_check(started and p2.current_move().id == p2.def.getup_attack and _event_count(&"wakeup", 1) == 1,
+		"LIGHT while lying = get-up strike (%s)" % (p2.current_move().id if p2.current_move() else &"none"))
+	# Meaty jab into the startup: whiffs on the invulnerable riser.
+	_src(d, 0).press(d.tick + 1 - _src(d, 0).start_tick, B.LIGHT)
+	var m := p2.current_move()
+	var invuln_ok := true
+	for i in m.startup + m.active - 1:
+		invuln_ok = invuln_ok and p2.is_invulnerable()
+		_run(d, 1)
+	_check(invuln_ok and p2.health == t.max_health, "get-up strike invulnerable through its spin (%.0f hp)" % p2.health)
+	var start := p1.global_position
+	var down := _run_until(d, func() -> bool: return p1.current_state_name() == &"knockdown", 30)
+	_check(down and p1.health < p1.tuning.max_health, "get-up strike knocks the attacker down")
+	_run(d, 10)
+	var away := (p1.global_position - start).dot((start - p2.global_position).normalized())
+	_check(away > 0.3, "victim pushed away from the riser (%.2f m)" % away)
+	_run_until(d, func() -> bool: return p2.current_move() == null, 60)
+	_check(p2.current_state_name() == &"idle", "get-up strike recovers to idle (%s)" % p2.current_state_name())
+
+
+## Radial hitboxes push every victim away from the attacker's center, even
+## one behind it; normal hitboxes push along the facing.
+func _test_getup_attack_radial() -> void:
+	var hb := Hitbox.new()
+	hb.move = load("res://data/moves/brawler_getup_kick.tres") as MoveData
+	hb.origin = Vector3.ZERO
+	hb.forward = Vector3(0, 0, -1)
+	hb.right = Vector3(1, 0, 0)
+	_check(hb.move.radial, "get-up strike is radial")
+	var behind := Vector3(0, 0, 1)
+	hb.radial = true
+	var kb := hb.world_knockback(behind)
+	_check(kb.z > 0.0 and kb.y > 0.0, "radial knockback points away from the center (%s)" % kb)
+	_check(hb.world_knockback(Vector3(1, 0, 0)).x > 0.0, "radial knockback to the side")
+	hb.radial = false
+	_check(hb.world_knockback(behind).z < 0.0, "facing knockback ignores the victim's side")
 
 
 func _test_wakeup_roll() -> void:
