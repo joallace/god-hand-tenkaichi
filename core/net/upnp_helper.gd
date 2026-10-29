@@ -9,6 +9,8 @@ extends RefCounted
 ## through `wait_to_finish()`, so no state is shared while it runs. A stop()
 ## during discovery waits for the worker (bounded by DISCOVER_TIMEOUT_MS),
 ## then removes the mapping if it got made; `finished` is not emitted then.
+## Where UPnP can't run (PlatformCaps.upnp: web) start() is a no-op and the
+## status stays IDLE.
 
 signal finished(ok: bool, external_ip: String, error: String)
 
@@ -36,6 +38,8 @@ var _upnp: UPNP
 ## Start mapping UDP `p` -> this machine (non-blocking).
 func start(p: int) -> void:
 	stop()
+	if not PlatformCaps.upnp():
+		return
 	port = p
 	external_ip = ""
 	error_text = ""

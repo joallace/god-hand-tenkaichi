@@ -96,6 +96,10 @@ before autoloads exist. See `tests/README.md`. Always wrap Godot calls in
     (`user://audio.cfg`: volume per bus; buses in `default_bus_layout.tres`).
     `apply_video()` -> window/renderer + `video_applied`; `ViewLayout` pulls
     `configure_viewport()`. Window bits are skipped headless (`apply_display`).
+  - `platform/PlatformCaps`: what the platform can do (window control, quit,
+    UPnP, FSR, `net_backend()`); web = browser owns the window, no online
+    yet (`Net.online_available()` gates every online menu entry). Read by
+    Settings, menus and Net, never the sim.
 - `gameplay/` — `Fighter` (state machine, public contract in its header;
   `Targeting` picks/cycles its target),
   `CombatSystem`, `MoveData`, projectiles, `CharacterDef`/`CharacterRegistry`,
@@ -189,6 +193,18 @@ the 4.7.2 export templates (editor: Editor → Manage Export Templates →
 Download, or install the 4.7.2 `.tpz` from godotengine.org), then
 `mkdir -p builds/linux && godot --headless --export-release "Linux" builds/linux/god_hand_tenkaichi.x86_64`
 (or `"Windows Desktop" builds/windows/god_hand_tenkaichi.exe`).
+
+"Web" (offline only: no online/UPnP/Quit/window rows, see PlatformCaps)
+exports single-threaded (`web_nothreads_*` templates, no COOP/COEP headers
+needed) with the Compatibility renderer (`rendering_method.web`):
+`mkdir -p builds/web && godot --headless --export-release "Web" builds/web/index.html`,
+then serve `builds/web/` over HTTP (`python3 -m http.server`; `file://`
+won't load) and open `http://localhost:8000/`: Godot needs a secure
+context, which plain HTTP only is on `localhost`/`127.0.0.1` (not
+`0.0.0.0` or a LAN IP; those need HTTPS). For other devices on the LAN:
+`python3 tools/serve_web.py` (HTTPS on :8443 with a self-signed cert in
+`builds/web-cert/`, accept the browser warning once; `--regen-cert` after
+an IP change; also sends COOP/COEP). Online in the browser: `docs/web_online.md`.
 
 ## Design references
 

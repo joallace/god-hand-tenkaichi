@@ -39,7 +39,8 @@ const ONLINE_LINES := [
 
 var _scroll: ScrollContainer
 var _grid: GridContainer
-## Scrolled content: the controls grid, then the Online section.
+## Scrolled content: the controls grid, then the Online section (only
+## where online play exists).
 var _content: VBoxContainer
 var _col: VBoxContainer
 var _panel: PanelContainer
@@ -81,13 +82,14 @@ func _ready() -> void:
 	_content = VBoxContainer.new()
 	_content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_content.add_child(_grid)
-	var online := MenuHelpers.label("Online")
-	online.add_theme_color_override("font_color", u.color_orange)
-	_content.add_child(online)
-	for line: String in ONLINE_LINES:
-		var l := MenuHelpers.label(line % Tuning.net.default_port if line.contains("%d") else line, &"HintLabel")
-		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		_content.add_child(l)
+	if Net.online_available():
+		var online := MenuHelpers.label("Online")
+		online.add_theme_color_override("font_color", u.color_orange)
+		_content.add_child(online)
+		for line: String in ONLINE_LINES:
+			var l := MenuHelpers.label(line % Tuning.net.default_port if line.contains("%d") else line, &"HintLabel")
+			l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			_content.add_child(l)
 	_scroll.add_child(_content)
 	var tip := MenuHelpers.label("Land hits to build ki. Read the attack, flick the right stick to slip it, punish!",
 			&"HintLabel", HORIZONTAL_ALIGNMENT_CENTER)

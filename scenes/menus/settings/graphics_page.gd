@@ -14,6 +14,10 @@ extends SettingsPage
 ## desktop resolution; Render scale is the lever there), so they are
 ## disabled otherwise. Presets larger than the screen are hidden; Width /
 ## Height steppers give any custom size, clamped to the screen on apply.
+##
+## Rows the platform can't honour are hidden (PlatformCaps): window mode,
+## size and VSync on web (the browser owns the window), the upscaler
+## wherever FSR is unavailable (Compatibility renderer, so always on web).
 
 const MODE_LABELS := ["Windowed", "Borderless fullscreen", "Fullscreen (exclusive)"]
 const UPSCALER_LABELS := ["Bilinear", "FSR 1.0", "FSR 2.2"]
@@ -115,6 +119,10 @@ func _ready() -> void:
 		Settings.video.set_ui_scale(Tuning.video.ui_scale_steps[i])
 		_apply_now())
 	add_reset_row("Graphics", _reset)
+	var window_rows := PlatformCaps.window_control()
+	for c: Control in _display_rows() + [vsync_sel]:
+		c.visible = window_rows
+	upscaler_sel.visible = PlatformCaps.fsr()
 	_sync_rows()
 
 
@@ -263,9 +271,10 @@ func _reset() -> void:
 	var mode := v.window_mode
 	var size := v.window_size
 	v.reset_defaults()
-	# Display values go through the confirm flow like any display change.
-	pending_mode = v.window_mode
-	pending_size = v.window_size
+	# Display values go through the confirm flow like any display change
+	# (and stay put where the browser owns the window).
+	pending_mode = v.window_mode if PlatformCaps.window_control() else mode
+	pending_size = v.window_size if PlatformCaps.window_control() else size
 	v.set_window_mode(mode)
 	v.set_window_size(size)
 	Settings.apply_video()

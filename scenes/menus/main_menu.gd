@@ -1,5 +1,7 @@
 extends Control
 ## Main menu (project main scene). Built in code; see ui/menu_helpers.gd.
+## "Join online" needs an online transport and "Quit" a closable window
+## (both absent on web, PlatformCaps).
 
 var _title: Label
 var _list: VBoxContainer
@@ -23,13 +25,14 @@ func _ready() -> void:
 	var sub := MenuHelpers.label("ULTIMATE STREET-FIGHTING BUDOKAI", &"HintLabel", HORIZONTAL_ALIGNMENT_CENTER)
 	col.add_child(sub)
 
-	_list = MenuHelpers.vlist([
-		MenuHelpers.button("Play", _on_play),
-		MenuHelpers.button("Join online", _on_join_online),
-		MenuHelpers.button("How to Play", _on_how_to_play),
-		MenuHelpers.button("Settings", _on_settings),
-		MenuHelpers.button("Quit", _on_quit),
-	])
+	var buttons: Array = [MenuHelpers.button("Play", _on_play)]
+	if Net.online_available():
+		buttons.append(MenuHelpers.button("Join online", _on_join_online))
+	buttons.append(MenuHelpers.button("How to Play", _on_how_to_play))
+	buttons.append(MenuHelpers.button("Settings", _on_settings))
+	if PlatformCaps.can_quit():
+		buttons.append(MenuHelpers.button("Quit", _on_quit))
+	_list = MenuHelpers.vlist(buttons)
 	_list.name = "Buttons"
 	col.add_child(_list)
 	_message = MenuHelpers.label(Net.pending_message, &"HintLabel", HORIZONTAL_ALIGNMENT_CENTER)

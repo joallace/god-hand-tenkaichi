@@ -16,6 +16,10 @@ extends Node
 ## session, stores a message in `pending_message` (the main menu shows and
 ## clears it) and goes to the main menu. During a match the driver aborts
 ## and the match scene does the same through `end_with_message`.
+##
+## Platforms without an online transport (PlatformCaps.net_backend: web,
+## for now) never open a session: host()/join() return ERR_UNAVAILABLE and
+## the menus hide every online entry (`online_available()`).
 
 ## Guest: the host accepted us (the lobby scene is next).
 signal join_succeeded()
@@ -58,6 +62,11 @@ func update() -> void:
 		room.tick()
 
 
+## This platform can host or join at all (menus show online entries).
+func online_available() -> bool:
+	return PlatformCaps.online()
+
+
 func is_online() -> bool:
 	return session != null and session.state != Session.State.CLOSED
 
@@ -76,6 +85,8 @@ func local_peer() -> int:
 ## (ERR_CANT_CREATE: the port is in use). Starts a UPnP mapping.
 func host(port: int = 0) -> Error:
 	leave()
+	if not online_available():
+		return ERR_UNAVAILABLE
 	var p := port if port > 0 else settings.host_port()
 	var t := EnetTransport.new()
 	var err := t.host(p, Tuning.net.max_humans - 1)
@@ -91,6 +102,8 @@ func host(port: int = 0) -> Error:
 ## arrives as join_succeeded or join_failed.
 func join(address: String) -> Error:
 	leave()
+	if not online_available():
+		return ERR_UNAVAILABLE
 	var t := EnetTransport.new()
 	var err := t.join(address, Tuning.net.default_port)
 	if err != OK:

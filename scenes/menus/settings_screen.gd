@@ -16,6 +16,9 @@ extends Control
 ##   var s := SettingsScreen.open_overlay(self, layer, true)
 ##   s.closed.connect(_on_settings_closed)
 ## `in_match` locks the Online page's session settings.
+##
+## Without online play (Net.online_available() false: web) there is no
+## Online tab and `online` stays null.
 
 signal closed
 
@@ -32,6 +35,7 @@ var initial_tab: int = Tab.GRAPHICS
 var graphics: GraphicsPage
 var audio: AudioPage
 var controls: ControlsScreen
+## null when this platform has no online play.
 var online: OnlinePage
 ## Pages in tab order.
 var pages: Array[Control] = []
@@ -86,9 +90,11 @@ func _ready() -> void:
 	audio = AudioPage.new()
 	controls = (load(ControlsScreen.SCENE_PATH) as PackedScene).instantiate()
 	controls.embedded = true
-	online = OnlinePage.new()
-	online.locked = in_match
-	pages = [graphics, audio, controls, online]
+	pages = [graphics, audio, controls]
+	if Net.online_available():
+		online = OnlinePage.new()
+		online.locked = in_match
+		pages.append(online)
 
 	var bar := HBoxContainer.new()
 	bar.alignment = BoxContainer.ALIGNMENT_CENTER

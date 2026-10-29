@@ -19,7 +19,9 @@ extends Control
 ##   (or ENTER once all slots are filled) and back out with their PAUSE key (or
 ##   ESC). While only one keyboard player is joined, arrow keys also navigate.
 ## Room (any device): Y / TAB = Open online (local), Close room (host) or
-##   Leave (guest); X / C = copy the room address (host).
+##   Leave (guest); X / C = copy the room address (host). Without online
+##   play (Net.online_available() false: web) the room bar is hidden and
+##   these keys do nothing.
 ##
 ## Local: `model` is this screen's own; the MODE row switches Versus / Versus
 ##   CPU / Co-op (see LobbyModel). The match starts after
@@ -165,6 +167,8 @@ func _on_room_changed() -> void:
 
 ## Y / TAB: open a room (local), close it (host) or leave it (guest).
 func room_action() -> void:
+	if not Net.online_available():
+		return
 	if not is_online():
 		open_online()
 	elif Net.is_host():
@@ -605,9 +609,12 @@ func _build_ui() -> void:
 
 	_status_label = MenuHelpers.label("", &"HeaderLabel", HORIZONTAL_ALIGNMENT_CENTER)
 	root.add_child(_status_label)
+	var online := Net.online_available()
 	var hint := MenuHelpers.label(
-			"Pad: START/A join  -  D-pad/stick choose  -  A ready  -  B back/leave  -  Y room\n"
-			+ "Keyboard: ENTER join  -  your MOVE keys choose (arrows if alone)  -  LIGHT/JUMP ready  -  PAUSE/ESC back  -  TAB room",
+			"Pad: START/A join  -  D-pad/stick choose  -  A ready  -  B back/leave%s\n"
+			% ("  -  Y room" if online else "")
+			+ "Keyboard: ENTER join  -  your MOVE keys choose (arrows if alone)  -  LIGHT/JUMP ready  -  PAUSE/ESC back%s"
+			% ("  -  TAB room" if online else ""),
 			&"HintLabel", HORIZONTAL_ALIGNMENT_CENTER)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	root.add_child(hint)
@@ -629,6 +636,7 @@ func _build_room_bar() -> Control:
 	_room_button = MenuHelpers.button("Open online", room_action)
 	_room_button.focus_mode = Control.FOCUS_NONE
 	_room_button.custom_minimum_size.x = 0
+	_room_button.visible = Net.online_available()
 	bar.add_child(_room_button)
 	return bar
 

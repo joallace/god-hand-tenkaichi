@@ -13,6 +13,9 @@ extends Node
 ##
 ## Headless (tests, tools) the window-level bits are skipped unless
 ## `apply_display` is set, so a user's video.cfg can't change test layouts.
+## On web the browser owns the window: mode, size and vsync are never set
+## (PlatformCaps.window_control), the FPS cap and UI scale still apply, and
+## the upscaler is always bilinear (PlatformCaps.fsr).
 
 signal video_applied
 
@@ -43,8 +46,9 @@ func apply_video() -> void:
 		var win := get_window()
 		Engine.max_fps = video.max_fps
 		win.content_scale_factor = video.ui_scale
-		DisplayServer.window_set_vsync_mode(_vsync_mode(video.vsync))
-		_apply_window(win)
+		if PlatformCaps.window_control():
+			DisplayServer.window_set_vsync_mode(_vsync_mode(video.vsync))
+			_apply_window(win)
 	video_applied.emit()
 
 
@@ -54,7 +58,7 @@ func apply_audio() -> void:
 
 ## 3D render scale and upscaler for a viewport that renders the match.
 func configure_viewport(vp: Viewport) -> void:
-	vp.scaling_3d_mode = video.scaling_mode()
+	vp.scaling_3d_mode = video.scaling_mode() if PlatformCaps.fsr() else Viewport.SCALING_3D_MODE_BILINEAR
 	vp.scaling_3d_scale = video.render_scale
 	vp.fsr_sharpness = Tuning.video.fsr_sharpness
 
