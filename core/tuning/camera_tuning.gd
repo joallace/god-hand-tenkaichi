@@ -28,6 +28,17 @@ extends Resource
 ## Look point never further than this from the fighter.
 @export var max_look_ahead: float = 7.0
 
+@export_group("Free roam")
+## TARGET held (Fighter.is_free_roaming): God Hand camera behind the
+## fighter's facing, looking this far ahead of it. Shoulder offset and
+## position/look smoothing are shared with the lock-on framing.
+@export var free_roam_distance: float = 3.8
+@export var free_roam_height: float = 2.0
+@export var free_roam_look_ahead: float = 4.0
+## Yaw damping while free roaming: stiffer than yaw_damping so the view
+## stays behind a turning fighter (steady lag = turn speed / this).
+@export var free_roam_yaw_damping: float = 16.0
+
 @export_group("Smoothing")
 @export var position_damping: float = 9.0
 @export var look_damping: float = 12.0

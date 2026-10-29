@@ -2,7 +2,7 @@ extends Node
 ## Headless tests for the team model: team assignment, default targets, spawn
 ## layout, friendly fire, team-aware round end, partner tracking in throws,
 ## target save/load, Fighter targeting (TARGET cycle, manual lock, auto
-## re-pick, deferral) and per-victim contacts (cleaving strikes, piercing
+## re-pick, deferral, free roam while held) and per-victim contacts (cleaving strikes, piercing
 ## beams, single-target blasts and throws). Run as a scene:
 ##   godot --headless res://tests/teams_test.tscn
 
@@ -18,7 +18,7 @@ func _ready() -> void:
 		_test_team_round_end, _test_time_out_mean_health, _test_throw_partner,
 		_test_target_save_load, _test_target_cycle_and_lock, _test_lock_drops_on_ko,
 		_test_auto_prefers_front_and_attacker, _test_no_switch_mid_dodge,
-		_test_targeting_vars_save_load, _test_heavy_cleaves, _test_cleave_skips_ally,
+		_test_targeting_vars_save_load, _test_free_roam, _test_heavy_cleaves, _test_cleave_skips_ally,
 		_test_ki_blast_single_target, _test_beam_pierces, _test_throw_grabs_one,
 	]
 	for t in tests:
@@ -226,7 +226,10 @@ func _test_target_cycle_and_lock() -> void:
 	var d := _new_1v2()
 	var f := d.fighters
 	_check(f[0].target == f[1] and not f[0].is_target_locked(), "1v2 default target is the lower slot, unlocked")
+	# A tap acts when let go (the stick is read on the press).
 	_src(d, 0).press(0, B.TARGET).press(4, B.TARGET).stick(4, 5, Vector2(-1, 0))
+	_run(d, 1)
+	_check(f[0].target == f[1], "TARGET tap waits for the release")
 	_run(d, 1)
 	_check(f[0].target == f[2] and f[0].is_target_locked(), "TARGET (stick neutral) cycles clockwise and locks")
 	_run(d, 4)
@@ -242,7 +245,7 @@ func _test_lock_drops_on_ko() -> void:
 	var d := _new_1v2()
 	var f := d.fighters
 	_src(d, 0).press(0, B.TARGET)
-	_run(d, 1)
+	_run(d, 2)
 	_check(f[0].target == f[2] and f[0].is_target_locked(), "locked on slot 2")
 	_ko(f[2])
 	_run(d, 2)
@@ -269,7 +272,7 @@ func _test_no_switch_mid_dodge() -> void:
 	var d := _new_1v2()
 	var f := d.fighters
 	_src(d, 0).flick(0, InputFrame.Dodge.LEFT).press(2, B.TARGET)
-	_run(d, 3)
+	_run(d, 4)
 	var dodging := f[0].state == Fighter.State.DODGE
 	_check(dodging and f[0].target == f[1], "no target change mid dodge (state %s)" % f[0].current_state_name())
 	var n := 0
@@ -284,7 +287,7 @@ func _test_targeting_vars_save_load() -> void:
 	var d := _new_1v2()
 	var f := d.fighters
 	_src(d, 0).flick(0, InputFrame.Dodge.LEFT).press(2, B.TARGET)
-	_run(d, 3)
+	_run(d, 4)
 	var before: Dictionary = f[0].save_state()
 	_check(before["target_press_pending"], "a deferred TARGET tap is pending mid dodge")
 	var s := d.save_state()
@@ -298,6 +301,46 @@ func _test_targeting_vars_save_load() -> void:
 	for k in ["target_locked", "retarget_timer", "target_press_pending", "target_press_dir", "target"]:
 		ok = ok and before[k] == after[k]
 	_check(ok, "targeting vars round-trip through save/load")
+
+
+## Angle (rad) between `f`'s facing and the direction to its target.
+func _off_target(f: Fighter) -> float:
+	var to := f.target.global_position - f.global_position
+	to.y = 0.0
+	return f._fwd().angle_to(to)
+
+
+func _test_free_roam() -> void:
+	var d := _new_match([0, 1])
+	_place(d, [Vector3.ZERO, Vector3(0, 0, -4)])
+	var f := d.fighters
+	var hold := Tuning.targeting.free_roam_hold_frames
+	var turn := 30
+	# Hold TARGET 90 frames: stick right (turn), then stick up (walk).
+	_src(d, 0).press(0, B.TARGET, 90).stick(hold, hold + turn, Vector2(1, 0)) \
+		.stick(hold + turn, 90, Vector2(0, 1))
+	_run(d, hold - 1)
+	_check(not f[0].is_free_roaming(), "TARGET held < free_roam_hold_frames is not free roam yet")
+	_run(d, 1)
+	_check(f[0].is_free_roaming(), "TARGET held free_roam_hold_frames = free roam")
+	var yaw0: float = f[0]._yaw
+	_run(d, turn)
+	var want := DetMath.deg_to_rad(f[0].tuning.free_roam_turn_speed_deg) * turn / Tuning.match_rules.tick_rate
+	_check(absf(wrapf(yaw0 - f[0]._yaw, -PI, PI) - want) < 0.01,
+		"stick right turns clockwise at free_roam_turn_speed_deg (%.3f vs %.3f rad)" % [wrapf(yaw0 - f[0]._yaw, -PI, PI), want])
+	var p0: Vector3 = f[0].global_position
+	_run(d, 90 - hold - turn)
+	var moved: Vector3 = f[0].global_position - p0
+	_check(_off_target(f[0]) > deg_to_rad(90.0), "no auto-facing while free roaming (%.0f deg off)" % rad_to_deg(_off_target(f[0])))
+	_check(moved.length() > 1.0 and moved.normalized().dot(f[0]._fwd()) > 0.99,
+		"stick up walks along the facing (%.2f m)" % moved.length())
+	var s: Dictionary = f[0].save_state()
+	_check(s["target_hold"] == hold, "TARGET hold is in save_state")
+	_run(d, 1)
+	_check(not f[0].is_free_roaming() and not f[0].is_target_locked(),
+		"letting go ends free roam without a target cycle")
+	_run(d, 60)
+	_check(_off_target(f[0]) < deg_to_rad(2.0), "after free roam the fighter turns back to its target")
 
 
 func _hurt(f: Fighter) -> bool:

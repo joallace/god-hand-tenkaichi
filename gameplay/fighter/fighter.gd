@@ -37,7 +37,8 @@ extends CombatEntity
 ##            is_gaining_ki() -> bool, charge_lag_left() -> int,
 ##            can_dash() -> bool, dash_cooldown_left() -> int, dash_phase() -> int,
 ##            dash_speed_at(f) -> float, dash_distance(frames) -> float,
-##            dash_travel_distance() -> float, dash_frames_to_cover(dist) -> int
+##            dash_travel_distance() -> float, dash_frames_to_cover(dist) -> int,
+##            is_free_roaming() -> bool
 ##
 ## `event` kinds (payload keys; every payload also has "slot" = emitter slot):
 ##   &"hit"            {attacker_slot, damage, position, heavy, blocked, combo,
@@ -149,7 +150,8 @@ extends CombatEntity
 ## and teleports track their partner fighter by slot.
 ##
 ## Targeting (SPEC §3.3, selection math in Targeting): each tick, before the
-## state acts, a TARGET tap cycles to the next enemy by angle (stick left =
+## state acts, a TARGET tap (released before targeting.free_roam_hold_frames;
+## the cycle direction is read from the stick when it went down) cycles to the next enemy by angle (stick left =
 ## counter-clockwise) and locks it; the lock holds until that target is KO'd
 ## (or changes team), or TARGET is tapped again. Unlocked, the target is
 ## re-picked by Targeting.pick_auto when lost and every
@@ -176,9 +178,18 @@ extends CombatEntity
 ## teammate in range is picked (lowest slot on ties). Revived = WAKEUP (its
 ## normal invuln) with coop.revive_health_ratio of max health and 0 ki.
 ##
+## Free roam (God Hand controls): TARGET held for free_roam_hold_frames or
+## more, until let go. Nothing auto-faces the target (attacks don't track
+## either: they go where the fighter points); in IDLE/WALK stick x turns at
+## free_roam_turn_speed_deg and stick y walks along the facing (backward at
+## free_roam_back_speed_ratio), a jump only carries the stick y. Targeting
+## keeps running (auto picks favor what the fighter faces), and the camera
+## follows the facing (FighterCamera). Letting go turns back to the target.
+##
 ## Facing convention: the fighter's -Z (Godot forward) points at the target
 ## while locked on. InputFrame.move +Y = toward target, +X = strafe right.
-## With no target the fighter keeps its facing (stick relative to it).
+## With no target, or free roaming, the fighter keeps its facing (stick
+## relative to it).
 ## Fighter-space Vector3 (MoveData offsets): x = right, y = up, z = forward.
 
 signal health_changed(value: float, max_value: float)
@@ -291,6 +302,9 @@ var _target_locked: bool = false
 var _retarget_timer: int = 0
 var _target_press_pending: bool = false
 var _target_press_dir: int = 1
+## Consecutive frames TARGET has been held, capped at free_roam_hold_frames
+## (reaching it = free roam).
+var _target_hold: int = 0
 ## Downed side: frames spent lying (bleed-out clock), who is reviving us and
 ## how far along. Reviver side: the downed teammate being revived.
 var _down_frames: int = 0
@@ -368,9 +382,14 @@ func feed_input(frame: InputFrame) -> void:
 	if frame.dodge != InputFrame.Dodge.NONE:
 		_dodge_buf_dir = frame.dodge
 		_dodge_buf_frames = keep
-	if frame.just_pressed(InputFrame.Btn.TARGET):
-		_target_press_pending = true
-		_target_press_dir = Targeting.cycle_dir(frame.move_x)
+	if frame.is_held(InputFrame.Btn.TARGET):
+		if frame.just_pressed(InputFrame.Btn.TARGET):
+			_target_press_dir = Targeting.cycle_dir(frame.move_x)
+		_target_hold = mini(_target_hold + 1, Tuning.targeting.free_roam_hold_frames)
+	else:
+		if frame.just_released(InputFrame.Btn.TARGET) and not is_free_roaming():
+			_target_press_pending = true
+		_target_hold = 0
 	if frame.target_request >= 0 and (target == null or frame.target_request != target.slot or not _target_locked):
 		_target_request = frame.target_request
 
@@ -461,6 +480,7 @@ func reset_for_round(xform: Transform3D) -> void:
 	_retarget_timer = 0
 	_target_press_pending = false
 	_target_press_dir = 1
+	_target_hold = 0
 	_down_frames = 0
 	_reviver_slot = -1
 	_revive_done = 0
@@ -615,6 +635,11 @@ func _tick_entering() -> void:
 ## True while a TARGET tap's manual lock holds the current target.
 func is_target_locked() -> bool:
 	return _target_locked
+
+
+## True while TARGET is held long enough for free roam (see the header).
+func is_free_roaming() -> bool:
+	return _target_hold >= Tuning.targeting.free_roam_hold_frames
 
 
 ## The enemy Targeting.pick_auto would choose from scratch (null if none).
@@ -934,6 +959,9 @@ func _tick_neutral() -> void:
 	if _try_actions(true):
 		return
 	var m := _input.move()
+	if is_free_roaming():
+		_free_roam_walk(m)
+		return
 	if m.is_zero_approx():
 		if state != State.IDLE:
 			_enter(State.IDLE)
@@ -941,6 +969,20 @@ func _tick_neutral() -> void:
 	if state != State.WALK:
 		_enter(State.WALK)
 	_set_ground_velocity(_to_world2(m) * tuning.walk_speed)
+
+
+## God Hand tank controls: stick x turns, stick y walks along the facing.
+func _free_roam_walk(m: Vector2) -> void:
+	var turn := DetMath.deg_to_rad(tuning.free_roam_turn_speed_deg) / Tuning.match_rules.tick_rate
+	_set_yaw(_yaw - m.x * turn)
+	if is_zero_approx(m.y):
+		if state != State.IDLE:
+			_enter(State.IDLE)
+		return
+	if state != State.WALK:
+		_enter(State.WALK)
+	var speed := tuning.walk_speed * (m.y if m.y > 0.0 else m.y * tuning.free_roam_back_speed_ratio)
+	_set_ground_velocity(_fwd() * speed)
 
 
 ## Shared action table for Idle/Walk/Guard. Returns true if a new state began.
@@ -1011,7 +1053,10 @@ func _dash_total_frames() -> int:
 func _start_jump() -> void:
 	_enter(State.JUMP)
 	_air_attack_used = false
-	_vel = _to_world2(_input.move()) * tuning.walk_speed
+	var m := _input.move()
+	if is_free_roaming():
+		m.x = 0.0
+	_vel = _to_world2(m) * tuning.walk_speed
 	_vel.y = tuning.jump_velocity
 	global_position.y = maxf(global_position.y, 0.001)
 
@@ -2307,7 +2352,8 @@ func _attack_turn_step() -> float:
 
 
 func _face_target(max_step: float) -> void:
-	_face_toward(target, max_step)
+	if not is_free_roaming():
+		_face_toward(target, max_step)
 
 
 func _face_toward(f: Fighter, max_step: float) -> void:
@@ -2530,6 +2576,7 @@ func save_state() -> Dictionary:
 		"grab_partner": _grab_partner_slot, "tp_anchor": _tp_anchor_slot,
 		"target_locked": _target_locked, "retarget_timer": _retarget_timer,
 		"target_press_pending": _target_press_pending, "target_press_dir": _target_press_dir,
+		"target_hold": _target_hold,
 		"down_frames": _down_frames, "reviver": _reviver_slot, "revive_done": _revive_done,
 		"revive_target": _revive_target_slot,
 		"target_request": _target_request,
@@ -2616,6 +2663,7 @@ func load_state(s: Dictionary) -> void:
 	_target_press_pending = s["target_press_pending"]
 	_target_request = s["target_request"]
 	_target_press_dir = s["target_press_dir"]
+	_target_hold = s["target_hold"]
 	_down_frames = s["down_frames"]
 	_reviver_slot = s["reviver"]
 	_revive_done = s["revive_done"]

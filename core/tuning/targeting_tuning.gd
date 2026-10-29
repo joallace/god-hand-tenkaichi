@@ -16,3 +16,7 @@ extends Resource
 ## |stick x| (fraction of full tilt) that turns a TARGET tap counter-clockwise
 ## (stick left) instead of clockwise (neutral / right).
 @export_range(0.0, 1.0) var cycle_stick_threshold: float = 0.5
+## TARGET held this many frames = free roam (God Hand controls and camera,
+## no auto-facing) until it is let go; a shorter press is a tap (cycles the
+## target when released).
+@export_range(1, 120) var free_roam_hold_frames: int = 12

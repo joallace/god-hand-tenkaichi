@@ -12,6 +12,10 @@ extends Camera3D
 ## InputFrame.move is in fighter space (+Y = toward target), so keeping the
 ## camera behind the fighter makes "stick up" = "screen forward".
 ##
+## Free roam (Fighter.is_free_roaming, TARGET held): God Hand camera, behind
+## the fighter's own facing and looking ahead of it, whatever the target.
+## The same yaw smoothing blends between the two framings.
+##
 ## Effects API: add_trauma(), fov_punch(), play_ultimate_cinematic().
 
 var fighter: Fighter
@@ -143,16 +147,21 @@ func _desired(delta: float) -> Array:
 		opp = SmoothedVisual.render_transform_of(fighter.target).origin
 	var flat := Vector3(me.x - opp.x, 0.0, me.z - opp.z)
 	var sep := flat.length()
+	var free := fighter.is_free_roaming()
+	if free:
+		# "Behind me" = behind the facing; frame a point ahead of it.
+		flat = Vector3(mt.basis.z.x, 0.0, mt.basis.z.z)
+		opp = me - flat.normalized() * t.free_roam_look_ahead
 
-	# Yaw of the "behind me" direction (target -> me).
-	if sep > 0.05:
+	# Yaw of the "behind me" direction (target -> me, or the facing).
+	if free or sep > 0.05:
 		var target_yaw := atan2(flat.x, flat.z)
 		if not _have_yaw or delta <= 0.0:
 			_yaw = target_yaw
 			_have_yaw = true
 		else:
 			var diff := angle_difference(_yaw, target_yaw)
-			var step := diff * _damp(t.yaw_damping, delta)
+			var step := diff * _damp(t.free_roam_yaw_damping if free else t.yaw_damping, delta)
 			var max_step := deg_to_rad(t.max_yaw_speed_deg) * delta
 			_yaw += clampf(step, -max_step, max_step)
 	elif not _have_yaw:
@@ -161,6 +170,9 @@ func _desired(delta: float) -> Array:
 
 	var dist := clampf(t.base_distance + sep * t.distance_per_meter, t.min_distance, t.max_distance)
 	var height := minf(t.base_height + sep * t.height_per_meter, t.max_height)
+	if free:
+		dist = t.free_roam_distance
+		height = t.free_roam_height
 	var yaw := _yaw
 	var back := Vector3(sin(yaw), 0.0, cos(yaw))
 	var right := Vector3.UP.cross(back)  # screen-right when looking along -back
@@ -175,8 +187,7 @@ func _desired(delta: float) -> Array:
 		pos.z = horiz.y
 	pos.y = maxf(pos.y, t.min_camera_height)
 
-	var ahead := (opp - me) * t.look_bias
-	ahead = ahead.limit_length(t.max_look_ahead)
+	var ahead := opp - me if free else ((opp - me) * t.look_bias).limit_length(t.max_look_ahead)
 	var look := me + ahead + Vector3.UP * t.look_height
 
 	if _ult_t >= 0.0 and _ult_user != null and is_instance_valid(_ult_user):

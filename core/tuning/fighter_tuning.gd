@@ -51,6 +51,10 @@ extends Resource
 ## Moves without an explicit track_frames stop tracking this many frames
 ## before their first active frame (the swing commits).
 @export var attack_track_lock_frames: int = 2
+## Free roam (TARGET held, God Hand style): stick x turns the fighter at this
+## rate, stick y walks along its facing (backward at walk_speed * ratio).
+@export var free_roam_turn_speed_deg: float = 240.0
+@export_range(0.0, 1.0) var free_roam_back_speed_ratio: float = 0.6
 ## Hurtbox capsule heights (m): standing, ducking, lying on the ground.
 @export var body_height: float = 1.8
 @export var duck_height: float = 0.9
