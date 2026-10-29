@@ -12,8 +12,9 @@ extends Camera3D
 ## InputFrame.move is in fighter space (+Y = toward target), so keeping the
 ## camera behind the fighter makes "stick up" = "screen forward".
 ##
-## Free roam (Fighter.is_free_roaming, TARGET held): God Hand camera, behind
-## the fighter's own facing and looking ahead of it, whatever the target.
+## Free roam (Fighter.is_free_roaming, toggled by holding TARGET): God Hand
+## camera, behind the fighter's own facing and looking ahead of it, whatever
+## the target.
 ## The same yaw smoothing blends between the two framings.
 ##
 ## Effects API: add_trauma(), fov_punch(), play_ultimate_cinematic().

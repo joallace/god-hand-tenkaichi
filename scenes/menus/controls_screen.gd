@@ -36,7 +36,7 @@ const ACTION_NAMES := {
 	"JUMP": "Jump", "GUARD": "Guard / Teleport", "CHARGE": "Charge Ki / Special",
 	"SPECIAL": "Special (shortcut)", "TELEPORT": "Teleport (shortcut)", "DASH": "Dash (shortcut)",
 	"PAUSE": "Pause", "THROW": "Throw", "TAUNT": "Taunt",
-	"TARGET": "Target (tap) / free roam (hold)",
+	"TARGET": "Target / turn (tap), free roam (hold)",
 	"MOVE_FORWARD": "Move Forward", "MOVE_BACK": "Move Back",
 	"MOVE_LEFT": "Move Left", "MOVE_RIGHT": "Move Right",
 	"DODGE_FORWARD": "Dodge Forward", "DODGE_BACK": "Dodge Back",

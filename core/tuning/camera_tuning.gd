@@ -29,7 +29,7 @@ extends Resource
 @export var max_look_ahead: float = 7.0
 
 @export_group("Free roam")
-## TARGET held (Fighter.is_free_roaming): God Hand camera behind the
+## Free roam (Fighter.is_free_roaming, toggled by holding TARGET): God Hand camera behind the
 ## fighter's facing, looking this far ahead of it. Shoulder offset and
 ## position/look smoothing are shared with the lock-on framing.
 @export var free_roam_distance: float = 3.8

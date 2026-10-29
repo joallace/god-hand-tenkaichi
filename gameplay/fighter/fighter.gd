@@ -151,7 +151,8 @@ extends CombatEntity
 ##
 ## Targeting (SPEC §3.3, selection math in Targeting): each tick, before the
 ## state acts, a TARGET tap (released before targeting.free_roam_hold_frames;
-## the cycle direction is read from the stick when it went down) cycles to the next enemy by angle (stick left =
+## the cycle direction is read from the stick when it went down; in free
+## roam a tap turns around instead) cycles to the next enemy by angle (stick left =
 ## counter-clockwise) and locks it; the lock holds until that target is KO'd
 ## (or changes team), or TARGET is tapped again. Unlocked, the target is
 ## re-picked by Targeting.pick_auto when lost and every
@@ -178,13 +179,18 @@ extends CombatEntity
 ## teammate in range is picked (lowest slot on ties). Revived = WAKEUP (its
 ## normal invuln) with coop.revive_health_ratio of max health and 0 ki.
 ##
-## Free roam (God Hand controls): TARGET held for free_roam_hold_frames or
-## more, until let go. Nothing auto-faces the target (attacks don't track
-## either: they go where the fighter points); in IDLE/WALK stick x turns at
-## free_roam_turn_speed_deg and stick y walks along the facing (backward at
-## free_roam_back_speed_ratio), a jump only carries the stick y. Targeting
-## keeps running (auto picks favor what the fighter faces), and the camera
-## follows the facing (FighterCamera). Letting go turns back to the target.
+## Free roam (God Hand controls): a toggle. TARGET held for
+## free_roam_hold_frames turns it on (once per hold); holding it that long
+## again turns it off (the fighter turns back to its target). Nothing
+## auto-faces the target (attacks don't track either: they go where the
+## fighter points); in IDLE/WALK stick x turns at free_roam_turn_speed_deg
+## and stick y walks along the facing (backward at
+## free_roam_back_speed_ratio), a jump only carries the stick y. A TARGET
+## tap is a quick turn instead of a target cycle: 180 degrees clockwise over
+## free_roam_quick_turn_frames, rooted, buffered like a button until the
+## next IDLE/WALK tick; any action started mid-turn finishes it at once (so
+## it comes out facing behind). Targeting keeps running (auto picks favor
+## what the fighter faces), and the camera follows the facing (FighterCamera).
 ##
 ## Facing convention: the fighter's -Z (Godot forward) points at the target
 ## while locked on. InputFrame.move +Y = toward target, +X = strafe right.
@@ -303,8 +309,12 @@ var _retarget_timer: int = 0
 var _target_press_pending: bool = false
 var _target_press_dir: int = 1
 ## Consecutive frames TARGET has been held, capped at free_roam_hold_frames
-## (reaching it = free roam).
+## (reaching it toggles free roam).
 var _target_hold: int = 0
+var _free_roam: bool = false
+## Free roam quick turn: frames a tap stays buffered, frames of turn left.
+var _quick_turn_buf: int = 0
+var _quick_turn_left: int = 0
 ## Downed side: frames spent lying (bleed-out clock), who is reviving us and
 ## how far along. Reviver side: the downed teammate being revived.
 var _down_frames: int = 0
@@ -385,11 +395,22 @@ func feed_input(frame: InputFrame) -> void:
 	if frame.is_held(InputFrame.Btn.TARGET):
 		if frame.just_pressed(InputFrame.Btn.TARGET):
 			_target_press_dir = Targeting.cycle_dir(frame.move_x)
-		_target_hold = mini(_target_hold + 1, Tuning.targeting.free_roam_hold_frames)
+		var need := Tuning.targeting.free_roam_hold_frames
+		if _target_hold < need:
+			_target_hold += 1
+			if _target_hold == need:
+				_free_roam = not _free_roam
+				_quick_turn_buf = 0
+				_quick_turn_left = 0
 	else:
-		if frame.just_released(InputFrame.Btn.TARGET) and not is_free_roaming():
-			_target_press_pending = true
+		if frame.just_released(InputFrame.Btn.TARGET) and _target_hold < Tuning.targeting.free_roam_hold_frames:
+			if _free_roam:
+				_quick_turn_buf = keep
+			else:
+				_target_press_pending = true
 		_target_hold = 0
+	if _quick_turn_buf > 0:
+		_quick_turn_buf -= 1
 	if frame.target_request >= 0 and (target == null or frame.target_request != target.slot or not _target_locked):
 		_target_request = frame.target_request
 
@@ -481,6 +502,8 @@ func reset_for_round(xform: Transform3D) -> void:
 	_target_press_pending = false
 	_target_press_dir = 1
 	_target_hold = 0
+	_quick_turn_buf = 0
+	_quick_turn_left = 0
 	_down_frames = 0
 	_reviver_slot = -1
 	_revive_done = 0
@@ -637,9 +660,9 @@ func is_target_locked() -> bool:
 	return _target_locked
 
 
-## True while TARGET is held long enough for free roam (see the header).
+## True while free roam is toggled on (see the header).
 func is_free_roaming() -> bool:
-	return _target_hold >= Tuning.targeting.free_roam_hold_frames
+	return _free_roam
 
 
 ## The enemy Targeting.pick_auto would choose from scratch (null if none).
@@ -950,12 +973,18 @@ func _enter(s: State) -> void:
 		_charge_lag = 0
 	if prev == State.DASH and s != State.DASH:
 		_dash_cooldown = tuning.dash_cooldown_frames
+	if _quick_turn_left > 0 and s != State.IDLE and s != State.WALK:
+		_set_yaw(_yaw - _quick_turn_step() * _quick_turn_left)
+		_quick_turn_left = 0
 	if prev != s or s == State.ATTACK or s == State.HITSTUN:
 		state_changed.emit(STATE_NAMES[s])
 
 
 func _tick_neutral() -> void:
 	_face_target(_turn_step())
+	if _free_roam and _quick_turn_buf > 0 and _quick_turn_left == 0:
+		_quick_turn_buf = 0
+		_quick_turn_left = tuning.free_roam_quick_turn_frames
 	if _try_actions(true):
 		return
 	var m := _input.move()
@@ -973,6 +1002,12 @@ func _tick_neutral() -> void:
 
 ## God Hand tank controls: stick x turns, stick y walks along the facing.
 func _free_roam_walk(m: Vector2) -> void:
+	if _quick_turn_left > 0:
+		_set_yaw(_yaw - _quick_turn_step())
+		_quick_turn_left -= 1
+		if state != State.IDLE:
+			_enter(State.IDLE)
+		return
 	var turn := DetMath.deg_to_rad(tuning.free_roam_turn_speed_deg) / Tuning.match_rules.tick_rate
 	_set_yaw(_yaw - m.x * turn)
 	if is_zero_approx(m.y):
@@ -983,6 +1018,10 @@ func _free_roam_walk(m: Vector2) -> void:
 		_enter(State.WALK)
 	var speed := tuning.walk_speed * (m.y if m.y > 0.0 else m.y * tuning.free_roam_back_speed_ratio)
 	_set_ground_velocity(_fwd() * speed)
+
+
+func _quick_turn_step() -> float:
+	return PI / maxi(tuning.free_roam_quick_turn_frames, 1)
 
 
 ## Shared action table for Idle/Walk/Guard. Returns true if a new state began.
@@ -2576,7 +2615,8 @@ func save_state() -> Dictionary:
 		"grab_partner": _grab_partner_slot, "tp_anchor": _tp_anchor_slot,
 		"target_locked": _target_locked, "retarget_timer": _retarget_timer,
 		"target_press_pending": _target_press_pending, "target_press_dir": _target_press_dir,
-		"target_hold": _target_hold,
+		"target_hold": _target_hold, "free_roam": _free_roam,
+		"quick_turn_buf": _quick_turn_buf, "quick_turn_left": _quick_turn_left,
 		"down_frames": _down_frames, "reviver": _reviver_slot, "revive_done": _revive_done,
 		"revive_target": _revive_target_slot,
 		"target_request": _target_request,
@@ -2664,6 +2704,9 @@ func load_state(s: Dictionary) -> void:
 	_target_request = s["target_request"]
 	_target_press_dir = s["target_press_dir"]
 	_target_hold = s["target_hold"]
+	_free_roam = s["free_roam"]
+	_quick_turn_buf = s["quick_turn_buf"]
+	_quick_turn_left = s["quick_turn_left"]
 	_down_frames = s["down_frames"]
 	_reviver_slot = s["reviver"]
 	_revive_done = s["revive_done"]

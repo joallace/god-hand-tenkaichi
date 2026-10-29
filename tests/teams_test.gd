@@ -2,7 +2,7 @@ extends Node
 ## Headless tests for the team model: team assignment, default targets, spawn
 ## layout, friendly fire, team-aware round end, partner tracking in throws,
 ## target save/load, Fighter targeting (TARGET cycle, manual lock, auto
-## re-pick, deferral, free roam while held) and per-victim contacts (cleaving strikes, piercing
+## re-pick, deferral, free roam toggle + quick turn) and per-victim contacts (cleaving strikes, piercing
 ## beams, single-target blasts and throws). Run as a scene:
 ##   godot --headless res://tests/teams_test.tscn
 
@@ -335,10 +335,43 @@ func _test_free_roam() -> void:
 	_check(moved.length() > 1.0 and moved.normalized().dot(f[0]._fwd()) > 0.99,
 		"stick up walks along the facing (%.2f m)" % moved.length())
 	var s: Dictionary = f[0].save_state()
-	_check(s["target_hold"] == hold, "TARGET hold is in save_state")
-	_run(d, 1)
-	_check(not f[0].is_free_roaming() and not f[0].is_target_locked(),
-		"letting go ends free roam without a target cycle")
+	_check(s["target_hold"] == hold and s["free_roam"], "free roam is in save_state")
+	_run(d, 30)
+	_check(f[0].is_free_roaming() and not f[0].is_target_locked() and _off_target(f[0]) > deg_to_rad(90.0),
+		"letting go keeps free roam on (a toggle), without a target cycle")
+
+	# Tap in free roam = quick 180 degree turn (on release), not a cycle.
+	var q: int = f[0].tuning.free_roam_quick_turn_frames
+	var yaw1: float = f[0]._yaw
+	_src(d, 0).press(120, B.TARGET)
+	_run(d, 2)
+	_check(f[0]._quick_turn_left > 0, "a TARGET tap in free roam starts a quick turn")
+	var snap := d.save_state()
+	var mid: Dictionary = f[0].save_state()
+	_run(d, q)
+	_check(absf(absf(wrapf(f[0]._yaw - yaw1, -PI, PI)) - PI) < 0.01 and f[0].is_free_roaming()
+		and not f[0].is_target_locked(), "the quick turn ends facing the other way, still free roaming")
+	d.load_state(snap)
+	var back: Dictionary = f[0].save_state()
+	var ok := true
+	for k in ["free_roam", "quick_turn_buf", "quick_turn_left", "target_hold"]:
+		ok = ok and back[k] == mid[k]
+	_check(ok, "free roam / quick turn vars round-trip through save/load")
+	_run(d, q)
+
+	# An attack started mid-turn finishes the turn at once.
+	_run(d, 140 - (122 + q))
+	var yaw2: float = f[0]._yaw
+	_src(d, 0).press(140, B.TARGET).press(143, B.LIGHT)
+	_run(d, 4)
+	_check(f[0].state == Fighter.State.ATTACK and absf(absf(wrapf(f[0]._yaw - yaw2, -PI, PI)) - PI) < 0.01,
+		"an attack mid quick turn snaps the rest of the turn (state %s)" % f[0].current_state_name())
+
+	# Holding TARGET again toggles free roam off; the fighter faces its target.
+	_run(d, 60)
+	_src(d, 0).press(204, B.TARGET, hold + 5)
+	_run(d, hold + 6)
+	_check(not f[0].is_free_roaming() and not f[0].is_target_locked(), "holding TARGET again toggles free roam off")
 	_run(d, 60)
 	_check(_off_target(f[0]) < deg_to_rad(2.0), "after free roam the fighter turns back to its target")
 

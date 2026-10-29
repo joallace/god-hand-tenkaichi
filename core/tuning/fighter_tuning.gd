@@ -55,6 +55,8 @@ extends Resource
 ## rate, stick y walks along its facing (backward at walk_speed * ratio).
 @export var free_roam_turn_speed_deg: float = 240.0
 @export_range(0.0, 1.0) var free_roam_back_speed_ratio: float = 0.6
+## Free roam TARGET tap: 180 degree turn over this many frames (rooted).
+@export_range(1, 60) var free_roam_quick_turn_frames: int = 8
 ## Hurtbox capsule heights (m): standing, ducking, lying on the ground.
 @export var body_height: float = 1.8
 @export var duck_height: float = 0.9

@@ -15,8 +15,9 @@ extends Node
 ## CHARGE + HEAVY is the special, HEAVY at range is a ki blast (see Fighter).
 ## BLAST / SPECIAL / TELEPORT / DASH are optional dedicated shortcuts, unbound
 ## ({}) by default; forward tapped twice dashes (LocalDeviceInput). THROW (RB) grabs through guard; TAUNT (RT) taunts for ki;
-## TARGET (LB) tapped cycles / locks the target among several enemies; held =
-## free roam (God Hand controls and camera, see Fighter).
+## TARGET (LB) tapped cycles / locks the target among several enemies (in free
+## roam: turns around); held toggles free roam (God Hand controls and camera,
+## see Fighter).
 
 signal changed(slot: int)
 
