@@ -11,6 +11,7 @@ device: accept the warning ("Advanced" -> proceed).
   python3 tools/serve_web.py --port 9000 --dir builds/web
   python3 tools/serve_web.py --regen-cert   # after the machine's IP changed
   python3 tools/serve_web.py --no-signal    # no room-code signaling
+  python3 tools/serve_web.py --no-compress  # raw files, no background work
 
 Online (room codes): the page's default signaling server is its own origin +
 /signal (Tuning.net.signaling_path), so this server forwards WebSocket
@@ -20,20 +21,35 @@ nothing else to accept on a phone or a second PC.
 
 Also sends cross-origin isolation headers (COOP/COEP), so a threaded web
 export would work too, and no-cache so a fresh export shows on reload.
+
+Compression: the engine .wasm is ~40 MB raw, ~7 MB as Brotli. A background
+thread writes index.wasm.gz/.br (same for .pck, .js) next to the export at
+startup and after each re-export; until they exist the raw files are served,
+so the first load after an export can still be slow (gzip takes seconds,
+Brotli about 90 s). Brotli needs `pip install brotli`; without it, gzip only.
 """
 
 import argparse
 import atexit
 import functools
+import gzip
 import http.server
+import os
+import re
 import select
 import signal
 import socket
 import ssl
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
+
+try:
+    import brotli
+except ImportError:
+    brotli = None
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DIR = ROOT / "builds" / "web"
@@ -45,6 +61,16 @@ SIGNAL_PORT = 8765  # server/signaling_server.py default
 SIGNAL_SCRIPT = ROOT / "server" / "signaling_server.py"
 SIGNAL_START_WAIT = 5.0  # seconds for a started signaling server to listen
 PIPE_CHUNK = 65536
+COMPRESSIBLE = (".wasm", ".pck", ".js")
+GZIP_LEVEL = 9
+BROTLI_QUALITY = 11
+BROTLI_WINDOW = 24  # the format's largest; the .wasm is far bigger than the default
+# Quiet time before compressing a file. Writes within one mtime tick of a read
+# would otherwise pass as fresh with truncated contents; a write after this
+# always moves the mtime, so it leaves the sidecar stale instead.
+SETTLE_SECONDS = 2.0
+# Content-Encoding -> sidecar suffix, best first. Gzip is the one built first.
+ENCODINGS = {"br": ".br", "gzip": ".gz"} if brotli else {"gzip": ".gz"}
 
 
 def local_ips() -> list[str]:
@@ -77,6 +103,106 @@ def make_cert(cert: Path, key: Path, ips: list[str]) -> None:
     print(f"Made a self-signed certificate for {san}", flush=True)
 
 
+def sidecar_of(raw: Path, suffix: str) -> Path:
+    return raw.with_name(raw.name + suffix)
+
+
+def is_fresh(raw: Path, suffix: str) -> bool:
+    """A sidecar carries its source's exact mtime, so one compressed from an
+    older export never passes, however late it was written."""
+    try:
+        return sidecar_of(raw, suffix).stat().st_mtime_ns == raw.stat().st_mtime_ns
+    except OSError:
+        return False
+
+
+def compress_file(raw: Path, suffix: str) -> None:
+    mtime = raw.stat().st_mtime_ns  # before the read: a change during it stays stale
+    data = raw.read_bytes()
+    if suffix == ".br":
+        out = brotli.compress(data, quality=BROTLI_QUALITY, lgwin=BROTLI_WINDOW)
+    else:
+        out = gzip.compress(data, GZIP_LEVEL, mtime=0)
+    sidecar = sidecar_of(raw, suffix)
+    tmp = sidecar.with_name(sidecar.name + ".tmp")
+    tmp.write_bytes(out)
+    os.utime(tmp, ns=(mtime, mtime))
+    os.replace(tmp, sidecar)  # a request never sees a half-written file
+    print(f"Compressed {raw.name}: {len(data)} -> {len(out)} bytes ({suffix})", flush=True)
+
+
+class Precompressor:
+    """Keeps the sidecars of `directory` up to date on one background thread."""
+
+    def __init__(self, directory: Path, settle_seconds: float = SETTLE_SECONDS) -> None:
+        self.directory = directory
+        self.settle_seconds = settle_seconds
+        self._lock = threading.Lock()
+        self._running = False
+        self._dirty = False  # a request arrived since the last scan
+
+    def pending(self) -> list[tuple[Path, str]]:
+        """(raw file, suffix) of every missing or stale sidecar, cheap ones first."""
+        try:
+            raws = [p for p in sorted(self.directory.iterdir()) if p.name.endswith(COMPRESSIBLE)]
+        except OSError:
+            return []
+        return [(raw, suffix) for suffix in reversed(ENCODINGS.values()) for raw in raws
+                if not is_fresh(raw, suffix)]
+
+    def request(self) -> None:
+        with self._lock:
+            self._dirty = True
+            if self._running:
+                return
+            self._running = True
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def _run(self) -> None:
+        try:
+            self._work()
+        except Exception:
+            with self._lock:
+                self._running = False
+            raise
+
+    def _work(self) -> None:
+        # One try per file version: a file that can't be compressed, or a
+        # sidecar that can't hold its mtime, must not stall or spin the loop.
+        attempted: set[tuple[Path, str, int]] = set()
+        while True:
+            with self._lock:
+                self._dirty = False
+            for raw, suffix in self.pending():
+                try:
+                    stat = raw.stat()
+                    version = (raw, suffix, stat.st_mtime_ns)
+                    if version in attempted:
+                        continue
+                    if 0 <= time.time() - stat.st_mtime < self.settle_seconds:
+                        time.sleep(self.settle_seconds)  # an export may still be writing it
+                        break
+                    attempted.add(version)
+                    compress_file(raw, suffix)
+                except OSError as err:
+                    print(f"Compression of {raw.name} failed: {err}", file=sys.stderr, flush=True)
+                break
+            else:
+                with self._lock:
+                    if not self._dirty:
+                        self._running = False
+                        return
+
+
+def accepted_encodings(header: str) -> set[str]:
+    names = set()
+    for part in header.split(","):
+        name, _, params = part.partition(";")
+        if not re.fullmatch(r"\s*q=0(\.0*)?\s*", params, re.IGNORECASE):
+            names.add(name.strip().lower())
+    return names
+
+
 class Handler(http.server.SimpleHTTPRequestHandler):
     extensions_map = {
         **http.server.SimpleHTTPRequestHandler.extensions_map,
@@ -86,12 +212,46 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     }
 
     signal_port = 0  # 0 = no /signal forwarding
+    precompressor: Precompressor | None = None  # None = always the raw files
+    sidecar_encoding = ""  # Content-Encoding of the file translate_path picked
 
     def end_headers(self) -> None:
         self.send_header("Cross-Origin-Opener-Policy", "same-origin")
         self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
         self.send_header("Cache-Control", "no-cache")
+        self.send_header("Vary", "Accept-Encoding")
+        if self.sidecar_encoding:
+            self.send_header("Content-Encoding", self.sidecar_encoding)
         super().end_headers()
+
+    def send_error(self, code: int, *args: str) -> None:
+        self.sidecar_encoding = ""  # the error page is plain HTML
+        super().send_error(code, *args)
+
+    def translate_path(self, path: str) -> str:
+        """Swaps in the best fresh sidecar the client accepts."""
+        target = super().translate_path(path)
+        self.sidecar_encoding = ""
+        if self.precompressor is None or not target.endswith(COMPRESSIBLE):
+            return target
+        raw = Path(target)
+        accepted = accepted_encodings(self.headers.get("Accept-Encoding", ""))
+        best = ""
+        for encoding, suffix in ENCODINGS.items():
+            if is_fresh(raw, suffix):
+                if encoding in accepted and not best:
+                    best = encoding
+            elif raw.is_file():
+                self.precompressor.request()
+        if not best:
+            return target
+        self.sidecar_encoding = best
+        return str(sidecar_of(raw, ENCODINGS[best]))
+
+    def guess_type(self, path: str) -> str:
+        if self.sidecar_encoding:
+            path = path.removesuffix(ENCODINGS[self.sidecar_encoding])
+        return super().guess_type(path)
 
     def do_GET(self) -> None:
         if (self.signal_port and self.path.split("?")[0] == SIGNAL_PATH
@@ -174,6 +334,8 @@ def main() -> int:
     ap.add_argument("--no-signal", action="store_true", help=f"don't forward {SIGNAL_PATH} (room codes)")
     ap.add_argument("--signal-port", type=int, default=SIGNAL_PORT,
                     help="local signaling server port (reused if one listens there)")
+    ap.add_argument("--no-compress", action="store_true",
+                    help="serve raw files only (no background compression skewing a benchmark)")
     args = ap.parse_args()
 
     web_dir = args.dir.resolve()
@@ -190,6 +352,14 @@ def main() -> int:
 
     if not args.no_signal and start_signaling(args.signal_port):
         Handler.signal_port = args.signal_port
+
+    if not args.no_compress:
+        Handler.precompressor = Precompressor(web_dir)
+        if Handler.precompressor.pending():
+            print("Compressing the build in the background; raw files until it's done.", flush=True)
+        if brotli is None:
+            print("No brotli module (pip install brotli): gzip only, ~45% larger downloads.", flush=True)
+        Handler.precompressor.request()
 
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.load_cert_chain(cert, key)

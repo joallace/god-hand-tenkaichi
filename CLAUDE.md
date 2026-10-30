@@ -262,9 +262,11 @@ context, which plain HTTP only is on `localhost`/`127.0.0.1` (not
 `0.0.0.0` or a LAN IP; those need HTTPS). For other devices on the LAN:
 `python3 tools/serve_web.py` (HTTPS on :8443 with a self-signed cert in
 `builds/web-cert/`, accept the browser warning once; `--regen-cert` after
-an IP change; also sends COOP/COEP, and forwards `/signal` to a local
-signaling server, the web build's default room-code server). Online in the
-browser: `docs/web_online.md`; servers: `server/README.md`.
+an IP change; also sends COOP/COEP, compresses the build in the background
+into `.gz`/`.br` sidecars, serving them once ready, and forwards `/signal` to
+a local signaling server, the web build's default room-code server). Any other
+host must serve the wasm compressed too (first load: `docs/web_performance.md`).
+Online in the browser: `docs/web_online.md`; servers: `server/README.md`.
 
 ## Design references
 

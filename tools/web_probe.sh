@@ -29,7 +29,7 @@ if [[ -z "${NO_EXPORT:-}" ]]; then
 fi
 QUERY="$(IFS='&'; echo "$*")"
 PROFILE="$(mktemp -d)"
-python3 tools/serve_web.py --port "$PORT" --bind 127.0.0.1 --dir "$OUT" >"$OUT/serve.log" 2>&1 &
+python3 tools/serve_web.py --port "$PORT" --bind 127.0.0.1 --dir "$OUT" --no-compress >"$OUT/serve.log" 2>&1 &
 SRV=$!
 trap 'kill "$SRV" 2>/dev/null; pkill -f "user-data-dir=$PROFILE" 2>/dev/null; rm -rf "$PROFILE"' EXIT
 sleep 2

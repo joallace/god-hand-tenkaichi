@@ -41,6 +41,20 @@ Measured costs in Chrome (AMD Lucienne iGPU, 2026-10; desktop-class machine):
 | `Sfx.play` (sample playback) | ~0.6-2.3 ms |
 | `AudioStreamPlayer.play()`, same stream | ~0.27-0.58 ms |
 
+## First load
+
+Nearly all of it is the stock engine: `index.wasm` is 39.5 MB raw, the game's
+`index.pck` only 1.2 MB, so trimming game assets barely moves it.
+`tools/serve_web.py` serves pre-compressed Brotli/gzip sidecars (41.0 -> 7.9 MB
+in total). Measured in Chrome over localhost at a simulated 5 Mbps, to the menu:
+67.5 s raw, 14.6 s Brotli. Any other host needs the same treatment.
+
+Still open, by expected impact: a trusted certificate (a self-signed one may
+keep phones from caching, so every visit downloads again; not tested); a
+service worker for repeat visits (`progressive_web_app/enabled`, needs that
+certificate too); a custom size-optimized engine template; profiling boot
+after the wasm is up (about 8 s of a 10.6 s load at 6x CPU throttle).
+
 ## Already done
 
 - **Effect shaders kept alive** (`presentation/vfx/fx_materials.gd`): every
