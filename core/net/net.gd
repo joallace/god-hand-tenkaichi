@@ -289,6 +289,9 @@ static func reason_text(reason: int, detail: String = "") -> String:
 			t = "Match in progress (not joinable)"
 		Protocol.Reason.BAD_NAME:
 			t = "Invalid profile name"
+		Protocol.Reason.PLATFORM:
+			# The detail already says it all (Session.cross_play_text).
+			return detail if not detail.is_empty() else "Cross-play unavailable"
 		Protocol.Reason.HOST_CLOSING:
 			t = "Host closed the room"
 		Protocol.Reason.LEFT:
@@ -504,7 +507,7 @@ func _on_session_ended(reason: int) -> void:
 		# Never got in: the join screen shows why (rejects already did).
 		if reason != Protocol.Reason.VERSION and reason != Protocol.Reason.CONTENT \
 				and reason != Protocol.Reason.ROOM_FULL and reason != Protocol.Reason.IN_PROGRESS \
-				and reason != Protocol.Reason.BAD_NAME:
+				and reason != Protocol.Reason.BAD_NAME and reason != Protocol.Reason.PLATFORM:
 			join_failed.emit(reason, connect_failed_text() if reason == Protocol.Reason.TIMEOUT \
 				or reason == Protocol.Reason.DISCONNECTED else text)
 		leave()

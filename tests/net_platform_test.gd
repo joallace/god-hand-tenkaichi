@@ -128,6 +128,7 @@ func _test_join(host_platform: String, guest_platform: String, expect: int, labe
 		and host.link_peers().is_empty(), "%s -> REJECT %d (%s)" % [label, expect, got[0][1] if not got.is_empty() else "none"])
 	if expect == Reason.PLATFORM and not got.is_empty():
 		_check(got[0][1] == Session.cross_play_text(host_platform, guest_platform), "%s: detail names both platforms" % label)
+		_check(Net.reason_text(expect, got[0][1]) == got[0][1], "%s: the join screen shows that detail as is" % label)
 
 
 ## A guest of the previous protocol (no platform in HELLO) still gets a
