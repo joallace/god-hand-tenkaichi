@@ -608,11 +608,20 @@ class SignalingServer:
 
 # --------------------------------------------------------------------------
 
+class _NoHandshakeNoise(logging.Filter):
+    """websockets >= 13 logs a failed handshake (port probe, scanner) as an
+    ERROR with a traceback; other errors stay visible."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.getMessage() != "opening handshake failed"
+
+
 def main(argv: Optional[list] = None) -> int:
     cfg = config_from(argv)
     logging.basicConfig(level=cfg.log_level.upper(),
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    logging.getLogger("websockets").setLevel(logging.ERROR)  # scanners, bad handshakes
+    logging.getLogger("websockets").setLevel(logging.ERROR)
+    logging.getLogger("websockets.server").addFilter(_NoHandshakeNoise())
     server = SignalingServer(cfg)
     try:
         asyncio.run(server.serve_forever())
