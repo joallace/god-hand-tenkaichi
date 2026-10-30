@@ -194,7 +194,8 @@ https://localhost:8443 and runs it in Chrome on $DISPLAY; on another device,
 open `https://<host>:8443/?mode=fight` and read FRAME_PROBE lines in the
 console. Web costs to remember: `Resource.duplicate()` on a material ~0.3 ms,
 `Sfx.play` ~0.6-2 ms, a new node/material/tween ~0.02-0.04 ms each, so
-per-hit effects are pooled (`VfxManager`, `FxMaterials`).
+per-hit effects are pooled (`VfxManager`, `FxMaterials`). Measured costs,
+fixes done and open web/mobile optimizations: `docs/web_performance.md`.
 
 `tools/replay_hash.tscn`: `-- replay=<file>` plays a replay headless, prints
 `<tick> <hash>` per checkpoint, exits 1 on a mismatch (cross-OS determinism
