@@ -36,18 +36,36 @@ func _ready() -> void:
 
 ## Node harness: a fake navigator, the shim, then the pad Godot would sample.
 ## Arguments: <ua> <axis count> <button count> <analog trigger or "">. Axis i
-## reads i / 10 and button i reads i / 100, so the output shows what moved.
+## reads i / 10 and button i reads i / 100, so the output shows what moved;
+## buttons 6/7 stay 0, as digital triggers on Firefox 132's layout.
 const NODE_HARNESS := """
 const [ua, axes, buttons, trigger] = process.argv.slice(1);
 const pad = {id: '2dc8-6012-8BitDo Ultimate 2 Wireless', index: 0, mapping: 'standard', connected: true, timestamp: 1,
 	axes: Array.from({length: +axes}, (_, i) => (trigger && i >= 6 ? +trigger : i / 10)),
-	buttons: Array.from({length: +buttons}, (_, i) => ({pressed: i > 0, touched: i > 0, value: i / 100}))};
+	buttons: Array.from({length: +buttons}, (_, i) => ({pressed: i > 0, touched: i > 0, value: i == 6 || i == 7 ? 0 : i / 100}))};
 const nav = {userAgent: ua, getGamepads: () => [null, pad]};
 new Function('navigator', process.env.SHIM)(nav);
 const [gap, p] = nav.getGamepads();
 console.log(JSON.stringify({gap, same: p === pad, axes: p.axes, buttons: p.buttons.map((b) => b.value), index: p.index, id: p.id}));
 """
-const UA_FIREFOX_LINUX := "Mozilla/5.0 (X11; Linux x86_64; rv:132.0) Gecko/20100101 Firefox/132.0"
+const NODE_FRAMES := """
+const ua = process.argv[1];
+let current = null;
+let shrunk = false;
+const nav = {userAgent: ua, getGamepads: () => (shrunk ? [] : [current])};
+new Function('navigator', process.env.SHIM)(nav);
+console.log(JSON.stringify(JSON.parse(process.env.FRAMES).map((f) => {
+	const buttons = Array.from({length: 28}, () => ({pressed: false, touched: false, value: 0}));
+	buttons[6].value = f.b6;
+	buttons[7].value = f.b7;
+	shrunk = !!f.shrunk;
+	current = f.gone ? null : {id: '2dc8-6012-8BitDo Ultimate 2 Wireless', index: 0, mapping: 'standard', connected: true,
+		timestamp: 1, axes: [0, 0, 0, 0, 0, 0, f.rt, f.lt], buttons};
+	const p = nav.getGamepads()[0];
+	return p ? {rs: [p.axes[2], p.axes[3]], lt: p.buttons[6].value, rt: p.buttons[7].value} : null;
+})));
+"""
+const UA_FIREFOX_LINUX :="Mozilla/5.0 (X11; Linux x86_64; rv:132.0) Gecko/20100101 Firefox/132.0"
 const UA_FIREFOX_ANDROID := "Mozilla/5.0 (Android 14; Mobile; rv:132.0) Gecko/132.0 Firefox/132.0"
 const UA_FIREFOX_WINDOWS := "Mozilla/5.0 (Windows NT 10.0; rv:132.0) Gecko/20100101 Firefox/132.0"
 const UA_CHROME_LINUX := "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/150.0.0.0 Safari/537.36"
@@ -66,9 +84,9 @@ func _check_firefox_shim() -> void:
 	_check(b.size() == 28 and is_equal_approx(b[0], 0.0) and is_equal_approx(b[12], 0.12), "HID pad: the other buttons keep their slot")
 	_check(hid.get("gap") == null and hid.get("index") == 0.0 and str(hid.get("id")).begins_with("2dc8-6012-"), "HID pad: empty slots, index and id kept")
 	var resting: Array = _run_shim(UA_FIREFOX_LINUX, 8, 28, "-1").get("buttons", [])
-	_check(resting.size() == 28 and is_equal_approx(resting[6], 0.06) and is_equal_approx(resting[7], 0.07), "HID pad: a resting analog trigger (-1) keeps the button's value")
+	_check(resting.size() == 28 and resting[6] == 0.0 and resting[7] == 0.0, "HID pad: a resting analog trigger (-1) reads 0")
 	var unmoved: Array = _run_shim(UA_FIREFOX_LINUX, 8, 28, "0").get("buttons", [])
-	_check(unmoved.size() == 28 and is_equal_approx(unmoved[6], 0.06) and is_equal_approx(unmoved[7], 0.07), "HID pad: a never-moved analog trigger (0) is no half press")
+	_check(unmoved.size() == 28 and unmoved[6] == 0.0 and unmoved[7] == 0.0, "HID pad: a never-moved analog trigger (0) is no half press")
 	var half: Array = _run_shim(UA_FIREFOX_LINUX, 8, 28, "-0.5").get("buttons", [])
 	_check(half.size() == 28 and is_equal_approx(half[6], 0.25), "HID pad: a quarter pull (-0.5) reads 0.25")
 	_check(_run_shim(UA_FIREFOX_LINUX, 8, 4).get("same") == true, "pad with few buttons: untouched, no throw")
@@ -76,6 +94,61 @@ func _check_firefox_shim() -> void:
 	_check(_run_shim(UA_CHROME_LINUX, 8, 28).get("same") == true, "Chrome: untouched")
 	_check(_run_shim(UA_FIREFOX_ANDROID, 8, 28).get("same") == true, "Firefox on Android: untouched")
 	_check(_run_shim(UA_FIREFOX_WINDOWS, 8, 28).get("same") == true, "Firefox on Windows: untouched")
+	_check_firefox_stick_on_buttons()
+
+
+## Firefox 158: an 8-axis pad's stick sits on buttons 6/7 (0.5 at center, 0
+## until first moved), digital LT/RT write those same buttons, and the analog
+## triggers stay on axes 6/7 (RT, LT).
+func _check_firefox_stick_on_buttons() -> void:
+	var f := _frames([_f(-1, -1, 0, 0)])
+	_check(f[0]["rs"] == [0.0, 0.0], "158: nothing moved yet: stick centered, not hard left (%s)" % str(f[0]["rs"]))
+	f = _frames([_f(-1, -1, 1, 0), _f(-1, -1, 0, 1)])
+	_check(f[0]["lt"] == 1.0 and f[1]["rt"] == 1.0, "132: digital triggers on buttons 6/7 still count")
+
+	f = _frames([_f(0, 0, 0, 0), _f(0, 0, 0.75, 0.5), _f(0, 0, 1, 0.5), _f(0, 0, 0.5, 1), _f(0, 0, 0.5, 0.25), _f(0, 0, 0, 0.5)])
+	_check(f[1]["rs"] == [0.5, 0.0], "158: stick X comes from button 6 (%s)" % str(f[1]["rs"]))
+	_check(f[2]["rs"] == [1.0, 0.0] and f[3]["rs"] == [0.0, 1.0], "158: stick reaches full right and full down")
+	_check(f[4]["rs"] == [0.0, -0.5] and f[5]["rs"] == [-1.0, 0.0], "158: stick up and full left")
+	_check(f[2]["lt"] == 0.0 and f[3]["rt"] == 0.0, "158: the stick no longer presses LT/RT")
+
+	f = _frames([_f(0, 0, 0.75, 0)])
+	_check(f[0]["rs"] == [0.5, 0.0], "158: an axis that never moved stays centered when the other one moves (%s)" % str(f[0]["rs"]))
+
+	# Stick centered, LT pulled: the digital button writes 1 then 0 on the stick's slot.
+	f = _frames([_f(0, 0, 0.5, 0.5), _f(0, 0.5, 0.5, 0.5), _f(0, 1, 1, 0.5), _f(0, 0.5, 0, 0.5), _f(0, -1, 0, 0.5), _f(0, -1, 0.5, 0.5)])
+	_check(is_equal_approx(f[1]["lt"], 0.75) and f[2]["lt"] == 1.0, "158: LT reads its analog axis (%s)" % str(f[2]))
+	_check(f[2]["rs"] == [0.0, 0.0] and f[3]["rs"] == [0.0, 0.0], "158: digital LT press and release don't move the stick")
+	_check(f[4]["rs"] == [0.0, 0.0] and f[4]["lt"] == 0.0, "158: trigger released: stick still centered, not stuck left")
+	f = _frames([_f(0, 0, 0.5, 0.5), _f(1, 0, 0.5, 1), _f(-1, 0, 0.5, 0), _f(-1, 0, 0.5, 0.5)])
+	_check(f[1]["rs"] == [0.0, 0.0] and f[2]["rs"] == [0.0, 0.0] and f[1]["rt"] == 1.0, "158: same for RT on the Y axis")
+
+	# A stick really pushed while a trigger is held still counts.
+	f = _frames([_f(0, 0, 0.5, 0.5), _f(0, 0.5, 0.75, 0.5)])
+	_check(f[1]["rs"] == [0.5, 0.0] and is_equal_approx(f[1]["lt"], 0.75), "158: stick moves while a trigger is held")
+
+	# Reconnect: no stale state, so an unmoved stick is centered again.
+	f = _frames([_f(0, 0, 0.75, 0.5), {"gone": true}, _f(0, 0, 0, 0)])
+	_check(f[2]["rs"] == [0.0, 0.0], "158: state cleared when the pad leaves its slot")
+	f = _frames([_f(0, 0, 0.75, 0.5), {"shrunk": true}, _f(0, 0, 0, 0)])
+	_check(f[2]["rs"] == [0.0, 0.0], "158: state cleared when the gamepad list shrinks (%s)" % str(f[2]["rs"]))
+
+
+## A sample: RT axis, LT axis, button 6, button 7.
+func _f(rt: float, lt: float, b6: float, b7: float) -> Dictionary:
+	return {"rt": rt, "lt": lt, "b6": b6, "b7": b7}
+
+
+## Runs samples through one shim instance; each result is the corrected
+## right stick and triggers.
+func _frames(frames: Array) -> Array:
+	OS.set_environment("SHIM", WebGamepads.FIREFOX_LINUX_SHIM)
+	var out: Array = []
+	OS.set_environment("FRAMES", JSON.stringify(frames))
+	if OS.execute("node", ["-e", NODE_FRAMES, UA_FIREFOX_LINUX], out, true) != 0:
+		print("node failed: %s" % str(out))
+		return frames.map(func(_x: Variant) -> Dictionary: return {"rs": [], "lt": -1.0, "rt": -1.0})
+	return JSON.parse_string(out[0])
 
 
 func _run_shim(ua: String, axes: int, buttons: int, trigger_rest := "") -> Dictionary:

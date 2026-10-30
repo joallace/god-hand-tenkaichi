@@ -16,10 +16,12 @@ extends RefCounted
 ## Firefox on Linux is the opposite case: it calls every pad "standard" but
 ## fills the slots from evdev codes, so a plain HID pad (right stick on
 ## ABS_Z/RZ, analog triggers on GAS/BRAKE, like an 8BitDo Ultimate 2 over
-## Bluetooth) comes out with the stick on axes 4/5 and BTN_X/Y on 3/2. A
-## mapping can't undo that: for a "standard" pad the engine writes buttons 6/7
-## and axes 4/5 to the same raw axes, so FIREFOX_LINUX_SHIM corrects the pad
-## before the engine samples it. Xbox-driver pads (6 axes) are already right.
+## Bluetooth) comes out with BTN_X/Y on 3/2 and the stick on axes 4/5
+## (Firefox 132) or, read as analog triggers, on buttons 6/7 (Firefox 158),
+## which digital LT/RT also write. A mapping can't undo that: for a "standard"
+## pad the engine writes buttons 6/7 and axes 4/5 to the same raw axes, so
+## FIREFOX_LINUX_SHIM corrects the pad before the engine samples it.
+## Xbox-driver pads (fewer than 8 axes) are already right.
 ## Input mapping only: the sim never sees it.
 
 ## SDL-style layout of the W3C standard gamepad, triggers as buttons.
@@ -28,8 +30,11 @@ const STANDARD_LAYOUT := "a:b0,b:b1,x:b2,y:b3,leftshoulder:b4,rightshoulder:b5,l
 	+ "dpleft:b14,dpright:b15,leftx:a0,lefty:a1,rightx:a2,righty:a3,"
 
 ## Wraps navigator.getGamepads to return Firefox's 8-axis pads in the real
-## standard layout. A trigger is its button or its analog axis, whichever is
-## further along; the axis runs -1 (rest) to 1, and reads 0 until first moved.
+## standard layout. Analog triggers run -1 (rest) to 1 and read 0 until first
+## moved. A fractional value on button 6/7 can only be the stick (0.5 at
+## center, 0 until first moved), so it tells the two Firefox layouts apart.
+## An exact 0 or 1 there is ignored until that axis first moves and again
+## after a trigger pull: it's the digital trigger writing over the stick.
 const FIREFOX_LINUX_SHIM := """
 (function () {
 	const ua = navigator.userAgent;
@@ -37,26 +42,58 @@ const FIREFOX_LINUX_SHIM := """
 		return;
 	}
 	const raw = navigator.getGamepads.bind(navigator);
-	const trigger = function (button, axis) {
-		const value = Math.max(button.value, axis === 0 ? 0 : (axis + 1) / 2);
-		return {pressed: button.pressed || value > 0, touched: button.touched || value > 0, value: value};
+	const states = {};
+	const trigger = function (digital, axis) {
+		const value = Math.max(digital, axis === 0 ? 0 : (axis + 1) / 2);
+		return {pressed: value > 0, touched: value > 0, value: value};
 	};
-	const fix = function (pad) {
+	const fractional = function (button) {
+		return button.value !== 0 && button.value !== 1;
+	};
+	const track_stick = function (s, i, value, trigger_axis) {
+		const exact = value === 0 || value === 1;
+		if (trigger_axis !== 0 && trigger_axis > -1) {
+			s.ignore[i] = true;
+		} else if (!exact) {
+			s.ignore[i] = false;
+		}
+		if (!exact || !s.ignore[i]) {
+			s.stick[i] = value * 2 - 1;
+		}
+	};
+	const fix = function (pad, slot) {
 		if (!pad || pad.mapping !== "standard" || pad.axes.length < 8 || pad.buttons.length < 8) {
+			delete states[slot];
 			return pad;
+		}
+		let s = states[slot];
+		if (!s || s.id !== pad.id) {
+			s = states[slot] = {id: pad.id, on_buttons: false, stick: [0, 0], ignore: [true, true]};
 		}
 		const a = pad.axes;
 		const b = Array.from(pad.buttons);
+		s.on_buttons = s.on_buttons || fractional(b[6]) || fractional(b[7]);
+		if (s.on_buttons) {
+			track_stick(s, 0, b[6].value, a[7]);
+			track_stick(s, 1, b[7].value, a[6]);
+		}
+		const digital = s.on_buttons ? [0, 0] : [b[6].value, b[7].value];
 		const x = b[3];
 		b[3] = b[2];
 		b[2] = x;
-		b[6] = trigger(pad.buttons[6], a[7]);
-		b[7] = trigger(pad.buttons[7], a[6]);
-		return {id: pad.id, index: pad.index, mapping: pad.mapping, connected: pad.connected,
-			timestamp: pad.timestamp, axes: [a[0], a[1], a[4], a[5]], buttons: b};
+		b[6] = trigger(digital[0], a[7]);
+		b[7] = trigger(digital[1], a[6]);
+		return {id: pad.id, index: pad.index, mapping: pad.mapping, connected: pad.connected, timestamp: pad.timestamp,
+			axes: [a[0], a[1], s.on_buttons ? s.stick[0] : a[4], s.on_buttons ? s.stick[1] : a[5]], buttons: b};
 	};
 	navigator.getGamepads = function () {
-		return Array.from(raw(), fix);
+		const pads = Array.from(raw(), fix);
+		for (const slot of Object.keys(states)) {
+			if (slot >= pads.length) {
+				delete states[slot];
+			}
+		}
+		return pads;
 	};
 })();
 """
