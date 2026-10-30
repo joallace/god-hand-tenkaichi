@@ -12,6 +12,8 @@ import hashlib
 import hmac
 import json
 import logging
+import socket
+import subprocess
 import sys
 import time
 import unittest
@@ -360,6 +362,33 @@ class ConfigTest(unittest.TestCase):
     def test_no_turn_without_secret(self):
         cfg = ss.Config(turn_urls=["turn:x:3478"])
         self.assertEqual(ss.ice_servers(cfg, "", "L"), [{"urls": ["stun:stun.l.google.com:19302"]}])
+
+
+class LoggingTest(unittest.TestCase):
+    def test_port_probe_logs_nothing(self):
+        """A TCP connect + close (tools/serve_web.py's listening(), port
+        scanners) is not worth a traceback."""
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        proc = subprocess.Popen([sys.executable, ss.__file__, "--bind", "127.0.0.1", "--port", str(port)],
+                                stderr=subprocess.PIPE, text=True)
+        try:
+            deadline = time.monotonic() + 5
+            while True:
+                try:
+                    socket.create_connection(("127.0.0.1", port), timeout=0.5).close()
+                    break
+                except OSError:
+                    self.assertLess(time.monotonic(), deadline, "server did not start")
+                    time.sleep(0.05)
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/healthz", timeout=2) as r:
+                self.assertEqual(r.status, 200)  # the probe's connection was handled
+        finally:
+            proc.terminate()
+            _, stderr = proc.communicate(timeout=5)
+        self.assertIn("event=listening", stderr)
+        self.assertNotIn("opening handshake failed", stderr)
 
 
 if __name__ == "__main__":
