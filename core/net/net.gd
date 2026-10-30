@@ -69,6 +69,8 @@ var join_code: String = ""
 ## Backend of the open session (NONE offline, and for tests' loopback).
 var backend: PlatformCaps.NetBackend = PlatformCaps.NetBackend.NONE
 ## Room-code host: the room's code once the signaling server sent it.
+## The signaling server the open room-code session connected to (error hints).
+var signaling_used_url: String = ""
 var room_code: String = ""
 ## Room-code host: the last signaling problem (user-facing), "" = none.
 var signaling_error_text: String = ""
@@ -151,11 +153,13 @@ func host_room() -> Error:
 	if signaling_url().is_empty():
 		return ERR_UNCONFIGURED
 	var sig := SignalingClient.new()
-	var err := sig.connect_to_url(signaling_url())
+	var url := signaling_url()
+	var err := sig.connect_to_url(url)
 	if err != OK:
 		return err
 	var t := WebRtcTransport.new()
 	start_host(t)
+	signaling_used_url = url
 	backend = PlatformCaps.NetBackend.WEBRTC
 	watch_signaling(t)
 	err = t.host_room(sig, game_id(), Tuning.net.max_humans - 1)
@@ -208,6 +212,7 @@ func _join_code(code: String, signal_override: String) -> Error:
 		return err
 	var t := WebRtcTransport.new()
 	start_guest(t)
+	signaling_used_url = url
 	backend = PlatformCaps.NetBackend.WEBRTC
 	join_code = code
 	err = t.join_room(sig, code, game_id())
@@ -261,6 +266,7 @@ func leave() -> void:
 	join_code = ""
 	room_code = ""
 	signaling_error_text = ""
+	signaling_used_url = ""
 
 
 ## Leave and go to the main menu showing `text`.
@@ -328,13 +334,13 @@ static func game_id() -> String:
 ## ("" = none known, see room_codes_ready).
 func signaling_url() -> String:
 	return resolve_signaling_url(settings.signaling_url, PlatformCaps.web, WebPage.location(),
-			desktop_signaling_url(), Tuning.net.signaling_port)
+			desktop_signaling_url(), Tuning.net.web_signaling_url, Tuning.net.signaling_path)
 
 
 ## The signaling server used when Settings has no override (its placeholder).
 func default_signaling_url() -> String:
 	return resolve_signaling_url("", PlatformCaps.web, WebPage.location(),
-			desktop_signaling_url(), Tuning.net.signaling_port)
+			desktop_signaling_url(), Tuning.net.web_signaling_url, Tuning.net.signaling_path)
 
 
 ## Desktop default: the tuning URL, else the local dev server in debug builds.
@@ -351,11 +357,12 @@ func room_codes_ready() -> bool:
 
 
 ## `override` (Settings) if set; on web a valid `?signal=` in the page's
-## query, else the page's own host on `port` (wss when the page is https);
-## otherwise (desktop, or a page location we can't read) `desktop_url`.
-## `page` has WebPage.location()'s keys ("protocol", "hostname", "search").
+## query, else `web_url`, else the page's own origin + `path` (wss when the
+## page is https, so the certificate the player accepted for the page covers
+## it too); otherwise (desktop, or a page location we can't read)
+## `desktop_url`. `page` has WebPage.location()'s keys.
 static func resolve_signaling_url(override: String, on_web: bool, page: Dictionary,
-		desktop_url: String, port: int) -> String:
+		desktop_url: String, web_url: String, path: String) -> String:
 	if not override.strip_edges().is_empty():
 		return override.strip_edges()
 	if on_web:
@@ -363,12 +370,16 @@ static func resolve_signaling_url(override: String, on_web: bool, page: Dictiona
 		var sig := str(q.get(PARAM_SIGNAL, "")).strip_edges()
 		if OnlineSettings.is_valid_signaling_url(sig):
 			return sig
-		var host_name := str(page.get("hostname", ""))
-		if not host_name.is_empty():
-			if host_name.contains(":") and not host_name.begins_with("["):
-				host_name = "[%s]" % host_name
+		if not web_url.is_empty():
+			return web_url
+		var host := str(page.get("host", ""))
+		if host.is_empty():
+			host = str(page.get("hostname", ""))
+			if host.contains(":") and not host.begins_with("["):
+				host = "[%s]" % host
+		if not host.is_empty():
 			var scheme := "wss" if str(page.get("protocol", "")) == "https:" else "ws"
-			return "%s://%s:%d" % [scheme, host_name, port]
+			return "%s://%s%s" % [scheme, host, path if path.begins_with("/") else "/" + path]
 	return desktop_url
 
 
@@ -384,7 +395,8 @@ func invite_text() -> String:
 	# A Settings override the guest's page wouldn't pick by itself travels along.
 	var sig := signaling_url()
 	var page_default := resolve_signaling_url("", true, {"protocol": loc.get("protocol", ""),
-			"hostname": loc.get("hostname", "")}, "", Tuning.net.signaling_port)
+			"host": loc.get("host", ""), "hostname": loc.get("hostname", "")}, "",
+			Tuning.net.web_signaling_url, Tuning.net.signaling_path)
 	return invite_url(href, room_code, sig if sig != page_default else "")
 
 
@@ -553,7 +565,16 @@ func _on_session_ended(reason: int) -> void:
 ## else the generic text.
 func connect_failed_text() -> String:
 	var t := _transport_error_text()
-	return t if not t.is_empty() else CONNECT_FAILED_TEXT
+	return with_server_hint(t, signaling_used_url) if not t.is_empty() else CONNECT_FAILED_TEXT
+
+
+## "Could not reach the signaling server" alone doesn't say which one, nor
+## how to fix it (a desktop on another machine of the LAN still points at
+## 127.0.0.1; a page with no server next to it): name the URL and the setting.
+static func with_server_hint(text: String, url: String) -> String:
+	if url.is_empty() or (text != SignalingClient.TEXT_UNREACHABLE and text != SignalingClient.TEXT_LOST):
+		return text
+	return "%s (%s). Set it in Settings > Online > Signaling server" % [text, url]
 
 
 func _transport_error_text() -> String:
@@ -569,7 +590,8 @@ func _on_room_opened(code: String) -> void:
 
 
 func _on_signaling_error(_code: String, text: String) -> void:
-	signaling_error_text = text if not text.is_empty() else SIGNALING_ERROR_FALLBACK
+	signaling_error_text = with_server_hint(text, signaling_used_url) if not text.is_empty() \
+		else SIGNALING_ERROR_FALLBACK
 	signaling_problem.emit(signaling_error_text)
 
 

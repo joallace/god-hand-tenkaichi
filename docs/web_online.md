@@ -408,9 +408,16 @@ signaling, so the host transport ignores this for connected links),
   `Net.join(text)`: a room code (or a join URL holding `room=`) →
   WebRTC, otherwise an ENet address (desktop only).
 - Signaling URL: `OnlineSettings.signaling_url` override; empty = the
-  default: on web, the page's own host on `Tuning.net.signaling_port`
-  (`wss` when the page is https); on desktop `Tuning.net.signaling_url`.
-  A `?signal=` page query overrides it on web.
+  default: on web, a `?signal=` page query, else
+  `Tuning.net.web_signaling_url`, else the page's own origin +
+  `Tuning.net.signaling_path` (`/signal`; wss on an https page, so the
+  certificate accepted for the page covers it: `tools/serve_web.py` forwards
+  it on the LAN, a reverse proxy when deployed); on desktop
+  `Tuning.net.signaling_url` (debug builds: `dev_signaling_url`). An
+  unreachable server's error names the URL and the setting.
+- Mobile browsers: the Web presets enable `html/experimental_virtual_keyboard`;
+  without it an Android keyboard shows up but its text never reaches a
+  LineEdit (IME input isn't plain key events).
 - Web join links: `<page url>?room=CODE`; the page reads `room` at boot
   (`JavaScriptBridge`) and goes to the join flow.
 

@@ -18,14 +18,14 @@ static func location() -> Dictionary:
 	if not is_browser():
 		return {}
 	var raw: Variant = JavaScriptBridge.eval("JSON.stringify({href: location.href, protocol: location.protocol,"
-			+ " hostname: location.hostname, search: location.search})", true)
+			+ " host: location.host, hostname: location.hostname, search: location.search})", true)
 	if not raw is String:
 		return {}
 	var d: Variant = JSON.parse_string(raw)
 	if not d is Dictionary:
 		return {}
 	var out := {}
-	for k: String in ["href", "protocol", "hostname", "search"]:
+	for k: String in ["href", "protocol", "host", "hostname", "search"]:
 		out[k] = str((d as Dictionary).get(k, ""))
 	return out
 

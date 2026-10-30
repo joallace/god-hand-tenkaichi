@@ -11,7 +11,7 @@ extends Node
 const TEMP_CFG := "user://room_codes_test.cfg"
 const CODE := "K7QX2M"
 const DESKTOP_URL := "ws://127.0.0.1:8765"
-const PORT := 8765
+const PATH := "/signal"
 
 
 ## Room-code transport stand-in: the signals and error text of
@@ -151,31 +151,42 @@ func _test_parse_join_text() -> void:
 
 
 func _test_signaling_url() -> void:
-	var https := {"protocol": "https:", "hostname": "play.example.org", "search": ""}
-	var http := {"protocol": "http:", "hostname": "localhost", "search": "?x=1"}
-	check(Net.resolve_signaling_url("", false, {}, DESKTOP_URL, PORT) == DESKTOP_URL,
+	var https := {"protocol": "https:", "host": "play.example.org", "hostname": "play.example.org", "search": ""}
+	var lan := {"protocol": "https:", "host": "192.168.0.10:8443", "hostname": "192.168.0.10", "search": ""}
+	var http := {"protocol": "http:", "host": "localhost:8000", "hostname": "localhost", "search": "?x=1"}
+	check(Net.resolve_signaling_url("", false, {}, DESKTOP_URL, "", PATH) == DESKTOP_URL,
 			"signaling: desktop default is the tuning URL")
-	check(Net.resolve_signaling_url("  wss://mine.example:1 ", false, {}, DESKTOP_URL, PORT) == "wss://mine.example:1",
+	check(Net.resolve_signaling_url("  wss://mine.example:1 ", false, {}, DESKTOP_URL, "", PATH) == "wss://mine.example:1",
 			"signaling: the settings override wins on desktop")
-	check(Net.resolve_signaling_url("ws://mine:1", true, https, DESKTOP_URL, PORT) == "ws://mine:1",
+	check(Net.resolve_signaling_url("ws://mine:1", true, https, DESKTOP_URL, "", PATH) == "ws://mine:1",
 			"signaling: the settings override wins on web")
-	check(Net.resolve_signaling_url("", true, https, DESKTOP_URL, PORT) == "wss://play.example.org:%d" % PORT,
-			"signaling: https page -> wss on the page's host")
-	check(Net.resolve_signaling_url("", true, http, DESKTOP_URL, PORT) == "ws://localhost:%d" % PORT,
-			"signaling: http page -> ws on the page's host")
-	var with_signal := {"protocol": "https:", "hostname": "h", "search": "?signal=ws%3A%2F%2F10.0.0.2%3A9000&room=X"}
-	check(Net.resolve_signaling_url("", true, with_signal, DESKTOP_URL, PORT) == "ws://10.0.0.2:9000",
-			"signaling: ?signal= overrides the page host")
-	var bad_signal := {"protocol": "http:", "hostname": "h", "search": "?signal=javascript:alert(1)"}
-	check(Net.resolve_signaling_url("", true, bad_signal, DESKTOP_URL, PORT) == "ws://h:%d" % PORT,
+	check(Net.resolve_signaling_url("", true, https, DESKTOP_URL, "", PATH) == "wss://play.example.org/signal",
+			"signaling: https page -> wss on the page's origin + path")
+	check(Net.resolve_signaling_url("", true, lan, DESKTOP_URL, "", PATH) == "wss://192.168.0.10:8443/signal",
+			"signaling: the page's port is kept (serve_web.py on the LAN: one certificate)")
+	check(Net.resolve_signaling_url("", true, http, DESKTOP_URL, "", "signal") == "ws://localhost:8000/signal",
+			"signaling: http page -> ws; a path without '/' gets one")
+	check(Net.resolve_signaling_url("", true, https, DESKTOP_URL, "wss://sig.example.org", PATH) == "wss://sig.example.org",
+			"signaling: a tuning web URL beats the page origin")
+	var with_signal := {"protocol": "https:", "host": "h", "search": "?signal=ws%3A%2F%2F10.0.0.2%3A9000&room=X"}
+	check(Net.resolve_signaling_url("", true, with_signal, DESKTOP_URL, "wss://sig.example.org", PATH) == "ws://10.0.0.2:9000",
+			"signaling: ?signal= overrides the page origin and the tuning web URL")
+	var bad_signal := {"protocol": "http:", "host": "h", "search": "?signal=javascript:alert(1)"}
+	check(Net.resolve_signaling_url("", true, bad_signal, DESKTOP_URL, "", PATH) == "ws://h/signal",
 			"signaling: an invalid ?signal= is ignored")
 	var v6 := {"protocol": "http:", "hostname": "::1", "search": ""}
-	check(Net.resolve_signaling_url("", true, v6, DESKTOP_URL, PORT) == "ws://[::1]:%d" % PORT,
-			"signaling: a bare IPv6 page host is bracketed")
-	check(Net.resolve_signaling_url("", true, {}, DESKTOP_URL, PORT) == DESKTOP_URL,
-			"signaling: web without a readable location falls back to the tuning URL")
-	check(Net.desktop_signaling_url() == DESKTOP_URL and Tuning.net.signaling_port == PORT,
-			"signaling: tuning defaults")
+	check(Net.resolve_signaling_url("", true, v6, DESKTOP_URL, "", PATH) == "ws://[::1]/signal",
+			"signaling: a bare IPv6 hostname (no host key) is bracketed")
+	check(Net.resolve_signaling_url("", true, {}, DESKTOP_URL, "", PATH) == DESKTOP_URL,
+			"signaling: web without a readable location falls back to the desktop URL")
+	check(Net.desktop_signaling_url() == DESKTOP_URL and Tuning.net.signaling_path == PATH
+			and Tuning.net.web_signaling_url == "", "signaling: tuning defaults")
+	var hint := Net.with_server_hint(SignalingClient.TEXT_UNREACHABLE, "ws://127.0.0.1:8765")
+	check(hint.contains("ws://127.0.0.1:8765") and hint.contains("Settings > Online"),
+			"signaling: an unreachable server's text names the URL and the setting (%s)" % hint)
+	check(Net.with_server_hint("No room with that code", "ws://x") == "No room with that code",
+			"signaling: other errors are left as they are")
+
 
 
 func _test_links() -> void:

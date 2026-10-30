@@ -35,20 +35,30 @@ python3 -m unittest server/test_signaling_server.py
 
 `curl http://localhost:8765/healthz` prints `ok`.
 
-### wss:// with the dev certificate
-
-A page served over HTTPS (`tools/serve_web.py`, needed for phones and other
-LAN devices) can only open `wss://` sockets. Reuse the self-signed
-certificate that `tools/serve_web.py` writes to `builds/web-cert/cert.pem` +
-`key.pem` (run it once first):
+### On the LAN (phones, a second PC)
 
 ```sh
-python3 server/signaling_server.py --dev-cert    # wss://<LAN IP>:8765
+python3 tools/serve_web.py     # https://<LAN IP>:8443/, signaling on /signal
 ```
 
-Browsers accept a self-signed certificate per host:port, so on each device
-also open `https://<LAN IP>:8765/healthz` once and accept the warning, or
-the game's WebSocket fails silently.
+A page served over HTTPS can only open `wss://` sockets, and a browser
+never shows the "accept this certificate" prompt for a WebSocket: a
+self-signed `wss://<LAN IP>:8765` fails silently ("Could not reach the
+signaling server") until that host:port was opened as a page and accepted.
+So `tools/serve_web.py` also forwards WebSocket upgrades on `/signal` to a
+signaling server on port 8765 (it reuses one already running there, else
+starts one), and the web build's default signaling URL is its own origin +
+`/signal` (`Tuning.net.signaling_path`): the certificate accepted for the
+page covers it.
+
+Desktop builds on another machine use the server directly: Settings >
+Online > Signaling server = `ws://<LAN IP>:8765` (serve_web.py prints it;
+debug builds default to `ws://127.0.0.1:8765`, which only works on the
+machine running the server).
+
+`--dev-cert` (`wss://` straight on 8765 with `builds/web-cert/`) still
+works, but then each device must also open `https://<LAN IP>:8765/healthz`
+once and accept the warning.
 
 ## Settings
 
@@ -114,7 +124,15 @@ Two options:
    WebSocket upgrades to `127.0.0.1:8765`; set `GHT_SIGNAL_TRUST_PROXY=1` so
    per-IP limits see real client IPs (only when the proxy sets
    `X-Forwarded-For` and port 8765 is not reachable from outside). Then the
-   game's signaling URL is `wss://signal.example.com/`.
+   game's signaling URL is `wss://signal.example.com/`. If the same host also
+   serves the web build, proxy `/signal` there instead and the web build
+   needs no URL at all (its default is the page's origin + `/signal`), e.g.
+   Caddy: `handle /signal { reverse_proxy 127.0.0.1:8765 }`; nginx:
+   `location /signal { proxy_pass http://127.0.0.1:8765; proxy_http_version 1.1;
+   proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade";
+   proxy_set_header X-Forwarded-For $remote_addr; }`. Game page elsewhere
+   (itch.io): set `Tuning.net.web_signaling_url` (and `signaling_url` for
+   desktop) to the server's `wss://` URL.
 2. **Direct**: get a certificate with certbot
    (`certbot certonly --standalone -d signal.example.com`), copy it into
    `server/certs/` with a deploy hook (Let's Encrypt's `live/` files are

@@ -4,7 +4,8 @@ extends Node
 ## docs/web_online.md "Cross-play end-to-end check"). Runs on desktop
 ##   godot --headless res://tools/web_tools.tscn -- tool=net_peer role=host signal=ws://127.0.0.1:18765
 ## and in the "Web Tools" export (?tool=net_peer&role=guest&code=ABCDEF&...).
-## Args (ToolArgs): role=host|guest, signal=<ws url>, code=<room code,
+## Args (ToolArgs): role=host|guest, signal=<ws url> (or `default`: the
+## game's own default, e.g. the page's origin + /signal), code=<room code,
 ## guest>, mode=versus|coop, ticks=N (confirmed ticks to play), seed,
 ## delay (input delay), level (CPU level of the "pads"), enemies (co-op
 ## field), timeout (seconds to connect).
@@ -70,6 +71,9 @@ func _ready() -> void:
 		_finish(false, "WebRTC unavailable")
 		return
 	var sig := SignalingClient.new()
+	if str(_args["signal"]) == "default":
+		_args["signal"] = Net.default_signaling_url()  # what the menus would use
+	print("NET_PEER SIGNAL %s" % _args["signal"])
 	if sig.connect_to_url(str(_args["signal"])) != OK:
 		_finish(false, "bad signal url %s" % _args["signal"])
 		return
