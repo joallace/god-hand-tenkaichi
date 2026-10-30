@@ -180,6 +180,22 @@ res://tools/net_bench.tscn -- humans=2 enemies=6 [mode=coop|versus ticks=1800
 warmup=600 rollback=8 seed=7 coop.field_cap=10]`; the field is humans +
 enemies, clamped by `coop.field_cap`. Record results in SPEC_ONLINE.md §12.1.
 
+`tools/frame_probe.tscn`: presentation hitch probe on the real match scene
+(what a player sees; the headless benches only time the sim). `mode=fight`
+(CPU vs CPU: frame spikes tagged with that frame's events, pipeline compiles
+after warm-up), `mode=events` (each VFX/SFX suspect fired alone: call cost +
+next frame), `mode=bench` (per-call cost of nodes, materials, tweens, audio).
+Desktop: `godot res://tools/frame_probe.tscn -- mode=fight frames=2400`
+(rendered = real pacing; `--headless --fixed-fps 60` = CPU only). Web, where
+GDScript is several times slower (WASM, single thread): `tools/web_probe.sh
+mode=events` exports the "Web Probe" preset (feature tag `web_probe` makes
+the probe the main scene) to `builds/web-probe/`, serves it on
+https://localhost:8443 and runs it in Chrome on $DISPLAY; on another device,
+open `https://<host>:8443/?mode=fight` and read FRAME_PROBE lines in the
+console. Web costs to remember: `Resource.duplicate()` on a material ~0.3 ms,
+`Sfx.play` ~0.6-2 ms, a new node/material/tween ~0.02-0.04 ms each, so
+per-hit effects are pooled (`VfxManager`, `FxMaterials`).
+
 `tools/replay_hash.tscn`: `-- replay=<file>` plays a replay headless, prints
 `<tick> <hash>` per checkpoint, exits 1 on a mismatch (cross-OS determinism
 check); `-- record=<file> seed=<n> mode=versus|coop ticks=<n>` records a

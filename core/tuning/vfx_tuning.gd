@@ -99,6 +99,13 @@ extends Resource
 ## Head ball radius as a multiple of the beam radius.
 @export var beam_head_scale: float = 1.35
 
+@export_group("Effect pools")
+## Pooled flash/shockwave meshes VfxManager creates at match start (grows on demand).
+@export var fx_pool_prefill: int = 8
+## Same for meshes drawn on top of bodies (hit flashes + sparks: a heavy
+## hit takes 2 + spark_count_heavy).
+@export var fx_pool_prefill_on_top: int = 48
+
 @export_group("Material warm-up")
 ## Frames FxMaterials.warm_up() draws every effect material at match start
 ## (compiles shaders/pipelines then instead of on the first hit).

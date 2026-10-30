@@ -264,6 +264,8 @@ var _aura: MeshInstance3D
 var _flash_left: float = 0.0
 var _time: float = 0.0
 var _fx: Array[MeshInstance3D] = []
+## Shared by every vanish/reappear flash (no mesh generated per teleport).
+static var _flash_mesh: SphereMesh
 ## Seconds this fighter has been KO'd (co-op enemy fade-out).
 var _ko_time: float = 0.0
 var _fade: float = 0.0
@@ -448,10 +450,11 @@ func _on_event(kind: StringName, data: Dictionary) -> void:
 ## Expanding sphere flash at a world position (vanish/reappear).
 func _spawn_flash(at: Vector3) -> void:
 	var m := MeshInstance3D.new()
-	var sphere := SphereMesh.new()
-	sphere.radius = 0.6
-	sphere.height = 1.2
-	m.mesh = sphere
+	if _flash_mesh == null:
+		_flash_mesh = SphereMesh.new()
+		_flash_mesh.radius = 0.6
+		_flash_mesh.height = 1.2
+	m.mesh = _flash_mesh
 	m.material_override = FxMaterials.make(FxMaterials.Kind.FLASH, Color(1, 1, 1, 0.8))
 	m.top_level = true
 	add_child(m)

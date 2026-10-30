@@ -48,16 +48,24 @@ func _test_copies_share_shader() -> void:
 func _test_shader_outlives_effects() -> void:
 	var vfx := VfxManager.new()
 	add_child(vfx)
+	var hub := MatchEventHub.new()
+	add_child(hub)
+	vfx.setup(hub)
+	var nodes := vfx.get_child_count()
 	var before := FxMaterials.template(FxMaterials.Kind.TRANSLUCENT_ON_TOP)
 	vfx.hit_spark(Vector3.ZERO, Color.ORANGE, 1.0, 0.01, 3)
 	vfx.shockwave(Vector3.ZERO, Color.ORANGE, 1.0, 0.01)
-	for i in 30:  # every effect tweens out and frees itself
+	for i in 30:  # every effect plays out
 		await get_tree().process_frame
-	_check(vfx.get_children().all(func(c: Node) -> bool: return c.name == "MaterialWarmUp"),
-			"effects freed themselves")
+	_check(vfx.active_count() == 0, "effects finished")
+	vfx.hit_spark(Vector3.ZERO, Color.ORANGE, 1.0, 0.01, 3)
+	_check(vfx.get_child_count() <= nodes, "a repeat hit reuses pooled meshes (no new nodes)")
+	for i in 30:
+		await get_tree().process_frame
 	_check(FxMaterials.template(FxMaterials.Kind.TRANSLUCENT_ON_TOP) == before,
 			"template (and its shader) survives all effects being freed (no recompile)")
 	vfx.queue_free()
+	hub.queue_free()
 	await get_tree().process_frame
 
 

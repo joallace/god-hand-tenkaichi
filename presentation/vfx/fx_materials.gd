@@ -8,10 +8,15 @@ extends RefCounted
 ## the materials that use it and frees it, pipelines included, as soon as the
 ## last one goes away. A material that lives only as long as its effect would
 ## recompile its shader every time the effect comes back: a frame hitch on
-## every hit, teleport and blast. So every effect material is a copy of a
-## template kept here for the whole session (copies share its shader), and
-## warm_up() draws each template once at match start so the first hit
-## doesn't compile either.
+## every hit, teleport and blast. So a template of every kind is kept here
+## for the whole session (keeping its shader alive), make() builds materials
+## with the template's exact flags (so they share that shader), and warm_up()
+## draws each template once at match start so the first hit doesn't compile
+## either.
+##
+## make() builds fresh instead of duplicate(): on the web build (WASM)
+## duplicate() walks every material property, ~15x slower than new + sets
+## (0.32 vs 0.02 ms each), enough to drop a frame on a heavy hit's sparks.
 ##
 ## On a live material, vary values (colors, emission energy), never feature
 ## flags (emission_enabled, transparency, ...): a flag change swaps shaders.
@@ -30,17 +35,13 @@ static var _templates: Dictionary = {}  # Kind -> StandardMaterial3D
 
 ## A new material of `kind` (sharing the template's shader), tinted `color`.
 static func make(kind: Kind, color: Color = Color.WHITE) -> StandardMaterial3D:
-	var t := template(kind)
-	var m := t.duplicate() as StandardMaterial3D
-	# duplicate() skips properties the inspector hides, emission_enabled on an
-	# unshaded material included: restore it so the copy keeps t's shader.
-	if t.emission_enabled:
-		m.emission_enabled = true
+	template(kind)  # keeps the shader alive
+	var m := _build(kind)
 	m.albedo_color = color
 	return m
 
 
-## The session-lifetime template of `kind` (read only: copy it with make()).
+## The session-lifetime template of `kind` (read only: get copies from make()).
 static func template(kind: Kind) -> StandardMaterial3D:
 	var m: StandardMaterial3D = _templates.get(kind)
 	if m == null:
