@@ -1,0 +1,68 @@
+# Signaling server (always) + coturn TURN relay (opt-in):
+#   cp server/.env.example server/.env   # then edit it
+#   docker compose -f server/docker-compose.yml up -d --build
+#   docker compose -f server/docker-compose.yml --profile turn up -d --build
+# See server/README.md.
+
+services:
+  signaling:
+    build: .
+    image: ght-signaling:latest
+    restart: unless-stopped
+    # Values come from server/.env (compose reads it for ${...}); defaults
+    # match the server's. Add any other GHT_SIGNAL_* limit here the same way.
+    environment:
+      GHT_SIGNAL_BIND: 0.0.0.0
+      GHT_SIGNAL_PORT: ${GHT_SIGNAL_PORT:-8765}
+      GHT_SIGNAL_CERT: ${GHT_SIGNAL_CERT:-}
+      GHT_SIGNAL_KEY: ${GHT_SIGNAL_KEY:-}
+      GHT_SIGNAL_TRUST_PROXY: ${GHT_SIGNAL_TRUST_PROXY:-0}
+      GHT_SIGNAL_LOG_LEVEL: ${GHT_SIGNAL_LOG_LEVEL:-INFO}
+      GHT_STUN_URLS: ${GHT_STUN_URLS:-stun:stun.l.google.com:19302}
+      GHT_TURN_URLS: ${GHT_TURN_URLS:-}
+      GHT_TURN_SECRET: ${GHT_TURN_SECRET:-}
+      GHT_TURN_TTL: ${GHT_TURN_TTL:-21600}
+    ports:
+      - "${GHT_SIGNAL_PUBLISH:-8765}:${GHT_SIGNAL_PORT:-8765}/tcp"
+    volumes:
+      # TLS for wss:// (set GHT_SIGNAL_CERT=/certs/fullchain.pem and
+      # GHT_SIGNAL_KEY=/certs/privkey.pem in .env), or put a TLS reverse
+      # proxy in front and set GHT_SIGNAL_TRUST_PROXY=1.
+      - ${GHT_CERT_DIR:-./certs}:/certs:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  coturn:
+    image: coturn/coturn:4.6
+    profiles: [turn]
+    restart: unless-stopped
+    # Host networking: the relay port range would otherwise need thousands of
+    # published ports, and coturn must see the real addresses.
+    network_mode: host
+    volumes:
+      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
+      - ${GHT_CERT_DIR:-./certs}:/etc/coturn/certs:ro
+    environment:
+      GHT_TURN_SECRET: ${GHT_TURN_SECRET:-}
+      GHT_TURN_REALM: ${GHT_TURN_REALM:-turn.example.com}
+      GHT_TURN_MIN_PORT: ${GHT_TURN_MIN_PORT:-49160}
+      GHT_TURN_MAX_PORT: ${GHT_TURN_MAX_PORT:-49200}
+      GHT_TURN_EXTERNAL_IP: ${GHT_TURN_EXTERNAL_IP:-}
+    # Refuse to start without a real secret: an empty or known one would let
+    # anyone mint credentials (an open relay). The secret is the same one the
+    # signaling server signs credentials with. Without GHT_TURN_EXTERNAL_IP,
+    # the image's detect-external-ip looks the public IP up.
+    entrypoint:
+      - sh
+      - -c
+      - |
+        if [ "$${#GHT_TURN_SECRET}" -lt 16 ] || [ "$$GHT_TURN_SECRET" = change-me ]; then
+          echo "coturn: set GHT_TURN_SECRET in server/.env (openssl rand -hex 32)" >&2; exit 1
+        fi
+        ip="$${GHT_TURN_EXTERNAL_IP:-$$(detect-external-ip)}"
+        exec docker-entrypoint.sh -c /etc/coturn/turnserver.conf \
+          --static-auth-secret="$$GHT_TURN_SECRET" --realm="$$GHT_TURN_REALM" \
+          --min-port="$$GHT_TURN_MIN_PORT" --max-port="$$GHT_TURN_MAX_PORT" \
+          --external-ip="$$ip"
+    security_opt: ["no-new-privileges:true"]
