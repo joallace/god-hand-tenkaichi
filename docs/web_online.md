@@ -1,10 +1,8 @@
 # Online play in the browser — initial notes
 
-Status: **not started**. The web build (export preset "Web") is offline
-only: local versus, versus CPU and couch co-op. These notes are a starting
-point for whoever adds online to it. They are not a spec yet; turn them into
-a section of SPEC_ONLINE.md (or a new milestone in §15) once the open
-questions at the end are answered.
+Status: **in progress** (decisions and design contract at the end). The
+notes below were written first; "What exists today" describes the offline
+web build before this work.
 
 ## What exists today
 
@@ -192,14 +190,115 @@ soon as a backend exists; each needs a room-code path:
 7. Hosting: static files for the game (itch.io / GitHub Pages / Cloudflare
    Pages), plus the signaling server and TURN somewhere always-on.
 
-## Open questions for the user
+## Decisions (2026-10-30)
 
-- Should WebRTC become the milestone-6 NAT-traversal stack for desktop too
-  (one stack, cross-play), or stay web-only next to a separate UDP relay?
-- Desktop ↔ browser cross-play, or browser ↔ browser only? (Cross-play
-  needs the determinism check and webrtc-native on desktop.)
-- Where would the signaling server and TURN run, and who pays for TURN
-  traffic? (Self-hosted coturn on a small VPS vs a hosted TURN service.)
-- Where will the game be hosted (itch.io, GitHub Pages, own domain)? It
-  matters for the join-URL format and whether COOP/COEP headers are
-  available later.
+- **WebRTC + room codes is the milestone-6 stack on every platform.**
+  Desktop gets WebRTC from the vendored `addons/webrtc_native` (webrtc-native
+  1.2.2, Linux/Windows x86_64; `exclude_tags = ["web"]`, the browser has its
+  own). Direct-IP ENet stays on desktop for LAN / port-forwarded play.
+- **Cross-play** desktop ↔ browser, gated on the cross-runtime replay hash
+  check. If hashes differ, rooms reject mixed platforms until fixed.
+- **Signaling server: Python** (asyncio + `websockets`) in `server/`.
+- **TURN: coturn shipped, opt-in** (`docker compose --profile turn`). The
+  signaling server hands out ICE servers from its own config, with
+  time-limited TURN credentials (TURN REST scheme, coturn
+  `use-auth-secret`); no TURN secret ever ships in the game.
+- Game hosting is still open (itch.io / Pages / own domain): the join URL
+  is built from the page's own location, so it works anywhere.
+
+## Design contract
+
+### Signaling protocol (v1)
+
+JSON text frames over one WebSocket per client (`ws://` dev, `wss://`
+deployed). Every message is an object with an `"op"` string. The server
+only brokers WebRTC connections and the room directory; it never carries
+game packets and holds no game logic.
+
+Client → server:
+
+| op | fields | reply |
+|---|---|---|
+| `host` | `game` (opaque build id string), `max_guests` (int ≥ 1) | `hosted` {`room`, `peer`: 1, `ice_servers`} |
+| `join` | `room` (code, case-insensitive), `game` | `joined` {`room`, `peer`: sid, `ice_servers`}; the host gets `peer_joined` {`peer`: sid} |
+| `signal` | `to` (sid), `data` (object, opaque to the server) | relayed to `to` as `signal` {`from`: sid, `data`} |
+| `ping` | — | `pong` |
+
+Server → client, unsolicited: `peer_joined` {`peer`}, `peer_left` {`peer`}
+(guest's socket closed; a guest whose WebRTC link is already up may leave
+signaling, so the host transport ignores this for connected links),
+`room_closed` (host's socket closed; sent to guests still on signaling),
+`error` {`code`, `message`}.
+
+- **sids** are routing ids inside one room: host = 1, guests 2, 3, … in
+  join order, never reused within a room. They are *not* Transport link
+  ids; the host's transport maps sid → link id itself.
+- A guest may only `signal` sid 1; the host may signal any guest sid in its
+  room. Anything else → `error` `bad_request`.
+- `game` must match the host's exactly, or `error` `version_mismatch`.
+  The client sends `"%d:%s" % [Protocol.VERSION, ContentHash.compute()]`
+  so mismatched builds are refused before any WebRTC work.
+- **Error codes**: `bad_request`, `room_not_found`, `room_full`,
+  `version_mismatch`, `rate_limited`, `server_full`, `already_in_room`.
+  After an error on `host`/`join` the server closes the socket.
+- **Room codes**: 6 chars from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` (no
+  0/O/1/I), matched case-insensitively, alive while the host's socket is
+  open (plus a max room lifetime).
+- `signal.data` shapes (the server doesn't look inside): `{"type":
+  "offer"|"answer", "sdp": String}` and `{"type": "candidate", "mid":
+  String, "index": int, "sdp": String}`.
+- `ice_servers`: a WebRTC `iceServers` array: `[{"urls": [...]},
+  {"urls": [...], "username": "<expiry unix>:<label>", "credential":
+  base64(HMAC-SHA1(secret, username))}]`.
+- Limits (configurable): message size, messages/s per socket, sockets and
+  rooms per IP, total rooms, an idle timeout for a socket that never
+  hosts/joins, and keepalive.
+
+### WebRtcTransport (`core/net/webrtc_transport.gd`)
+
+`extends Transport`, same events and peer-id rules as `EnetTransport`:
+
+- `host_room(signaling: SignalingClient, game_id: String, max_guests: int) -> Error`
+  and `join_room(signaling: SignalingClient, code: String, game_id: String) -> Error`.
+  `SignalingClient` (`core/net/signaling_client.gd`) is the WebSocket
+  client; it extends a small base whose in-process twin
+  (`LocalSignaling`, tests) needs no server.
+- Signals: `room_opened(code: String)` (host), `signaling_error(code:
+  String, text: String)` (user-facing text), `signaling_lost()` (host:
+  socket dropped, so no new joins; existing links keep playing).
+  `room_code()`; `last_error_text()`.
+- Host offers; one `WebRTCPeerConnection` per link; negotiated data
+  channels with fixed ids: 0 = UNRELIABLE (`ordered: false,
+  maxRetransmits: 0`), 1 = RELIABLE, 2 = BULK (both ordered, reliable).
+- CONNECTED once all three channels are open. ICE failure / closed → 
+  DISCONNECTED. A guest that never connects within
+  `Tuning.net.webrtc_connect_timeout_frames` gets DISCONNECTED for
+  HOST_PEER with `last_error_text()` "Could not reach the host (a TURN
+  relay may be needed)". Signaling errors before connecting do the same
+  with the error's text.
+- RELIABLE/BULK messages are chunked (`Tuning.net.webrtc_chunk_bytes`,
+  ≤ 16 KB) and reassembled; UNRELIABLE is sent whole (Protocol keeps it
+  under `max_packet_bytes`).
+- The guest closes its signaling socket once connected; the host keeps
+  its socket for the room's lifetime (new guests).
+
+### Net / PlatformCaps
+
+- `PlatformCaps.NetBackend { NONE, ENET, WEBRTC }`; `direct_ip()` (ENet:
+  desktop), `room_codes()` (WebRTC class usable: web, or the extension
+  loaded), `online()` = either.
+- `Net.host_room() -> Error` (async; `room_code_changed(code)` signal,
+  `Net.room_code`), `Net.host(port)` stays direct-IP ENet,
+  `Net.join(text)`: a room code (or a join URL holding `room=`) →
+  WebRTC, otherwise an ENet address (desktop only).
+- Signaling URL: `OnlineSettings.signaling_url` override; empty = the
+  default: on web, the page's own host on `Tuning.net.signaling_port`
+  (`wss` when the page is https); on desktop `Tuning.net.signaling_url`.
+  A `?signal=` page query overrides it on web.
+- Web join links: `<page url>?room=CODE`; the page reads `room` at boot
+  (`JavaScriptBridge`) and goes to the join flow.
+
+## Open questions
+
+- Where will the game and the servers be hosted? (Defaults above work
+  anywhere; deploy steps in `server/README.md`.)
