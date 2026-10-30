@@ -50,6 +50,10 @@ const CHUNK_MORE := 1
 const CHUNK_HEADER := 1
 ## signaling_error code for a socket that closed (not a server error code).
 const SIGNALING_CLOSED := "signaling_closed"
+## signaling_error code (host): a WebRTC link couldn't be built (e.g. the
+## server's ICE server list is malformed), so guests can't connect.
+const LINK_SETUP_FAILED := "link_setup_failed"
+const TEXT_LINK_SETUP := "Could not set up a connection for a joining player (check the room server's ICE/TURN config)"
 ## Host -> guest `signal` data refusing a link: {"type": SIGNAL_REJECT,
 ## "reason": <error code>}.
 const SIGNAL_REJECT := "reject"
@@ -202,12 +206,15 @@ func send(peer: int, channel: int, bytes: PackedByteArray) -> void:
 	var ch := link.channels[channel]
 	# A link the far side already closed fails here before poll() notices;
 	# skip it rather than have the native side log a failed send.
-	if ch.get_ready_state() != WebRTCDataChannel.STATE_OPEN \
-			or link.pc.get_connection_state() != WebRTCPeerConnection.STATE_CONNECTED:
+	if ch.get_ready_state() != WebRTCDataChannel.STATE_OPEN:
 		return
 	if channel == Channel.UNRELIABLE:
-		ch.put_packet(bytes)
+		if link.pc.get_connection_state() == WebRTCPeerConnection.STATE_CONNECTED:
+			ch.put_packet(bytes)
 		return
+	# RELIABLE / BULK go out whatever the ICE state: a browser's ICE can read
+	# "disconnected" for a moment and recover, and SCTP keeps the data; a
+	# dead link fails and drops instead (transport.gd: arrives or drops).
 	var step := Tuning.net.webrtc_chunk_bytes - CHUNK_HEADER
 	var queue: Array = link.tx[channel]
 	var off := 0
@@ -441,6 +448,8 @@ func _new_link(id: int, sid: int) -> Link:
 	if link.pc.initialize({"iceServers": _ice_servers}) != OK:
 		if not _host:
 			_fail(TEXT_UNREACHABLE)
+		else:
+			signaling_error.emit(LINK_SETUP_FAILED, TEXT_LINK_SETUP)
 		return null
 	link.pc.session_description_created.connect(_on_description.bind(sid))
 	link.pc.ice_candidate_created.connect(_on_candidate.bind(sid))
@@ -450,6 +459,8 @@ func _new_link(id: int, sid: int) -> Link:
 			link.pc.close()
 			if not _host:
 				_fail(TEXT_UNREACHABLE)
+			else:
+				signaling_error.emit(LINK_SETUP_FAILED, TEXT_LINK_SETUP)
 			return null
 		ch.write_mode = WebRTCDataChannel.WRITE_MODE_BINARY
 		link.channels.append(ch)
@@ -481,6 +492,17 @@ func _poll_link(link: Link) -> void:
 	for ch in link.channels:
 		ch.poll()
 	link.age += 1
+	if link.open:
+		# Everything that arrived first (a last BYE before the close).
+		for c in CHANNEL_COUNT:
+			var ch := link.channels[c]
+			while ch.get_available_packet_count() > 0:
+				var pkt := ch.get_packet()
+				if c == Channel.UNRELIABLE:
+					_events.append(make_event(EventType.PACKET, link.id, c, pkt))
+				elif not _reassemble(link, c, pkt):
+					_lose(link)
+					return
 	var cs := link.pc.get_connection_state()
 	if link.failed or cs == WebRTCPeerConnection.STATE_FAILED or cs == WebRTCPeerConnection.STATE_CLOSED:
 		_lose(link)
@@ -498,6 +520,17 @@ func _poll_link(link: Link) -> void:
 		if not _host:
 			_join_frames = -1
 		_events.append(make_event(EventType.CONNECTED, link.id))
+		# Packets that came with the opening (drained next poll otherwise).
+		_poll_link_packets(link)
+		return
+	for ch in link.channels:
+		if ch.get_ready_state() != WebRTCDataChannel.STATE_OPEN:
+			_lose(link)
+			return
+
+
+## Packets of a link that just opened (same rules as _poll_link's drain).
+func _poll_link_packets(link: Link) -> void:
 	for c in CHANNEL_COUNT:
 		var ch := link.channels[c]
 		while ch.get_available_packet_count() > 0:
@@ -507,14 +540,11 @@ func _poll_link(link: Link) -> void:
 			elif not _reassemble(link, c, pkt):
 				_lose(link)
 				return
-		if ch.get_ready_state() != WebRTCDataChannel.STATE_OPEN:
-			_lose(link)
-			return
 
 
 ## Add one chunk; false on a protocol violation.
 func _reassemble(link: Link, c: int, pkt: PackedByteArray) -> bool:
-	if pkt.is_empty() or pkt[0] > CHUNK_MORE:
+	if pkt.is_empty() or pkt[0] > CHUNK_MORE or (pkt[0] == CHUNK_MORE and pkt.size() <= CHUNK_HEADER):
 		return false
 	var parts: Array = link.rx[c]
 	link.rx_size[c] += pkt.size() - CHUNK_HEADER

@@ -29,7 +29,7 @@ func _ready() -> void:
 	_check(WebRtcTransport.available(), "WebRTC is available (webrtc-native loaded)")
 	var tests: Array[Callable] = [
 		_test_room, _test_join_errors, _test_room_full_at_host, _test_connect_timeout,
-		_test_host_signaling_lost, _test_signaling_client,
+		_test_host_signaling_lost, _test_signaling_client, _test_hostile_chunks,
 	]
 	for t in tests:
 		t.call()
@@ -382,3 +382,20 @@ func _test_signaling_client() -> void:
 		OS.delay_msec(FRAME_MS)
 	_check(text == SignalingClient.TEXT_UNREACHABLE, "ws: no server -> OP_CLOSED '%s'" % text)
 	Tuning.net.signaling_handshake_timeout_frames = saved
+
+
+## Reassembly refuses what our sender never makes: a bad header byte, an
+## empty MORE chunk (would grow the parts list without growing the size),
+## and a message past max_bulk_bytes.
+func _test_hostile_chunks() -> void:
+	var t := WebRtcTransport.new()
+	var link := WebRtcTransport.Link.new()
+	_check(not t._reassemble(link, Transport.Channel.BULK, PackedByteArray([7, 1, 2])), "chunks: bad header refused")
+	_check(not t._reassemble(link, Transport.Channel.BULK, PackedByteArray([WebRtcTransport.CHUNK_MORE])),
+			"chunks: empty MORE chunk refused")
+	_check(t._reassemble(link, Transport.Channel.BULK, PackedByteArray([WebRtcTransport.CHUNK_LAST])),
+			"chunks: an empty LAST chunk (empty message) is fine")
+	var big := PackedByteArray()
+	big.resize(Tuning.net.max_bulk_bytes + WebRtcTransport.CHUNK_HEADER + 1)
+	big[0] = WebRtcTransport.CHUNK_MORE
+	_check(not t._reassemble(link, Transport.Channel.BULK, big), "chunks: past max_bulk_bytes refused")
