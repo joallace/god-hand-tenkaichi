@@ -26,7 +26,8 @@ before autoloads exist. See `tests/README.md`. Always wrap Godot calls in
 - **Never push.** No `git push` to origin (or any remote), no PRs, no
   `gh` command that writes to GitHub. Commit locally on the worktree branch
   and the user reviews, merges and pushes. No commits on `main`, no merges
-  into it, no force/rewrite of branches you didn't create.
+  into it, no force/rewrite of branches you didn't create. `git push` is
+  also denied in `.claude/settings.json`; never work around the deny.
 - **Parallel agents share state outside git:** `user://` (one app-data dir
   per project name, so every worktree shares `controls.cfg`, `online.cfg`,
   `replays/`), `/tmp`, and the git stash stack. Use your own temp dir, and
