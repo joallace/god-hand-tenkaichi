@@ -17,11 +17,7 @@ var _head: MeshInstance3D
 func setup(beam: Beam, radius: float, color: Color, glow: Color) -> void:
 	_beam = beam
 	_radius = radius
-	_mat = StandardMaterial3D.new()
-	_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_mat.albedo_color = color
-	_mat.emission_enabled = true
+	_mat = FxMaterials.make(FxMaterials.Kind.BEAM, color)
 	_mat.emission = glow
 	_mat.emission_energy_multiplier = Tuning.vfx.beam_glow_energy
 	_cyl = CylinderMesh.new()

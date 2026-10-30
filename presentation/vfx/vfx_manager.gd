@@ -35,6 +35,7 @@ func setup(p_hub: MatchEventHub) -> void:
 	_ring.outer_radius = 0.5
 	_ring.rings = 32
 	_ring.ring_segments = 6
+	FxMaterials.warm_up(self)
 
 
 func _on_fighter_event(f: Fighter, kind: StringName, data: Dictionary) -> void:
@@ -122,8 +123,6 @@ func _on_fighter_event(f: Fighter, kind: StringName, data: Dictionary) -> void:
 
 # --- primitives ----------------------------------------------------------------
 
-## Unshaded translucent material. Solid (mix) blending reads better than
-## additive against the bright sky. `on_top` draws through bodies (sparks).
 ## Fighter in `slot` of `f`'s match (read only), or null.
 func _director_fighter(f: Fighter, slot: int) -> Fighter:
 	if slot < 0 or f.director == null:
@@ -131,16 +130,11 @@ func _director_fighter(f: Fighter, slot: int) -> Fighter:
 	return f.director.fighter_for_slot(slot)
 
 
+## Unshaded translucent material. Solid (mix) blending reads better than
+## additive against the bright sky. `on_top` draws through bodies (sparks).
+## A copy of an FxMaterials template, so its shader outlives the effect.
 func _additive(color: Color, on_top: bool = false) -> StandardMaterial3D:
-	var m := StandardMaterial3D.new()
-	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	m.blend_mode = BaseMaterial3D.BLEND_MODE_MIX
-	m.cull_mode = BaseMaterial3D.CULL_DISABLED
-	m.no_depth_test = on_top
-	m.render_priority = 1 if on_top else 0
-	m.albedo_color = color
-	return m
+	return FxMaterials.make(FxMaterials.Kind.TRANSLUCENT_ON_TOP if on_top else FxMaterials.Kind.TRANSLUCENT, color)
 
 
 func _spawn(mesh: Mesh, color: Color, pos: Vector3, on_top: bool = false) -> MeshInstance3D:

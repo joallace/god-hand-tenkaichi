@@ -416,19 +416,16 @@ func _add_rot(j: StringName, deg_x: float) -> void:
 func _update_flash(delta: float) -> void:
 	if _flash_left > 0.0:
 		_flash_left -= delta
-		_mat.emission_enabled = true
 		_mat.emission = Color.WHITE
 		_mat.emission_energy_multiplier = 2.0 * (_flash_left / FLASH_TIME)
 	elif _fighter.is_charging_strike():
 		var r := _fighter.charge_ratio()
-		_mat.emission_enabled = true
 		_mat.emission = CHARGE_GLOW_COLOR.lerp(CHARGE_GLOW_FULL_COLOR, r)
 		_mat.emission_energy_multiplier = CHARGE_GLOW_ENERGY * r
 	else:
 		var invuln := _fighter.is_invulnerable() and _fighter.current_state_name() != &"ko"
-		_mat.emission_enabled = invuln
 		_mat.emission = Color(0.6, 0.8, 1.0)
-		_mat.emission_energy_multiplier = 0.4
+		_mat.emission_energy_multiplier = 0.4 if invuln else 0.0
 
 
 func _update_aura() -> void:
@@ -455,11 +452,7 @@ func _spawn_flash(at: Vector3) -> void:
 	sphere.radius = 0.6
 	sphere.height = 1.2
 	m.mesh = sphere
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.albedo_color = Color(1, 1, 1, 0.8)
-	m.material_override = mat
+	m.material_override = FxMaterials.make(FxMaterials.Kind.FLASH, Color(1, 1, 1, 0.8))
 	m.top_level = true
 	add_child(m)
 	m.global_position = at + Vector3.UP
@@ -485,6 +478,10 @@ func _build() -> void:
 	_mat = StandardMaterial3D.new()
 	_mat.albedo_color = _fighter.tint() if _fighter else Color.WHITE
 	_mat.roughness = 0.6
+	# Glow (hit flash, charge, invulnerable) is emission energy only: toggling
+	# emission_enabled would swap the shader and recompile it (FxMaterials).
+	_mat.emission_enabled = true
+	_mat.emission_energy_multiplier = 0.0
 	var skin := StandardMaterial3D.new()
 	skin.albedo_color = Color(0.93, 0.78, 0.65)
 	var dark := StandardMaterial3D.new()
@@ -526,14 +523,8 @@ func _build() -> void:
 	aura_mesh.radius = 1.1
 	aura_mesh.height = 2.4
 	_aura.mesh = aura_mesh
-	var aura_mat := StandardMaterial3D.new()
-	aura_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	aura_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	aura_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	aura_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var c := _mat.albedo_color.lightened(0.5)
-	aura_mat.albedo_color = Color(c, 0.35)
-	_aura.material_override = aura_mat
+	_aura.material_override = FxMaterials.make(FxMaterials.Kind.AURA, Color(c, 0.35))
 	_aura.position = Vector3(0, 1.0, 0)
 	_aura.visible = false
 	add_child(_aura)

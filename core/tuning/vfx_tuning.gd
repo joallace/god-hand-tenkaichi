@@ -98,3 +98,12 @@ extends Resource
 @export var beam_glow_energy: float = 4.0
 ## Head ball radius as a multiple of the beam radius.
 @export var beam_head_scale: float = 1.35
+
+@export_group("Material warm-up")
+## Frames FxMaterials.warm_up() draws every effect material at match start
+## (compiles shaders/pipelines then instead of on the first hit).
+@export var material_warmup_frames: int = 3
+## Radius (m) of the warm-up meshes: sub-pixel, so they never show.
+@export var material_warmup_radius: float = 0.001
+## Size (m) of their custom AABB, so frustum culling never skips them.
+@export var material_warmup_cull_size: float = 10000.0

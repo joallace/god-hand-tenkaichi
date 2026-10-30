@@ -92,11 +92,8 @@ func _build_visual() -> void:
 	sphere.radius = move.hitbox_radius
 	sphere.height = move.hitbox_radius * 2.0
 	_mesh.mesh = sphere
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	var c := caster.tint() if caster else Color.WHITE
-	mat.albedo_color = c.lightened(0.6)
-	mat.emission_enabled = true
+	var mat := FxMaterials.make(FxMaterials.Kind.GLOW, c.lightened(0.6))
 	mat.emission = c.lightened(0.3)
 	mat.emission_energy_multiplier = 3.0
 	_mesh.material_override = mat
