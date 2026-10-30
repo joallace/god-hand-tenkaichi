@@ -20,6 +20,9 @@ var _vp: SubViewport
 
 
 func _ready() -> void:
+	# Desktop with room codes too: the widest room bar / hints / join screen.
+	var real_webrtc := PlatformCaps.webrtc
+	PlatformCaps.webrtc = true
 	for s in SIZES:
 		_vp = SubViewport.new()
 		_vp.size = s
@@ -28,12 +31,14 @@ func _ready() -> void:
 		await _run_all(str(s))
 		_vp.queue_free()
 		await frames(2)
+	PlatformCaps.webrtc = real_webrtc
 	print("UI_LAYOUT %s (%d failures)" % ["OK" if _fails == 0 else "FAIL", _fails])
 	get_tree().quit(0 if _fails == 0 else 1)
 
 
 func _run_all(tag: String) -> void:
 	await _check_scene(Game.SCENE_MAIN_MENU, "main menu " + tag)
+	await _check_scene(Game.SCENE_JOIN_ONLINE, "join online (room code + address) " + tag)
 	await _check_how_to_play(tag)
 	await _check_scene(Game.SCENE_CONTROLS, "controls screen (pad) " + tag)
 	await _check_controls_keyboard(tag)

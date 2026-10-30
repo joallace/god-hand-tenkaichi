@@ -27,14 +27,37 @@ const ROWS := [
 	["Pause", "Start", "Esc"],
 ]
 
-## "Online" section; %d = Tuning.net.default_port.
-const ONLINE_LINES := [
-	"Host: open a room from the lobby (Play > Open online). Others pick Join online and type your address.",
-	"The host picks the game in the lobby: Versus (1 on 1) or Co-op (everyone against CPU enemies; a CPU ally can take a free place).",
+## "Online" section, per backend (PlatformCaps): room codes, direct IP (%d =
+## Tuning.net.default_port), then lines for both.
+const ONLINE_LINES_CODES := [
+	"Host: in the lobby (Play), press Y / TAB to open a room and get a room code. Share it (X / C copies it; in a browser it copies an invite link that joins in one click).",
+	"Others pick Join online and type the code. No port forwarding needed.",
+	"In a browser, keep the game's tab in front during a match: a hidden tab pauses the match for everyone.",
+]
+const ONLINE_LINES_DIRECT := [
+	"Direct IP: open the room with the lobby's Direct IP option. Others pick Join online and type your address.",
 	"Your UDP port %d must be reachable. UPnP is tried automatically; if it fails, forward the port on your router, or play over LAN or a VPN such as Tailscale or ZeroTier.",
 	"Windows shows a firewall prompt the first time you host: allow it.",
-	"The port, your profile name and input delay are in Settings.",
 ]
+const ONLINE_LINES_COMMON := [
+	"The host picks the game in the lobby: Versus (1 on 1) or Co-op (everyone against CPU enemies; a CPU ally can take a free place).",
+	"Your profile name and input delay are in Settings > Online.",
+]
+
+
+## The Online section's lines for this platform's backends.
+static func online_lines() -> Array[String]:
+	var out: Array[String] = []
+	if PlatformCaps.room_codes():
+		out.append_array(ONLINE_LINES_CODES)
+	if PlatformCaps.direct_ip():
+		var direct: Array = ONLINE_LINES_DIRECT.duplicate()
+		if not PlatformCaps.room_codes():
+			direct[0] = "Host: open a room from the lobby (Play > Open online). Others pick Join online and type your address."
+		for line: String in direct:
+			out.append(line % Tuning.net.default_port if line.contains("%d") else line)
+	out.append_array(ONLINE_LINES_COMMON)
+	return out
 
 
 var _scroll: ScrollContainer
@@ -86,8 +109,8 @@ func _ready() -> void:
 		var online := MenuHelpers.label("Online")
 		online.add_theme_color_override("font_color", u.color_orange)
 		_content.add_child(online)
-		for line: String in ONLINE_LINES:
-			var l := MenuHelpers.label(line % Tuning.net.default_port if line.contains("%d") else line, &"HintLabel")
+		for line in online_lines():
+			var l := MenuHelpers.label(line, &"HintLabel")
 			l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			_content.add_child(l)
 	_scroll.add_child(_content)

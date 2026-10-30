@@ -18,9 +18,14 @@ extends Control
 ##   navigate with their layout's MOVE keys, ready with their LIGHT or JUMP key
 ##   (or ENTER once all slots are filled) and back out with their PAUSE key (or
 ##   ESC). While only one keyboard player is joined, arrow keys also navigate.
-## Room (any device): Y / TAB = Open online (local), Close room (host) or
-##   Leave (guest); X / C = copy the room address (host). Without online
-##   play (Net.online_available() false: web) the room bar is hidden and
+## Room (any device): Y / TAB = Open online (local; a room-code room where
+##   PlatformCaps.room_codes(), else direct IP), Close room (host) or Leave
+##   (guest); X / C = copy what to share (host: the room code, the invite
+##   link on web, or the address), or, local on desktop with room codes,
+##   open a direct-IP room instead (the bar's "Direct IP" button). Hosting
+##   by code, the bar shows "Opening room…", then "Room code: XXXXXX", and
+##   any signaling problem; LAN / UPnP details only for direct IP. Without
+##   online play (Net.online_available() false) the room bar is hidden and
 ##   these keys do nothing.
 ##
 ## Local: `model` is this screen's own; the MODE row switches Versus / Versus
@@ -78,6 +83,7 @@ var _status_label: Label
 var _room_label: Label
 var _room_button: Button
 var _copy_button: Button
+var _direct_button: Button
 var _row_labels: Dictionary = {}  # Row -> Label, every row in the settings panel
 ## Co-op rows only (tests read their text).
 var _coop_labels: Dictionary = {}
@@ -93,6 +99,8 @@ func _ready() -> void:
 	model = Net.room.model if Net.room != null else _local_model
 	_build_ui()
 	Input.joy_connection_changed.connect(_on_joy_connection_changed)
+	Net.room_code_changed.connect(_on_room_code_changed)
+	Net.signaling_problem.connect(_on_signaling_problem)
 	_watch_room()
 	_refresh()
 
@@ -100,6 +108,10 @@ func _ready() -> void:
 func _exit_tree() -> void:
 	if Input.joy_connection_changed.is_connected(_on_joy_connection_changed):
 		Input.joy_connection_changed.disconnect(_on_joy_connection_changed)
+	if Net.room_code_changed.is_connected(_on_room_code_changed):
+		Net.room_code_changed.disconnect(_on_room_code_changed)
+	if Net.signaling_problem.is_connected(_on_signaling_problem):
+		Net.signaling_problem.disconnect(_on_signaling_problem)
 
 
 func is_online() -> bool:
@@ -165,7 +177,22 @@ func _on_room_changed() -> void:
 	_refresh()
 
 
-## Y / TAB: open a room (local), close it (host) or leave it (guest).
+func _on_room_code_changed(_code: String) -> void:
+	_refresh()
+
+
+func _on_signaling_problem(_text: String) -> void:
+	_refresh()
+
+
+## Both ways to open a room exist here (desktop with room codes): Y / TAB
+## opens a room-code room, X / C a direct-IP one.
+static func two_room_kinds() -> bool:
+	return PlatformCaps.room_codes() and PlatformCaps.direct_ip()
+
+
+## Y / TAB: open a room (local; by room code where available, else direct
+## IP), close it (host) or leave it (guest).
 func room_action() -> void:
 	if not Net.online_available():
 		return
@@ -177,12 +204,23 @@ func room_action() -> void:
 		_back_to_menu()
 
 
-## Host a room; the first local player keeps their slot and pick.
-func open_online() -> Error:
-	var err := Net.host()
+## X / C: copy what to share (host), or open a direct-IP room (local, where
+## room codes are the Y / TAB default).
+func alt_room_action() -> void:
+	if Net.is_host():
+		copy_address()
+	elif not is_online() and two_room_kinds():
+		open_online(true)
+
+
+## Host a room (room code unless `direct` or there are no room codes; the
+## code arrives later); the first local player keeps their slot and pick.
+func open_online(direct: bool = false) -> Error:
+	direct = direct or not PlatformCaps.room_codes()
+	var err := Net.host() if direct else Net.host_room()
 	if err != OK:
-		_notice = "Port %d is in use" % Net.settings.host_port() if err == ERR_CANT_CREATE \
-			else "Could not open the room (error %d)" % err
+		_notice = "Port %d is in use" % Net.settings.host_port() if direct and err == ERR_CANT_CREATE \
+			else "Could not open the room (%s)" % error_string(err)
 		Sfx.play(&"ui_back")
 		_refresh()
 		return err
@@ -220,19 +258,31 @@ func close_room() -> void:
 	_refresh()
 
 
+## Host: copy what guests need. Room code: the code (desktop) or the invite
+## link (web, Net.invite_text). Direct IP: the best address. Call from an
+## input handler (browsers allow clipboard writes only in a user gesture).
 func copy_address() -> void:
+	if Net.is_host() and Net.backend == PlatformCaps.NetBackend.WEBRTC:
+		var invite := Net.invite_text()
+		if invite.is_empty():
+			return
+		WebPage.copy_text(invite)
+		_notice = "Copied the invite link" if invite != Net.room_code else "Copied %s" % invite
+		_refresh()
+		return
 	var a := _host_addresses()
 	if a.is_empty():
 		return
-	DisplayServer.clipboard_set(a[0])
+	WebPage.copy_text(a[0])
 	_notice = "Copied %s" % a[0]
 	_refresh()
 
 
-## "ip:port" strings worth sharing: the UPnP public address first.
+## "ip:port" strings worth sharing: the UPnP public address first (direct
+## IP rooms only).
 func _host_addresses() -> PackedStringArray:
 	var out := PackedStringArray()
-	if not Net.is_host():
+	if not Net.is_host() or Net.backend == PlatformCaps.NetBackend.WEBRTC:
 		return out
 	var port := Net.settings.host_port()
 	if Net.upnp.status == UpnpHelper.Status.MAPPED and Net.upnp.external_ip != "":
@@ -270,7 +320,7 @@ func _on_pad_button(e: InputEventJoypadButton) -> void:
 			room_action()
 			return
 		JOY_BUTTON_X:
-			copy_address()
+			alt_room_action()
 			return
 	var idx := slot_for_device(Bindings.Kind.PAD, e.device)
 	if idx < 0:
@@ -340,8 +390,8 @@ func _on_key(e: InputEventKey) -> void:
 			room_action()
 			return
 		KEY_C:
-			if Net.is_host():
-				copy_address()
+			if Net.is_host() or (not is_online() and two_room_kinds()):
+				alt_room_action()
 				return
 	var b := Bindings.binding_from_event(e, Bindings.Kind.KEYBOARD)
 	if b.is_empty():
@@ -610,11 +660,12 @@ func _build_ui() -> void:
 	_status_label = MenuHelpers.label("", &"HeaderLabel", HORIZONTAL_ALIGNMENT_CENTER)
 	root.add_child(_status_label)
 	var online := Net.online_available()
+	var two := two_room_kinds()
 	var hint := MenuHelpers.label(
 			"Pad: START/A join  -  D-pad/stick choose  -  A ready  -  B back/leave%s\n"
-			% ("  -  Y room" if online else "")
-			+ "Keyboard: ENTER join  -  your MOVE keys choose (arrows if alone)  -  LIGHT/JUMP ready  -  PAUSE/ESC back%s"
-			% ("  -  TAB room" if online else ""),
+			% (("  -  Y room  -  X by IP" if two else "  -  Y room") if online else "")
+			+ "Keyboard: ENTER join  -  MOVE keys choose (arrows if alone)  -  LIGHT/JUMP ready  -  PAUSE/ESC back%s"
+			% (("  -  TAB room  -  C by IP" if two else "  -  TAB room") if online else ""),
 			&"HintLabel", HORIZONTAL_ALIGNMENT_CENTER)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	root.add_child(hint)
@@ -638,6 +689,13 @@ func _build_room_bar() -> Control:
 	_room_button.custom_minimum_size.x = 0
 	_room_button.visible = Net.online_available()
 	bar.add_child(_room_button)
+	# Desktop with room codes: the room button opens a room-code room, this
+	# one a direct-IP room (local only).
+	_direct_button = MenuHelpers.button("Direct IP", func() -> void: open_online(true))
+	_direct_button.focus_mode = Control.FOCUS_NONE
+	_direct_button.custom_minimum_size.x = 0
+	_direct_button.visible = false
+	bar.add_child(_direct_button)
 	return bar
 
 
@@ -963,11 +1021,21 @@ func _seat_label(s: LobbyModel.Slot) -> String:
 func _refresh_room() -> void:
 	if _room_label == null:
 		return
-	_copy_button.visible = Net.is_host()
+	var by_code := Net.backend == PlatformCaps.NetBackend.WEBRTC
+	_copy_button.visible = Net.is_host() and (not by_code or not Net.room_code.is_empty())
+	_copy_button.text = "Copy link" if by_code and Net.invite_text() != Net.room_code else "Copy"
+	_direct_button.visible = not is_online() and two_room_kinds()
 	var parts: PackedStringArray = []
 	if not is_online():
 		parts.append("Local")
-		_room_button.text = "Open online"
+		_room_button.text = "Room code" if two_room_kinds() else "Open online"
+	elif Net.is_host() and by_code:
+		parts.append("Hosting")
+		parts.append("Room code: %s" % Net.room_code if not Net.room_code.is_empty()
+				else ("Opening room…" if Net.signaling_error_text.is_empty() else "No room code"))
+		if not Net.signaling_error_text.is_empty():
+			parts.append(Net.signaling_error_text)
+		_room_button.text = "Close room"
 	elif Net.is_host():
 		var port := Net.settings.host_port()
 		var lan := UpnpHelper.local_addresses()

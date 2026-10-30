@@ -1,7 +1,8 @@
 class_name OnlineSettings
 extends RefCounted
 ## Per-user online settings (SPEC_ONLINE.md §14), not tuning: profile name,
-## input delay mode, host port override, recent hosts, debug net overlay.
+## input delay mode, host port override, signaling server override, recent
+## hosts (direct-IP addresses only: room codes expire), debug net overlay.
 ## Stored in `user://online.cfg`; the Net autoload owns one instance
 ## (`Net.settings`). Tests point `path` at a temp file.
 
@@ -22,6 +23,9 @@ var player_name: String = DEFAULT_NAME
 var input_delay: int = DELAY_AUTO
 ## PORT_DEFAULT or a UDP port to host on.
 var port: int = PORT_DEFAULT
+## Room-code signaling server (ws:// or wss:// URL); "" = the default
+## (Net.signaling_url()).
+var signaling_url: String = ""
 ## Show the debug net overlay in online matches.
 var net_overlay := false
 ## Most recent first: [{"address": String, "name": String, "date": String}],
@@ -45,6 +49,9 @@ func reload() -> void:
 	set_input_delay(_as_int(cf.get_value(_SECTION, "input_delay", input_delay), DELAY_AUTO))
 	set_port(_as_int(cf.get_value(_SECTION, "port", port), PORT_DEFAULT))
 	net_overlay = cf.get_value(_SECTION, "net_overlay", false) == true
+	var sig: Variant = cf.get_value(_SECTION, "signaling_url", "")
+	if not set_signaling_url(sig if sig is String else ""):
+		signaling_url = ""
 	recent_hosts.clear()
 	var hosts: Variant = cf.get_value(_SECTION, _HOSTS, [])
 	if hosts is Array:
@@ -61,6 +68,7 @@ func save() -> Error:
 	cf.set_value(_SECTION, "input_delay", input_delay)
 	cf.set_value(_SECTION, "port", port)
 	cf.set_value(_SECTION, "net_overlay", net_overlay)
+	cf.set_value(_SECTION, "signaling_url", signaling_url)
 	cf.set_value(_SECTION, _HOSTS, recent_hosts)
 	return cf.save(path)
 
@@ -80,6 +88,30 @@ func set_input_delay(d: int) -> void:
 
 func set_port(p: int) -> void:
 	port = p if p >= 1 and p <= MAX_PORT else PORT_DEFAULT
+
+
+## Sets the signaling server override ("" = default) if it is a ws:// or
+## wss:// URL with a host; returns whether it did.
+func set_signaling_url(url: String) -> bool:
+	var u := url.strip_edges()
+	if not u.is_empty() and not is_valid_signaling_url(u):
+		return false
+	signaling_url = u
+	return true
+
+
+## A ws:// or wss:// URL with something after the scheme, no whitespace.
+static func is_valid_signaling_url(url: String) -> bool:
+	var lower := url.to_lower()
+	var rest := ""
+	if lower.begins_with("ws://"):
+		rest = url.substr(5)
+	elif lower.begins_with("wss://"):
+		rest = url.substr(6)
+	else:
+		return false
+	return not rest.is_empty() and not rest.begins_with("/") and not url.contains(" ") \
+			and not url.contains("\t") and not url.contains("\n")
 
 
 ## The port a host binds.

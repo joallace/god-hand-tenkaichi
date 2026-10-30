@@ -533,6 +533,14 @@ func _on_online_lobby() -> void:
 func _on_save_replay() -> void:
 	var u := UiTheme.tuning()
 	var replay := Replay.load_file(String(Game.last_result.get("replay_path", "")))
+	# Browser: user:// is IndexedDB the player can't open, so download it.
+	if replay != null and WebPage.is_browser():
+		var file_name := replay.default_saved_name().validate_filename() + Replay.EXT
+		WebPage.download(replay.to_bytes(), file_name)
+		_save_label.text = "Downloaded %s" % file_name
+		_save_label.add_theme_color_override("font_color", u.color_ok)
+		_save_btn.disabled = true
+		return
 	var path := replay.save_copy() if replay != null else ""
 	if path.is_empty():
 		_save_label.text = "Could not save the replay"

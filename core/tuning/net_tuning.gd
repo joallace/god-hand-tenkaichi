@@ -91,3 +91,11 @@ extends Resource
 @export_range(30, 3600) var signaling_handshake_timeout_frames: int = 600
 ## Frames between keepalive pings on an open signaling socket.
 @export_range(60, 36000) var signaling_keepalive_frames: int = 1200
+
+@export_group("Signaling")
+## Room-code signaling server on desktop (Settings > Online can override it).
+## On web the default is the page's own host on `signaling_port`.
+@export var signaling_url: String = "ws://127.0.0.1:8765"
+## Port of the signaling server next to the web page (ws://, or wss:// when
+## the page is https).
+@export_range(1, 65535) var signaling_port: int = 8765

@@ -12,10 +12,15 @@ const UNUSED_LOCAL_ADDRESS := "127.0.0.1:1"
 
 var _fails := 0
 var _real_settings: OnlineSettings
+var _real_webrtc := false
 
 
 func _ready() -> void:
 	_real_settings = Net.settings
+	# Direct IP only (the desktop layout before room codes); room_codes_test
+	# and web_platform_test cover the room-code menus.
+	_real_webrtc = PlatformCaps.webrtc
+	PlatformCaps.webrtc = false
 	_remove_temp()
 	Net.settings = OnlineSettings.load_from(TEMP_CFG)
 	await _test_main_menu()
@@ -23,6 +28,9 @@ func _ready() -> void:
 	await _test_settings_screen()
 	await _test_join_screen()
 	_test_local_addresses()
+	PlatformCaps.webrtc = true
+	await _test_settings_signaling()
+	PlatformCaps.webrtc = _real_webrtc
 	Net.leave()
 	Net.settings = _real_settings
 	_remove_temp()
@@ -206,6 +214,39 @@ func _test_settings_screen() -> void:
 	o = s.online
 	check(o.name_edit.text == "Vegeta" and o.delay_sel.current() == "2" and o.overlay_sel.current() == "On"
 			and o.port_step.value == 9000, "settings screen shows stored values")
+	s.queue_free()
+	await frames(2)
+
+
+## Desktop with room codes: the Online page keeps the port row and adds the
+## signaling server row (placeholder = default; invalid URLs refused).
+func _test_settings_signaling() -> void:
+	var s := spawn(Game.SCENE_SETTINGS) as SettingsScreen
+	await frames(3)
+	s.select_tab(SettingsScreen.Tab.ONLINE)
+	await frames(2)
+	var o := s.online
+	check(o.port_step.visible and o.signaling_edit.is_visible_in_tree(), "desktop+codes online page: port and signaling rows")
+	check(o.signaling_edit.text == "" and o.signaling_edit.placeholder_text == Tuning.net.signaling_url,
+			"signaling row: empty, the default as placeholder")
+	check(not o.set_signaling_text("http://nope") and s.status.text.contains("Invalid server")
+			and Net.settings.signaling_url == "", "signaling row: a non-ws URL is refused")
+	o.signaling_edit.text = "wss://sig.example.org:9000"
+	o.signaling_edit.text_changed.emit(o.signaling_edit.text)
+	check(Net.settings.signaling_url == "wss://sig.example.org:9000"
+			and OnlineSettings.load_from(TEMP_CFG).signaling_url == "wss://sig.example.org:9000",
+			"signaling row: a typed URL is stored and saved")
+	check(Net.signaling_url() == "wss://sig.example.org:9000", "Net.signaling_url() uses the override")
+	o.focus_first()
+	await frames(2)
+	var seen: Array[Control] = []
+	for i in 6:
+		seen.append(get_viewport().gui_get_focus_owner())
+		await action("ui_down")
+	check(seen.slice(0, 4) == [o.name_edit, o.delay_sel, o.port_step, o.signaling_edit],
+			"signaling row is in the focus chain after the port")
+	o.call("_reset")
+	check(Net.settings.signaling_url == "" and o.signaling_edit.text == "", "reset clears the signaling override")
 	s.queue_free()
 	await frames(2)
 

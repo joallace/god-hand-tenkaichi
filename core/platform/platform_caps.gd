@@ -5,17 +5,23 @@ extends RefCounted
 ##
 ## Desktop: everything. Web (HTML5 export, single-threaded): the browser owns
 ## the window (no mode/size/vsync control), the game can't quit, there is no
-## UPNP class and no Thread, and no UDP socket, so no online until a browser
-## transport exists (`net_backend()`; plan in docs/web_online.md).
+## UPNP class and no Thread, and no UDP socket: online only through WebRTC
+## room codes (docs/web_online.md).
 ##
-## `web` is a static var so tests can pretend to be a browser:
-## `PlatformCaps.web = true`, build the screen, then restore it.
+## Online backends: direct IP (ENet over UDP, desktop only) and room codes
+## (WebRTC through a signaling server: the browser's own, or the vendored
+## webrtc-native extension on desktop; WebRtcTransport.available()).
+##
+## `web` and `webrtc` are static vars so tests can pretend to be a
+## browser and turn room codes on or off: `PlatformCaps.web = true`,
+## `PlatformCaps.webrtc = false`, build the screen, then restore both.
 
-## Online transport available on this platform (Net builds it).
-## A browser build adds WEBRTC here (docs/web_online.md).
-enum NetBackend { NONE, ENET }
+## Online transports (Net builds them).
+enum NetBackend { NONE, ENET, WEBRTC }
 
 static var web: bool = OS.has_feature("web")
+## WebRtcTransport can run here (the browser, or the native extension loaded).
+static var webrtc: bool = WebRtcTransport.available()
 
 
 ## Window mode, size and vsync are ours to set (not the browser's).
@@ -39,10 +45,24 @@ static func fsr() -> bool:
 	return not web and RenderingServer.get_current_rendering_method() != "gl_compatibility"
 
 
+## Direct-IP play (ENet over UDP): host on a port, join an address.
+static func direct_ip() -> bool:
+	return not web
+
+
+## Room-code play (WebRTC + signaling server).
+static func room_codes() -> bool:
+	return webrtc
+
+
+## The preferred backend: room codes when available (they work behind NAT
+## without port forwarding), else direct IP, else NONE.
 static func net_backend() -> NetBackend:
-	return NetBackend.NONE if web else NetBackend.ENET
+	if room_codes():
+		return NetBackend.WEBRTC
+	return NetBackend.ENET if direct_ip() else NetBackend.NONE
 
 
 ## Any way to play online on this platform (menus hide online entries if not).
 static func online() -> bool:
-	return net_backend() != NetBackend.NONE
+	return direct_ip() or room_codes()

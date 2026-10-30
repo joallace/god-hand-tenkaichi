@@ -1,7 +1,8 @@
 extends Control
 ## Main menu (project main scene). Built in code; see ui/menu_helpers.gd.
 ## "Join online" needs an online transport and "Quit" a closable window
-## (both absent on web, PlatformCaps).
+## (Quit is absent on web, PlatformCaps). A web invite link's room code
+## (Net.boot_join_code) opens the join screen joining it.
 
 var _title: Label
 var _list: VBoxContainer
@@ -43,6 +44,11 @@ func _ready() -> void:
 	col.add_child(MenuHelpers.label("[A]/[Enter] select     [B]/[Esc] back", &"HintLabel", HORIZONTAL_ALIGNMENT_CENTER))
 	add_child(MenuHelpers.centered(col))
 	MenuHelpers.focus_first(_list)
+	# Web invite link (?room=CODE at boot): straight into joining that room.
+	if not Net.boot_join_code.is_empty() and Net.online_available():
+		JoinOnlineScreen.pending_code = Net.boot_join_code
+		Net.boot_join_code = ""
+		_on_join_online.call_deferred()
 
 
 func _process(delta: float) -> void:

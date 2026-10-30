@@ -137,6 +137,13 @@ extends Resource
 ## Status / error line colours.
 @export var color_error: Color = Color(1.0, 0.4, 0.35)
 @export var color_ok: Color = Color(0.35, 1.0, 0.4)
+## Web, online: a tab hidden (or unfocused) at least this long shows the
+## "keep this tab in front" warning when the player comes back, for
+## background_tab_warning_seconds (any key / click dismisses it).
+@export var background_tab_min_hidden_seconds: float = 1.0
+@export var background_tab_warning_seconds: float = 8.0
+## Its distance from the top of the screen.
+@export var background_tab_warning_margin: int = 24
 
 @export_group("Settings screen")
 ## Gap between the title, tab bar, page and footer; outer margin (x, y).

@@ -1,27 +1,48 @@
 extends Node
 ## Headless test of the web (browser) platform gates: with PlatformCaps.web
-## forced on, the menus hide every online entry and Quit, the Graphics page
-## hides the rows the browser owns, Net refuses to open a session, UPnP
-## stays idle and viewports never get an FSR upscaler. Run as a scene:
+## forced on, Quit is gone, the Graphics page hides the rows the browser
+## owns, UPnP stays idle and viewports never get an FSR upscaler. Without
+## room codes (PlatformCaps.webrtc off) the menus hide every online entry
+## and Net refuses to open a session; with them, online is room codes only:
+## Join online with a code field, the Online settings tab without the port
+## row, how-to-play's room-code text and the lobby's room button.
+## Run as a scene:
 ##   godot --headless res://tests/web_platform_test.tscn
-## Settings.video is restored afterwards and never saved.
+## Settings.video is restored afterwards and never saved; Net.settings is a
+## temp file.
 
 var _fails := 0
 var _real_web := false
 var _real_video := {}
+var _real_webrtc := false
+var _real_settings: OnlineSettings
+
+const TEMP_CFG := "user://web_platform_test.cfg"
 
 
 func _ready() -> void:
 	_real_web = PlatformCaps.web
+	_real_webrtc = PlatformCaps.webrtc
 	_real_video = Settings.video.to_dict()
+	_real_settings = Net.settings
+	Net.settings = OnlineSettings.load_from(TEMP_CFG)
 	PlatformCaps.web = true
+	PlatformCaps.webrtc = false
 	_test_caps()
 	_test_net()
 	_test_viewport()
 	await _test_main_menu()
 	await _test_settings_screen()
 	await _test_lobby()
+	PlatformCaps.webrtc = true
+	_test_room_code_caps()
+	await _test_room_code_menus()
 	PlatformCaps.web = _real_web
+	PlatformCaps.webrtc = _real_webrtc
+	Net.leave()
+	Net.settings = _real_settings
+	if FileAccess.file_exists(TEMP_CFG):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(TEMP_CFG))
 	Settings.video.from_dict(_real_video)
 	Settings.apply_video()
 	_test_desktop_caps()
@@ -55,13 +76,81 @@ func _test_caps() -> void:
 	check(not PlatformCaps.window_control() and not PlatformCaps.can_quit() and not PlatformCaps.upnp()
 			and not PlatformCaps.fsr(), "web: no window control, quit, UPnP or FSR")
 	check(PlatformCaps.net_backend() == PlatformCaps.NetBackend.NONE and not Net.online_available(),
-			"web: no online backend yet")
+			"web without room codes: no online backend")
 
 
 func _test_desktop_caps() -> void:
 	check(PlatformCaps.window_control() and PlatformCaps.can_quit() and PlatformCaps.upnp()
-			and PlatformCaps.net_backend() == PlatformCaps.NetBackend.ENET and Net.online_available(),
-			"desktop: window control, quit, UPnP and ENet online")
+			and PlatformCaps.direct_ip() and Net.online_available(),
+			"desktop: window control, quit, UPnP and direct-IP online")
+	check(PlatformCaps.net_backend() == (PlatformCaps.NetBackend.WEBRTC if PlatformCaps.room_codes()
+			else PlatformCaps.NetBackend.ENET), "desktop: preferred backend matches room-code support")
+
+
+func _test_room_code_caps() -> void:
+	check(PlatformCaps.net_backend() == PlatformCaps.NetBackend.WEBRTC and PlatformCaps.room_codes()
+			and not PlatformCaps.direct_ip() and Net.online_available(), "web with room codes: WEBRTC only")
+	check(Net.host() == ERR_UNAVAILABLE and not Net.is_online(), "web with room codes: no direct-IP host")
+	check(Net.join("127.0.0.1:1") == ERR_INVALID_PARAMETER and not Net.is_online(),
+			"web with room codes: an address is refused")
+
+
+func _test_room_code_menus() -> void:
+	var m := spawn(Game.SCENE_MAIN_MENU) as Control
+	await frames(3)
+	var labels: Array = (m.get("_list") as Node).get_children().map(
+			func(b: Node) -> String: return (b as Button).text if b is Button else "")
+	check(labels == ["Play", "Join online", "How to Play", "Settings"],
+			"web+codes main menu: Join online, no Quit (got %s)" % [labels])
+	m.call("_on_how_to_play")
+	await frames(2)
+	var online_found := false
+	var code_text := false
+	var udp_text := false
+	for l in (m.get("_how_to") as Node).find_children("*", "Label", true, false):
+		var t := (l as Label).text
+		online_found = online_found or t == "Online"
+		code_text = code_text or t.contains("room code")
+		udp_text = udp_text or t.contains("UPnP") or t.contains("UDP")
+	check(online_found and code_text and not udp_text, "web+codes how-to-play: room-code text, no UDP/UPnP")
+	m.queue_free()
+	await frames(2)
+
+	var j := spawn(Game.SCENE_JOIN_ONLINE) as JoinOnlineScreen
+	await frames(3)
+	check(j.code_edit.is_visible_in_tree() and not j.address_edit.is_visible_in_tree()
+			and not j.connect_btn.is_visible_in_tree(), "web+codes join screen: code field only")
+	var recent_header := false
+	for l in j.find_children("*", "Label", true, false):
+		recent_header = recent_header or ((l as Label).text == "Recent hosts" and (l as Label).is_visible_in_tree())
+	check(not recent_header, "web+codes join screen: no recent hosts")
+	j.queue_free()
+	await frames(2)
+
+	var s := spawn(Game.SCENE_SETTINGS) as SettingsScreen
+	await frames(3)
+	check(s.online != null and s.pages.size() == 4, "web+codes settings: the Online tab is back")
+	s.select_tab(SettingsScreen.Tab.ONLINE)
+	await frames(2)
+	check(not s.online.port_step.visible and s.online.signaling_edit.is_visible_in_tree(),
+			"web+codes online page: no port row, a signaling server row")
+	check(s.online.signaling_edit.placeholder_text == Net.default_signaling_url(),
+			"web+codes online page: the default server is the placeholder")
+	s.queue_free()
+	await frames(2)
+
+	var lobby := spawn(Game.SCENE_LOBBY) as Lobby
+	await frames(3)
+	var room_btn := lobby.get("_room_button") as Button
+	check(room_btn.visible and room_btn.text == "Open online" and not (lobby.get("_direct_button") as Button).visible,
+			"web+codes lobby: one room button (room code), no Direct IP")
+	var hint_has_room := false
+	for lab in lobby.find_children("*", "Label", true, false):
+		hint_has_room = hint_has_room or ((lab as Label).text.contains("TAB room")
+				and not (lab as Label).text.contains("by IP"))
+	check(hint_has_room, "web+codes lobby: hint has the room key, no direct IP")
+	lobby.queue_free()
+	await frames(2)
 
 
 func _test_net() -> void:
