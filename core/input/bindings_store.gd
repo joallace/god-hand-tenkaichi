@@ -102,6 +102,8 @@ var _maps: Array = []
 
 func _ready() -> void:
 	_add_ui_pad_buttons()
+	if PlatformCaps.web:
+		WebGamepads.install()
 	for slot in SLOT_COUNT:
 		_maps.append([DEFAULT_PAD.duplicate(true), DEFAULT_KEYBOARD[slot].duplicate(true)])
 	load_from_disk()
