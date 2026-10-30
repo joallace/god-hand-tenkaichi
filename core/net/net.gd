@@ -148,6 +148,8 @@ func host_room() -> Error:
 	leave()
 	if not PlatformCaps.room_codes():
 		return ERR_UNAVAILABLE
+	if signaling_url().is_empty():
+		return ERR_UNCONFIGURED
 	var sig := SignalingClient.new()
 	var err := sig.connect_to_url(signaling_url())
 	if err != OK:
@@ -166,13 +168,17 @@ func host_room() -> Error:
 ## hostname, [IPv6]:PORT; default port if omitted; direct IP); see
 ## parse_join_text. Returns an Error for unusable text
 ## (ERR_INVALID_PARAMETER, also for an address where there is no direct IP;
-## ERR_UNAVAILABLE: no online here, or a code without room codes); otherwise
-## the outcome arrives as join_succeeded or join_failed.
-func join(text: String) -> Error:
+## ERR_UNAVAILABLE: no online here, or a code without room codes;
+## ERR_UNCONFIGURED: a code but no signaling server known); otherwise the
+## outcome arrives as join_succeeded or join_failed. `as_address`: the text
+## is an address even if it reads as a code (a 6-letter host name, "server").
+func join(text: String, as_address: bool = false) -> Error:
 	leave()
 	if not online_available():
 		return ERR_UNAVAILABLE
 	var p := parse_join_text(text)
+	if as_address and p["kind"] == "code" and PlatformCaps.direct_ip():
+		p = {"kind": "address", "address": text.strip_edges()}  # e.g. host name "server"
 	match p["kind"]:
 		"code":
 			return _join_code(p["code"], p["signal"])
@@ -193,8 +199,11 @@ func join(text: String) -> Error:
 func _join_code(code: String, signal_override: String) -> Error:
 	if not PlatformCaps.room_codes():
 		return ERR_UNAVAILABLE
+	var url := signal_override if not signal_override.is_empty() else signaling_url()
+	if url.is_empty():
+		return ERR_UNCONFIGURED
 	var sig := SignalingClient.new()
-	var err := sig.connect_to_url(signal_override if not signal_override.is_empty() else signaling_url())
+	var err := sig.connect_to_url(url)
 	if err != OK:
 		return err
 	var t := WebRtcTransport.new()
@@ -315,16 +324,30 @@ static func game_id() -> String:
 	return "%d:%s" % [Protocol.PROTOCOL_VERSION, ContentHash.compute()]
 
 
-## The signaling server to use: the Settings override, else the default.
+## The signaling server to use: the Settings override, else the default
+## ("" = none known, see room_codes_ready).
 func signaling_url() -> String:
 	return resolve_signaling_url(settings.signaling_url, PlatformCaps.web, WebPage.location(),
-			Tuning.net.signaling_url, Tuning.net.signaling_port)
+			desktop_signaling_url(), Tuning.net.signaling_port)
 
 
 ## The signaling server used when Settings has no override (its placeholder).
 func default_signaling_url() -> String:
 	return resolve_signaling_url("", PlatformCaps.web, WebPage.location(),
-			Tuning.net.signaling_url, Tuning.net.signaling_port)
+			desktop_signaling_url(), Tuning.net.signaling_port)
+
+
+## Desktop default: the tuning URL, else the local dev server in debug builds.
+static func desktop_signaling_url() -> String:
+	if not Tuning.net.signaling_url.is_empty():
+		return Tuning.net.signaling_url
+	return Tuning.net.dev_signaling_url if OS.is_debug_build() else ""
+
+
+## Room codes work here and a signaling server is known (a release desktop
+## build without one keeps direct IP as the default room kind).
+func room_codes_ready() -> bool:
+	return PlatformCaps.room_codes() and not signaling_url().is_empty()
 
 
 ## `override` (Settings) if set; on web a valid `?signal=` in the page's
@@ -354,13 +377,21 @@ static func resolve_signaling_url(override: String, on_web: bool, page: Dictiona
 func invite_text() -> String:
 	if room_code.is_empty():
 		return ""
-	var href := str(WebPage.location().get("href", ""))
-	return invite_url(href, room_code) if not href.is_empty() else room_code
+	var loc := WebPage.location()
+	var href := str(loc.get("href", ""))
+	if href.is_empty():
+		return room_code
+	# A Settings override the guest's page wouldn't pick by itself travels along.
+	var sig := signaling_url()
+	var page_default := resolve_signaling_url("", true, {"protocol": loc.get("protocol", ""),
+			"hostname": loc.get("hostname", "")}, "", Tuning.net.signaling_port)
+	return invite_url(href, room_code, sig if sig != page_default else "")
 
 
-## `href` without its query and fragment, plus ?room=CODE (and the page's
-## `signal` param, if it had one).
-static func invite_url(href: String, code: String) -> String:
+## `href` without its query and fragment, plus ?room=CODE, and `signal`:
+## `signal_url` when given (the host uses a server other than the page's
+## default), else the page's own `signal` param if it had one.
+static func invite_url(href: String, code: String, signal_url: String = "") -> String:
 	var base := href.get_slice("#", 0)
 	var q := {}
 	var at := base.find("?")
@@ -368,7 +399,7 @@ static func invite_url(href: String, code: String) -> String:
 		q = parse_query(base.substr(at))
 		base = base.substr(0, at)
 	var out := "%s?%s=%s" % [base, PARAM_ROOM, code]
-	var sig := str(q.get(PARAM_SIGNAL, ""))
+	var sig := signal_url if not signal_url.is_empty() else str(q.get(PARAM_SIGNAL, ""))
 	if not sig.is_empty():
 		out += "&%s=%s" % [PARAM_SIGNAL, sig.uri_encode()]
 	return out

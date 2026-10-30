@@ -94,8 +94,14 @@ extends Resource
 
 @export_group("Signaling")
 ## Room-code signaling server on desktop (Settings > Online can override it).
-## On web the default is the page's own host on `signaling_port`.
-@export var signaling_url: String = "ws://127.0.0.1:8765"
+## Empty = none known: desktop keeps direct IP as the default room kind
+## (debug builds fall back to `dev_signaling_url`). On web the default is the
+## page's own host on `signaling_port`. Set it for a release with a deployed
+## server (server/README.md).
+@export var signaling_url: String = ""
+## Debug builds (editor runs, tests) without `signaling_url`: a local
+## `python3 server/signaling_server.py`.
+@export var dev_signaling_url: String = "ws://127.0.0.1:8765"
 ## Port of the signaling server next to the web page (ws://, or wss:// when
 ## the page is https).
 @export_range(1, 65535) var signaling_port: int = 8765

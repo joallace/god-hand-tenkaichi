@@ -240,15 +240,21 @@ func connect_to(text: String) -> bool:
 		kind = "invalid"
 		p["error"] = "not a room code"
 	if kind == "code" and not PlatformCaps.room_codes():
-		kind = "invalid"
-		p["error"] = "room codes aren't available here"
+		if PlatformCaps.direct_ip():
+			kind = "address"  # a 6-letter host name ("server")
+		else:
+			kind = "invalid"
+			p["error"] = "room codes aren't available here"
+	if kind == "code" and Net.signaling_url().is_empty():
+		_set_status("No room server set (Settings > Online > Signaling server)", true)
+		return false
 	if kind == "invalid":
 		var what := "room code" if not PlatformCaps.direct_ip() else (
 				"room code or address" if PlatformCaps.room_codes() else "address")
 		_set_status("Invalid %s: %s" % [what, p["error"]] if not text.strip_edges().is_empty()
 				else "Enter %s %s" % ["an" if what == "address" else "a", what], true)
 		return false
-	var err := Net.join(text)
+	var err := Net.join(text, kind == "address")
 	if err != OK:
 		_set_status("Could not resolve %s" % text.strip_edges() if err == ERR_CANT_RESOLVE \
 				else "Could not connect (%s)" % error_string(err), true)

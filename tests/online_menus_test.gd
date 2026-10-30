@@ -227,7 +227,7 @@ func _test_settings_signaling() -> void:
 	await frames(2)
 	var o := s.online
 	check(o.port_step.visible and o.signaling_edit.is_visible_in_tree(), "desktop+codes online page: port and signaling rows")
-	check(o.signaling_edit.text == "" and o.signaling_edit.placeholder_text == Tuning.net.signaling_url,
+	check(o.signaling_edit.text == "" and o.signaling_edit.placeholder_text == Net.default_signaling_url(),
 			"signaling row: empty, the default as placeholder")
 	check(not o.set_signaling_text("http://nope") and s.status.text.contains("Invalid server")
 			and Net.settings.signaling_url == "", "signaling row: a non-ws URL is refused")

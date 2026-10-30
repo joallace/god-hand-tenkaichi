@@ -188,7 +188,7 @@ func _on_signaling_problem(_text: String) -> void:
 ## Both ways to open a room exist here (desktop with room codes): Y / TAB
 ## opens a room-code room, X / C a direct-IP one.
 static func two_room_kinds() -> bool:
-	return PlatformCaps.room_codes() and PlatformCaps.direct_ip()
+	return Net.room_codes_ready() and PlatformCaps.direct_ip()
 
 
 ## Y / TAB: open a room (local; by room code where available, else direct
@@ -216,7 +216,7 @@ func alt_room_action() -> void:
 ## Host a room (room code unless `direct` or there are no room codes; the
 ## code arrives later); the first local player keeps their slot and pick.
 func open_online(direct: bool = false) -> Error:
-	direct = direct or not PlatformCaps.room_codes()
+	direct = direct or not Net.room_codes_ready()
 	var err := Net.host() if direct else Net.host_room()
 	if err != OK:
 		_notice = "Port %d is in use" % Net.settings.host_port() if direct and err == ERR_CANT_CREATE \

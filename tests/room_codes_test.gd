@@ -174,7 +174,7 @@ func _test_signaling_url() -> void:
 			"signaling: a bare IPv6 page host is bracketed")
 	check(Net.resolve_signaling_url("", true, {}, DESKTOP_URL, PORT) == DESKTOP_URL,
 			"signaling: web without a readable location falls back to the tuning URL")
-	check(Tuning.net.signaling_url == DESKTOP_URL and Tuning.net.signaling_port == PORT,
+	check(Net.desktop_signaling_url() == DESKTOP_URL and Tuning.net.signaling_port == PORT,
 			"signaling: tuning defaults")
 
 
@@ -186,6 +186,9 @@ func _test_links() -> void:
 	check(Net.invite_url("http://localhost:8000/?signal=ws%3A%2F%2F10.0.0.2%3A9000", CODE)
 			== "http://localhost:8000/?room=%s&signal=%s" % [CODE, "ws://10.0.0.2:9000".uri_encode()],
 			"invite: the page's signal param is kept")
+	check(Net.invite_url("https://h/?signal=ws%3A%2F%2Fold%3A1", CODE, "wss://mine:2")
+			== "https://h/?room=%s&signal=%s" % [CODE, "wss://mine:2".uri_encode()],
+			"invite: the server in use (a Settings override) wins over the page's")
 	var round := Net.parse_join_text(Net.invite_url("http://h/?signal=ws%3A%2F%2Fs%3A1", CODE))
 	check(round["kind"] == "code" and round["code"] == CODE and round["signal"] == "ws://s:1",
 			"invite: an invite URL parses back to its code and signal")
@@ -250,6 +253,22 @@ func _test_join_gating() -> void:
 	check(Net.join(CODE) == ERR_UNAVAILABLE and Net.session == null, "desktop without room codes: a code is unavailable")
 	check(Net.host_room() == ERR_UNAVAILABLE and Net.session == null, "desktop without room codes: no host_room")
 	check(Net.join("bad host!") == ERR_INVALID_PARAMETER, "desktop: junk refused")
+	# No signaling server known (a release build without signaling_url).
+	_set_caps(false, true)
+	var real_url := Tuning.net.signaling_url
+	var real_dev := Tuning.net.dev_signaling_url
+	Tuning.net.signaling_url = ""
+	Tuning.net.dev_signaling_url = ""
+	check(not Net.room_codes_ready() and not Lobby.two_room_kinds(),
+			"no signaling server: room codes not ready, direct IP stays the room default")
+	check(Net.host_room() == ERR_UNCONFIGURED and Net.session == null, "no signaling server: host_room unconfigured")
+	check(Net.join(CODE) == ERR_UNCONFIGURED and Net.session == null, "no signaling server: a code join unconfigured")
+	Net.settings.signaling_url = "ws://127.0.0.1:1"
+	check(Net.room_codes_ready() and Lobby.two_room_kinds(), "a Settings server makes room codes ready")
+	Net.settings.signaling_url = ""
+	Tuning.net.signaling_url = real_url
+	Tuning.net.dev_signaling_url = real_dev
+	check(Net.room_codes_ready(), "debug build: the dev server is the fallback")
 	_set_caps(true, false)
 	check(Net.join(CODE) == ERR_UNAVAILABLE and Net.host_room() == ERR_UNAVAILABLE,
 			"web without room codes: everything unavailable")
@@ -403,7 +422,7 @@ func _test_join_screen() -> void:
 	await frames(3)
 	check(not j.code_edit.is_visible_in_tree() and j.address_edit.is_visible_in_tree()
 			and get_viewport().gui_get_focus_owner() == j.address_edit, "desktop join screen: no code field")
-	check(not j.connect_to(CODE) and j.status.text.contains("room codes"), "desktop join screen: a code is refused")
+	# A code-shaped text without room codes is taken as a host name (Net.join as_address): not run here, it would resolve DNS.
 	j.queue_free()
 	await frames(2)
 

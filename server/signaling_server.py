@@ -67,6 +67,7 @@ CLOSE_NORMAL = 1000           # after an error on host/join, room closed
 CLOSE_POLICY = 1008           # rate limit / per-IP limits
 CLOSE_IDLE = 4001             # never hosted or joined in time
 CLOSE_ROOM_EXPIRED = 4002     # host's room hit the max lifetime
+CLOSE_GUEST_TTL = 4003        # guest stayed on signaling past guest_ttl
 
 log = logging.getLogger("ght.signal")
 
@@ -109,6 +110,10 @@ class Config:
     idle_timeout: float = _opt(30.0, "GHT_SIGNAL_IDLE_TIMEOUT",
                                "seconds a socket may stay without hosting/joining")
     room_lifetime: float = _opt(6 * 3600.0, "GHT_SIGNAL_ROOM_LIFETIME", "max seconds a room stays open")
+    guest_ttl: float = _opt(120.0, "GHT_SIGNAL_GUEST_TTL",
+                            "seconds a guest may stay on signaling after joining (a connected "
+                            "guest leaves within ~1 s; this stops sockets that join and never "
+                            "connect from filling a room until it expires)")
     close_grace: float = _opt(1.0, "GHT_SIGNAL_CLOSE_GRACE",
                               "seconds a socket gets to close itself after a final message "
                               "(error, room_closed) before the server closes it; Godot's native "
@@ -273,6 +278,7 @@ class Client:
         self.opened = time.monotonic()
         self.room: Optional[Room] = None
         self.sid = 0
+        self.joined = 0.0
         self.closing = False
 
 
@@ -407,6 +413,10 @@ class SignalingServer:
                 if not client.bucket.take():
                     log.warning("event=rate_limited reason=messages ip=%s room=%s sid=%d",
                                 ip, client.room.code if client.room else "-", client.sid)
+                    if client.room is not None:
+                        # In a room (a host trickling candidates to several
+                        # joiners): drop the excess, closing would kill the room.
+                        continue
                     await self._error(client, E_RATE_LIMITED, "Too many messages.", True, CLOSE_POLICY)
                     break
                 await self._on_message(client, raw)
@@ -497,6 +507,7 @@ class SignalingServer:
         room.next_sid += 1
         room.guests[sid] = client
         client.room, client.sid = room, sid
+        client.joined = time.monotonic()
         log.info("event=peer_joined room=%s sid=%d ip=%s", room.code, sid, client.ip)
         await self._send(client, {"op": "joined", "room": room.code, "peer": sid,
                                   "ice_servers": ice_servers(self.cfg, self.turn_secret, f"{room.code}-{sid}")})
@@ -581,6 +592,10 @@ class SignalingServer:
             if c.room is None and not c.closing and now - c.opened > self.cfg.idle_timeout:
                 log.info("event=idle_close ip=%s", c.ip)
                 self._spawn(self._close(c, CLOSE_IDLE, "idle"))
+            elif (c.room is not None and c.sid != HOST_SID and not c.closing
+                    and now - c.joined > self.cfg.guest_ttl):
+                log.info("event=guest_ttl room=%s sid=%d ip=%s", c.room.code, c.sid, c.ip)
+                self._spawn(self._close(c, CLOSE_GUEST_TTL, "guest_ttl"))
         for room in list(self.rooms.values()):
             if now - room.created > self.cfg.room_lifetime:
                 host = room.host

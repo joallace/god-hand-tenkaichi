@@ -233,6 +233,21 @@ class LimitsTest(Base):
         self.assertEqual(replies[5]["code"], "rate_limited")
         self.assertEqual(ws.close_code, ss.CLOSE_POLICY)
 
+    async def test_rate_limit_in_room_drops_instead_of_closing(self):
+        host, _ = await self.host()
+        for _ in range(10):
+            await self.send(host, {"op": "ping"})
+        replies = []
+        try:
+            while True:
+                replies.append(json.loads(await asyncio.wait_for(host.recv(), RECV_TIMEOUT)))
+        except asyncio.TimeoutError:
+            pass
+        self.assertEqual(replies, [{"op": "pong"}] * 4)  # burst 5 minus the host op
+        await asyncio.sleep(1.1)  # one token back
+        await self.send(host, {"op": "ping"})
+        self.assertEqual(await self.recv(host), {"op": "pong"})
+
     async def test_oversize_message(self):
         host, hosted = await self.host()
         await self.send(host, {"op": "signal", "to": 2, "data": {"sdp": "x" * 2048}})
@@ -286,6 +301,21 @@ class LifetimeTest(Base):
         await self.assert_closed(host, ss.CLOSE_ROOM_EXPIRED)
         self.assertEqual(self.server.rooms, {})
         self.assertEqual(self.server.rooms_per_ip, {})
+
+
+class GuestTtlTest(Base):
+    overrides = {"guest_ttl": 0.3, "idle_timeout": 30.0}
+
+    async def test_guest_that_never_leaves_is_dropped(self):
+        host, hosted = await self.host(max_guests=1)
+        guest, msg = await self.join(hosted["room"])
+        self.assertEqual(msg["op"], "joined")
+        self.assertEqual(await self.recv(host), {"op": "peer_joined", "peer": 2})
+        await self.assert_closed(guest, ss.CLOSE_GUEST_TTL)
+        self.assertEqual(await self.recv(host), {"op": "peer_left", "peer": 2})
+        # The seat is free again, and the host stays.
+        guest2, msg = await self.join(hosted["room"])
+        self.assertEqual(msg["op"], "joined")
 
 
 class TurnTest(Base):
