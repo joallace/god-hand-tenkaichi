@@ -23,9 +23,21 @@ class FakeRoomTransport:
 	signal signaling_lost()
 	var host := true
 	var error_text := ""
+	var events: Array[Dictionary] = []
 
 	func is_host() -> bool:
 		return host
+
+	func poll() -> Array[Dictionary]:
+		var out := events
+		events = []
+		return out
+
+	## As WebRtcTransport: a failed join is DISCONNECTED for HOST_PEER with
+	## the reason in last_error_text().
+	func fail_join(text: String) -> void:
+		error_text = text
+		events.append(make_event(EventType.DISCONNECTED, HOST_PEER))
 
 	func last_error_text() -> String:
 		return error_text
@@ -291,7 +303,7 @@ func _test_guest_failure() -> void:
 	Net.join_failed.connect(on_fail)
 	Net.update()
 	check(fails.is_empty() and Net.session != null, "room guest: still joining while the transport has no error")
-	t.error_text = "Room not found"
+	t.fail_join("Room not found")
 	Net.update()
 	check(fails == ["Room not found"] and Net.session == null, "room guest: the transport's error fails the join at once")
 	Net.join_failed.disconnect(on_fail)

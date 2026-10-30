@@ -99,25 +99,8 @@ func update() -> void:
 	if session == null or driver != null:
 		return
 	session.update()
-	if _check_join_error():
-		return
 	if room != null:
 		room.tick()
-
-
-## Room-code guest not in yet: the transport gave up (signaling error, ICE
-## timeout) -> fail the join now with its reason. (A never-connected host
-## link's DISCONNECTED doesn't end the Session, which would only time out.)
-func _check_join_error() -> bool:
-	if backend != PlatformCaps.NetBackend.WEBRTC or is_host() or room == null or room.welcomed \
-			or session == null or session.state == Session.State.CLOSED:
-		return false
-	var text := _transport_error_text()
-	if text.is_empty():
-		return false
-	join_failed.emit(Protocol.Reason.DISCONNECTED, text)
-	leave()
-	return true
 
 
 ## This platform can host or join at all (menus show online entries).
