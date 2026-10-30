@@ -12,6 +12,14 @@ extends RefCounted
 ## on Android Chrome. Browsers order a non-standard pad's buttons like the
 ## standard layout in practice, so an unknown pad gets that layout (triggers
 ## as buttons 6/7: the engine only turns them into axes for "standard").
+##
+## Firefox on Linux is the opposite case: it calls every pad "standard" but
+## fills the slots from evdev codes, so a plain HID pad (right stick on
+## ABS_Z/RZ, analog triggers on GAS/BRAKE, like an 8BitDo Ultimate 2 over
+## Bluetooth) comes out with the stick on axes 4/5 and BTN_X/Y on 3/2. A
+## mapping can't undo that: for a "standard" pad the engine writes buttons 6/7
+## and axes 4/5 to the same raw axes, so FIREFOX_LINUX_SHIM corrects the pad
+## before the engine samples it. Xbox-driver pads (6 axes) are already right.
 ## Input mapping only: the sim never sees it.
 
 ## SDL-style layout of the W3C standard gamepad, triggers as buttons.
@@ -19,9 +27,44 @@ const STANDARD_LAYOUT := "a:b0,b:b1,x:b2,y:b3,leftshoulder:b4,rightshoulder:b5,l
 	+ "righttrigger:b7,back:b8,start:b9,leftstick:b10,rightstick:b11,dpup:b12,dpdown:b13," \
 	+ "dpleft:b14,dpright:b15,leftx:a0,lefty:a1,rightx:a2,righty:a3,"
 
+## Wraps navigator.getGamepads to return Firefox's 8-axis pads in the real
+## standard layout. A trigger is its button or its analog axis, whichever is
+## further along; the axis runs -1 (rest) to 1, and reads 0 until first moved.
+const FIREFOX_LINUX_SHIM := """
+(function () {
+	const ua = navigator.userAgent;
+	if (!navigator.getGamepads || !/Firefox/.test(ua) || !/Linux/.test(ua) || /Android/.test(ua)) {
+		return;
+	}
+	const raw = navigator.getGamepads.bind(navigator);
+	const trigger = function (button, axis) {
+		const value = Math.max(button.value, axis === 0 ? 0 : (axis + 1) / 2);
+		return {pressed: button.pressed || value > 0, touched: button.touched || value > 0, value: value};
+	};
+	const fix = function (pad) {
+		if (!pad || pad.mapping !== "standard" || pad.axes.length < 8 || pad.buttons.length < 8) {
+			return pad;
+		}
+		const a = pad.axes;
+		const b = Array.from(pad.buttons);
+		const x = b[3];
+		b[3] = b[2];
+		b[2] = x;
+		b[6] = trigger(pad.buttons[6], a[7]);
+		b[7] = trigger(pad.buttons[7], a[6]);
+		return {id: pad.id, index: pad.index, mapping: pad.mapping, connected: pad.connected,
+			timestamp: pad.timestamp, axes: [a[0], a[1], a[4], a[5]], buttons: b};
+	};
+	navigator.getGamepads = function () {
+		return Array.from(raw(), fix);
+	};
+})();
+"""
+
 
 ## Map every connected pad that needs it now, and each one that connects.
 static func install() -> void:
+	JavaScriptBridge.eval(FIREFOX_LINUX_SHIM)
 	if not Input.joy_connection_changed.is_connected(_on_joy_connection_changed):
 		Input.joy_connection_changed.connect(_on_joy_connection_changed)
 	for device in Input.get_connected_joypads():
