@@ -65,6 +65,13 @@ func local_peer_id() -> int:
 	return HOST_PEER if is_host() else NO_PEER
 
 
+## Client: frames this transport may take to connect (or report the failure
+## as DISCONNECTED for HOST_PEER) on its own; a Session waits at least this
+## long before giving up. 0 = no opinion.
+func connect_timeout_frames() -> int:
+	return 0
+
+
 ## Ids of the currently connected link peers.
 func connected_peers() -> Array[int]:
 	return []

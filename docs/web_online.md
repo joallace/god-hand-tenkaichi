@@ -92,7 +92,9 @@ top and shouldn't need changes.
   Bulk snapshots (zstd'd `var_to_bytes`) can be larger, so the transport
   (or Protocol's bulk path) needs to chunk + reassemble. Check what the
   largest bulk message really is first (RESYNC snapshot with a full co-op
-  field).
+  field). Measured (tests/net_webrtc_session_test INFO line): ~3.4 KB on
+  the wire at the online field cap of 6 (24 KB raw before zstd), ~5.3 KB
+  at 16 fighters; MATCH_START ~1 KB. WebRtcTransport chunks anyway.
 - **Stats**: `net_overlay` asks the transport for `packet_loss(peer)`
   through `has_method`. WebRTC exposes stats only in a limited way through
   Godot; leaving it out is fine (the overlay copes). RTT already comes from

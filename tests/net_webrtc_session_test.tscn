@@ -1,0 +1,6 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://tests/net_webrtc_session_test.gd" id="1"]
+
+[node name="NetWebRtcSessionTest" type="Node"]
+script = ExtResource("1")

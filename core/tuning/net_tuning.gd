@@ -71,3 +71,23 @@ extends Resource
 @export_range(1, 600) var replay_hash_interval: int = 30
 ## Recent hosts remembered by the join screen.
 @export_range(0, 50) var recent_hosts_max: int = 8
+
+@export_group("WebRTC")
+## Guest: frames from join_room() until every data channel to the host is
+## open; past it the join fails ("a TURN relay may be needed"). Host: a
+## joining guest's link is dropped after the same wait.
+@export_range(60, 7200) var webrtc_connect_timeout_frames: int = 900
+## RELIABLE/BULK messages are split into data-channel messages of at most
+## this many bytes (header included; SCTP messages above ~16 KB are unsafe
+## across browsers).
+@export_range(256, 16000) var webrtc_chunk_bytes: int = 16000
+## Guest: frames its signaling socket stays open after connecting, so late
+## trickle ICE candidates can still pass.
+@export_range(0, 600) var webrtc_signaling_grace_frames: int = 60
+## A link dropped with disconnect_peer() stays open at most this many frames
+## to deliver what is queued (a REJECT / BYE) before it is closed.
+@export_range(0, 600) var webrtc_close_linger_frames: int = 60
+## Frames a signaling WebSocket may take to open before it gives up.
+@export_range(30, 3600) var signaling_handshake_timeout_frames: int = 600
+## Frames between keepalive pings on an open signaling socket.
+@export_range(60, 36000) var signaling_keepalive_frames: int = 1200

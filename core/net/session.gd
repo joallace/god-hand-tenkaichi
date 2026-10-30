@@ -203,7 +203,7 @@ func receive() -> void:
 		if state == State.CLOSED:
 			return
 	if not is_host() and state == State.CONNECTING and _links.is_empty() \
-			and _frame > Tuning.net.disconnect_timeout_frames:
+			and _frame > maxi(Tuning.net.disconnect_timeout_frames, transport.connect_timeout_frames()):
 		_end(Protocol.Reason.TIMEOUT)
 		return
 	for peer: int in _links.keys():
@@ -428,6 +428,9 @@ func _new_link() -> Dictionary:
 
 func _on_link_lost(peer: int, reason: int) -> void:
 	if not _links.has(peer):
+		# A guest's connection attempt failed (the transport says so).
+		if not is_host() and peer == Transport.HOST_PEER and state == State.CONNECTING:
+			_end(reason)
 		return
 	if is_host():
 		_drop_guest(peer, reason)
