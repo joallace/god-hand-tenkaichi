@@ -28,6 +28,11 @@ extends Transport
 ## reassembled; a reassembly over Tuning.net.max_bulk_bytes or a bad header
 ## drops the link. UNRELIABLE is sent whole (Protocol keeps it under
 ## max_packet_bytes).
+## RELIABLE/BULK chunks are paced: at most Tuning.net.webrtc_send_budget_bytes
+## per channel and link go out per poll() (the rest wait, in order), since
+## the browser's data channel buffers only 64 KiB of received messages
+## between two polls and silently drops the rest (Godot's
+## WebRTCDataChannelJS: "Buffer full! Dropping data.").
 ##
 ## Frames (timeouts) are counted per `poll()`; the game polls once per
 ## physics frame. Sends are immediate, `flush()` is a no-op.
@@ -95,6 +100,10 @@ class Link:
 	## Per channel: chunks of the message being reassembled, and their size.
 	var rx: Array = [[], [], []]
 	var rx_size: Array[int] = [0, 0, 0]
+	## Per channel: chunks waiting for the send budget, and the bytes sent
+	## since the last poll().
+	var tx: Array = [[], [], []]
+	var tx_sent: Array[int] = [0, 0, 0]
 
 
 static var _available_cached := -1
@@ -200,18 +209,45 @@ func send(peer: int, channel: int, bytes: PackedByteArray) -> void:
 		ch.put_packet(bytes)
 		return
 	var step := Tuning.net.webrtc_chunk_bytes - CHUNK_HEADER
+	var queue: Array = link.tx[channel]
 	var off := 0
 	while true:
 		var n := mini(step, bytes.size() - off)
 		var last := off + n >= bytes.size()
 		var chunk := PackedByteArray([CHUNK_LAST if last else CHUNK_MORE])
 		chunk.append_array(bytes.slice(off, off + n))
+		queue.append(chunk)
+		off += n
+		if last:
+			break
+	_pump_tx(link, channel)
+
+
+## Send queued chunks of `channel` while this poll's budget lasts (one chunk
+## always fits a fresh budget).
+func _pump_tx(link: Link, channel: int) -> void:
+	var queue: Array = link.tx[channel]
+	var ch := link.channels[channel]
+	while not queue.is_empty() and not link.failed:
+		var chunk: PackedByteArray = queue[0]
+		if link.tx_sent[channel] > 0 \
+				and link.tx_sent[channel] + chunk.size() > Tuning.net.webrtc_send_budget_bytes:
+			return
+		if ch.get_ready_state() != WebRTCDataChannel.STATE_OPEN:
+			return
 		if ch.put_packet(chunk) != OK:
 			link.failed = true
 			return
-		off += n
-		if last:
-			return
+		link.tx_sent[channel] += chunk.size()
+		queue.pop_front()
+
+
+## New poll: fresh send budgets, then what waited for them.
+func _refill_tx(link: Link) -> void:
+	for c: int in [Channel.RELIABLE, Channel.BULK]:
+		link.tx_sent[c] = 0
+		if link.open:
+			_pump_tx(link, c)
 
 
 func poll() -> Array[Dictionary]:
@@ -221,6 +257,7 @@ func poll() -> Array[Dictionary]:
 	for id: int in _links.keys():
 		var link: Link = _links.get(id)
 		if link != null:
+			_refill_tx(link)
 			_poll_link(link)
 	_poll_closing()
 	if not _host and not _failed and _join_frames >= 0:
@@ -523,6 +560,7 @@ func _fail(text: String) -> void:
 func _poll_closing() -> void:
 	for i in range(_closing.size() - 1, -1, -1):
 		var link := _closing[i]
+		_refill_tx(link)
 		link.pc.poll()
 		var done := link.age >= Tuning.net.webrtc_close_linger_frames
 		for ch in link.channels:

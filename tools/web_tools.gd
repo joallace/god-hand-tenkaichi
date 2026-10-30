@@ -7,6 +7,9 @@ extends Node
 ##                                REPLAY_HASH lines (cross-runtime determinism)
 ##   ?tool=bench&mode=coop&humans=2&enemies=4&driver=0
 ##                                tools/net_bench (NET_BENCH lines)
+##   ?tool=net_peer&role=guest&code=ABCDEF&signal=ws://...
+##                                tools/net_peer: one peer of a WebRTC match
+##                                (NET_PEER lines; tools/crossplay_e2e.sh)
 ## Both read the rest of the query as their `key=value` args (ToolArgs).
 ## Each tool ends with its own `... DONE` line (REPLAY_HASH DONE, NET_BENCH
 ## DONE) before calling quit().
@@ -14,6 +17,7 @@ extends Node
 const TOOLS := {
 	"replay": "res://tools/replay_hash.tscn",
 	"bench": "res://tools/net_bench.tscn",
+	"net_peer": "res://tools/net_peer.tscn",
 }
 
 

@@ -146,6 +146,80 @@ top and shouldn't need changes.
   with `Protocol.Reason.PLATFORM` ("Cross-play unavailable (host: desktop,
   you: web)"). On by default, since the hashes agree.
 
+## Cross-play end-to-end check
+
+`tools/crossplay_e2e.sh` (Python: `tools/crossplay_e2e.py`, needs python3
++ websockets and google-chrome) plays real desktop ↔ browser matches:
+
+```sh
+tools/crossplay_e2e.sh                          # versus, both directions, 1800 ticks
+tools/crossplay_e2e.sh --mode versus,coop --delay 0
+tools/crossplay_e2e.sh --pairs desktop:web --no-export   # host:guest; reuse builds/web-tools/
+```
+
+It starts `server/signaling_server.py` on 127.0.0.1:18765, exports "Web
+Tools" to `builds/web-tools/`, serves it on http://127.0.0.1:18000 (a
+secure context, so the page may use `ws://127.0.0.1`), then per direction
+starts `tools/net_peer` as host (headless Godot, or headless Chrome on
+`?tool=net_peer&role=host&signal=...`), reads its `NET_PEER CODE`, starts
+the other runtime as guest with that code, and compares both peers'
+`NET_PEER HASH <tick> <hash>` lines (every confirmed checkpoint). After
+`NET_PEER DONE` the host sends its last checkpoint as a 120 KB SNAPSHOT
+(BULK, 8 chunks; padded with random bytes) that the guest must receive
+intact and equal to its own. PASS = both DONE OK (no resyncs), the same
+checkpoints on both, all equal, bulk probe intact. Logs:
+`builds/web-tools/e2e/`. `net_peer` alone: `godot --headless
+res://tools/web_tools.tscn -- tool=net_peer role=host signal=ws://...`
+or `tools/web_tools.sh tool=net_peer role=guest code=... signal=...`.
+
+`net_peer` is Session + RollbackDriver as in `tests/net_webrtc_session_test`:
+two human slots, one per peer, each fed by a `CpuInput` "pad", so real
+inputs cross the wire, get predicted and rolled back; the config gets the
+web caps (`apply_platform_caps`, `includes_platform(web)`) like a room.
+
+**Verified (2026-10-30)**, Chrome 150 headless (WASM, `web_nothreads`)
+↔ Linux editor binary + webrtc-native, same machine, input delay 0,
+1800 ticks: versus and co-op (BRAWL, field cap 6), browser host and
+browser guest: 60/60 checkpoint hashes equal in all four runs, 0
+resyncs, ~15–30 ms RTT on loopback (frame-quantized; max 86), 0–188
+rollbacks per peer (≤ 281 rolled-back ticks), bulk probe intact both
+ways. Findings:
+
+- **Browser receive buffer (fixed).** Godot's `WebRTCDataChannelJS`
+  copies each incoming message into a 64 KiB ring per channel until the
+  next `poll()`; past that it logs "Buffer full! Dropping data." and drops
+  the message, on a *reliable* channel too. A 120 KB BULK message sent at
+  once lost 4 of its 8 chunks in the browser (desktop's webrtc-native
+  queue has no such limit). `WebRtcTransport` now paces RELIABLE/BULK
+  chunks (`webrtc_send_budget_bytes`, one 16 KB chunk per frame per
+  channel): the probe arrives intact. Residual risk: a receiving browser
+  that stalls ≳ 3 frames in the middle of a large transfer still overflows
+  (JS delivers the backlog in one go); only RESYNC / drop-in snapshots are
+  that big.
+- **put_packet / bufferedAmount on web.** The JS glue's `send()` returns
+  OK whenever the channel exists (no try/catch; a send on a non-open
+  channel would throw inside the call, which is why `send()` checks the
+  ready state first), so `link.failed` never triggers in the browser.
+  `get_buffered_amount()` is real there (121659 right after the 120 KB
+  burst before pacing, 16000 with it); webrtc-native always reports 0.
+- **Data channel options.** The web glue hands the Dictionary to
+  `createDataChannel` as JSON, so the keys must be `RTCDataChannelInit`
+  names: ours (`negotiated`, `id`, `ordered`, `maxRetransmits`) are, and
+  the negotiated ids match across runtimes (`NET_PEER CHANNELS`). Reading
+  back: a reliable channel's `get_max_retransmits()` is 0 on web (JS
+  `null`) but -1 on desktop; don't use it to tell reliable from
+  unreliable.
+- **JSON numbers.** Both runtimes parse signaling JSON in GDScript
+  (`WebSocketPeer` + `JSON`), so numbers are floats on both; `_int()`
+  covers `peer`/`from`/`index`. Nothing browser-specific.
+- **CONNECTED timing.** The guest reaches WELCOME 13–24 frames after
+  starting (signaling connect, ICE, DTLS, SCTP, HELLO): browser and
+  desktop alike.
+- Chrome normally hides its host candidates behind mDNS (`*.local`,
+  which libjuice may not resolve); on one machine the link forms either
+  way round.
+  Not yet checked: two machines on a LAN without STUN, and a real WAN.
+
 ## Performance in the browser
 
 **Measured (2026-10-30, Ryzen 5 5500U, Chrome 150; table in SPEC_online.md
@@ -315,7 +389,10 @@ signaling, so the host transport ignores this for connected links),
   with the error's text.
 - RELIABLE/BULK messages are chunked (`Tuning.net.webrtc_chunk_bytes`,
   ≤ 16 KB) and reassembled; UNRELIABLE is sent whole (Protocol keeps it
-  under `max_packet_bytes`).
+  under `max_packet_bytes`). Chunks are paced, at most
+  `Tuning.net.webrtc_send_budget_bytes` (16 KB) per channel and link per
+  frame: the browser's data channel keeps only 64 KiB of received messages
+  between two polls and drops the rest (see "Cross-play end-to-end check").
 - The guest closes its signaling socket once connected; the host keeps
   its socket for the room's lifetime (new guests).
 

@@ -81,6 +81,12 @@ extends Resource
 ## this many bytes (header included; SCTP messages above ~16 KB are unsafe
 ## across browsers).
 @export_range(256, 16000) var webrtc_chunk_bytes: int = 16000
+## RELIABLE/BULK bytes sent per data channel and link per frame (a chunk
+## always goes out when nothing else did this frame). The browser keeps only
+## 64 KiB of received data-channel messages between two of its polls and
+## drops the rest, so this stays well under it: one 16 KB chunk per frame
+## leaves room for a ~3-frame stall on the receiving side (~960 KB/s).
+@export_range(256, 65536) var webrtc_send_budget_bytes: int = 16000
 ## Guest: frames its signaling socket stays open after connecting, so late
 ## trickle ICE candidates can still pass.
 @export_range(0, 600) var webrtc_signaling_grace_frames: int = 60

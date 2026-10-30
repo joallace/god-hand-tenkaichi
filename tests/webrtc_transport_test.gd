@@ -157,6 +157,12 @@ func _test_room() -> void:
 	host.send(2, Transport.Channel.BULK, big)
 	guests[2].send(Transport.HOST_PEER, Transport.Channel.BULK, big)
 	var B := Transport.Channel.BULK
+	# The browser drops received messages past 64 KiB per poll: big sends
+	# go out at most webrtc_send_budget_bytes per poll, the rest queued.
+	var paced: WebRtcTransport.Link = host._links[2]
+	_check(paced.tx_sent[B] <= Tuning.net.webrtc_send_budget_bytes and not (paced.tx[B] as Array).is_empty(),
+		"room: a big BULK send is paced (%d bytes out this poll, %d chunks queued)" % [
+			paced.tx_sent[B], (paced.tx[B] as Array).size()])
 	_pump_until(all, func() -> bool:
 		return _packets(guests[0], B, 1).size() == ORDERED_COUNT + 1 and _packets(host, B, 4).size() == ORDERED_COUNT + 1)
 	var ok_r := true

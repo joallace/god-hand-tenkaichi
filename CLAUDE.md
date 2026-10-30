@@ -238,6 +238,11 @@ fixes done and open web/mobile optimizations: `docs/web_performance.md`.
 check); `-- record=<file> seed=<n> mode=versus|coop ticks=<n>` records a
 CPU-only match.
 
+`tools/web_tools.sh tool=replay|bench|net_peer ...` runs a tool in the WASM
+build in headless Chrome and prints its console lines; `tools/crossplay_e2e.sh`
+plays desktop <-> browser WebRTC matches through the real signaling server and
+compares confirmed hashes (docs/web_online.md "Cross-play end-to-end check").
+
 ## Export
 
 `export_presets.cfg` has "Linux" and "Windows Desktop" (x86_64, embedded pck,

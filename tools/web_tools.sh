@@ -5,6 +5,9 @@
 #       plays tools/replays/*.ghr (recorded on desktop), REPLAY_HASH lines
 #   tools/web_tools.sh tool=bench mode=coop humans=2 enemies=4 driver=0
 #       tools/net_bench in WASM, NET_BENCH lines
+#   tools/web_tools.sh tool=net_peer role=guest code=ABCDEF signal=ws://127.0.0.1:18765
+#       one peer of a WebRTC match, NET_PEER lines (tools/crossplay_e2e.sh
+#       runs both peers and compares them)
 #   NO_EXPORT=1 tools/web_tools.sh ...            # reuse builds/web-tools/
 # Exports the "Web Tools" preset (feature tag web_tools makes web_tools.tscn
 # the main scene; tools/ and tools/replays/*.ghr included) to
@@ -39,12 +42,14 @@ HEADLESS_ARGS=(--headless=new --use-angle=swiftshader --enable-unsafe-swiftshade
 	--disable-background-timer-throttling --disable-renderer-backgrounding \
 	--enable-logging=stderr --v=0 --window-size=1280,720 \
 	"http://127.0.0.1:$PORT/index.html?$QUERY" >"$LOG" 2>&1 &
-DONE_RE='(REPLAY_HASH|NET_BENCH) DONE|WEB_TOOLS unknown'
+DONE_RE='(REPLAY_HASH|NET_BENCH|NET_PEER) DONE|WEB_TOOLS unknown'
 for _ in $(seq "$LIMIT"); do
 	grep -qE "$DONE_RE" "$LOG" && break
 	sleep 1
 done
-grep -oE '(WEB_TOOLS|REPLAY_HASH|NET_BENCH|SCRIPT ERROR|ERROR:).*' "$LOG" | sed 's/", source: .*//'
-grep -q "REPLAY_HASH DONE MISMATCH\|NET_BENCH DONE FAIL" "$LOG" && exit 1
+# net_peer keeps feeding the far peer for a few seconds after DONE.
+[[ "$*" == *tool=net_peer* ]] && sleep 5
+grep -oE '(WEB_TOOLS|REPLAY_HASH|NET_BENCH|NET_PEER|SCRIPT ERROR|ERROR:).*' "$LOG" | sed 's/", source: .*//'
+grep -q "REPLAY_HASH DONE MISMATCH\|NET_BENCH DONE FAIL\|NET_PEER DONE FAIL" "$LOG" && exit 1
 grep -qE "$DONE_RE" "$LOG" || { echo "no DONE line within ${LIMIT}s, see $LOG"; exit 1; }
 exit 0
