@@ -73,3 +73,10 @@ extends Resource
 @export_range(1, 50) var default_wave_count: int = 3
 @export_range(1, 64) var max_enemy_count: int = 30
 @export_range(1, 50) var max_wave_count: int = 20
+
+@export_group("Cross-play (desktop <-> browser)")
+## online_field_cap for a session with a browser peer (the host puts it in
+## the MatchConfig, MatchConfig.apply_platform_caps). Same as
+## online_field_cap for now: the browser fits 6 fighters once
+## net.max_rollback_frames_web shortens the rollback (SPEC_online §12.1).
+@export_range(2, 16) var online_field_cap_web: int = 6

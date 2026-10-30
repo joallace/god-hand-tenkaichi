@@ -66,3 +66,9 @@ static func net_backend() -> NetBackend:
 ## Any way to play online on this platform (menus hide online entries if not).
 static func online() -> bool:
 	return direct_ip() or room_codes()
+
+
+## HELLO `platform` of this build (Protocol.PLATFORMS): "web" in a browser,
+## "desktop" otherwise. The host can refuse cross-play or pick caps by it.
+static func platform_name() -> String:
+	return Protocol.PLATFORM_WEB if web else Protocol.PLATFORM_DESKTOP

@@ -18,7 +18,9 @@ and read the `FRAME_PROBE` lines in the browser console.
 
 - **GDScript is several times slower** (WASM). Work that costs ~0.3 ms per
   frame on desktop can cost several ms in the browser. Per-event allocations
-  that desktop never notices can push a 60 Hz frame past 16.6 ms.
+  that desktop never notices can push a 60 Hz frame past 16.6 ms. (The
+  sim itself, plain arithmetic GDScript, measured only ~1.6× the native
+  release template: `tools/web_tools.sh tool=bench`, SPEC_online.md §12.1.)
 - **Single-threaded** (`web_nothreads` templates): sim, scripts, rendering
   and (sample-mode) audio calls all run on the browser's main thread.
 - **Compatibility renderer** (WebGL2, `rendering_method.web`): no FSR, no

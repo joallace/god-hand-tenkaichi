@@ -127,21 +127,49 @@ top and shouldn't need changes.
 - `ContentHash` and the HELLO version checks already reject mismatched
   builds; web and desktop builds from the same commit should agree. Verify
   that too, since export may strip or remap resources differently.
+- **Verified (2026-10-30): cross-runtime determinism OK.** Five CPU-only
+  replays recorded on desktop (editor binary, Linux x86_64) are bundled in
+  `tools/replays/` and replayed in Chrome 150 (WASM, `web_nothreads`
+  release) by `tools/web_tools.sh tool=replay`: every checkpoint hash
+  (every 30 ticks) matches, and so does the Linux release template.
+  `versus_1v1` (3600 ticks), `versus_ffa4` (4 fighters, 3600),
+  `coop_waves` (3600), `coop_3p_brawl8` (3 humans + 5 enemies, 8 on the
+  field, 4800), `coop_4p_brawl8` (4 + 4, 3600): 0 of 640 checkpoints differ.
+  The exported web build's `ContentHash` equals the desktop one (replays
+  carry it; no mismatch warning). Re-record after any sim change
+  (`tools/replay_hash.tscn -- record=res://tools/replays/<name>.ghr ...`,
+  args in its header) and rerun before trusting cross-play.
+- HELLO carries `platform` ("desktop" / "web", `PlatformCaps.platform_name()`;
+  Protocol 3). The host keeps it per peer (`Session.peer_platform(peer)`,
+  `includes_platform()`; WELCOME / PEERS share every member's) and, when
+  `Tuning.net.cross_play` is off, rejects a guest of the other platform
+  with `Protocol.Reason.PLATFORM` ("Cross-play unavailable (host: desktop,
+  you: web)"). On by default, since the hashes agree.
 
 ## Performance in the browser
 
-GDScript in WASM runs slower than native (expect around 1.5–3× slower,
-measure it). Rollback re-simulates up to `max_rollback_frames` ticks in one
-frame; SPEC_ONLINE.md §12 gives an 8 ms budget, and the desktop p95 is
-already ~5–6 ms at 6 fighters. Likely consequences:
+**Measured (2026-10-30, Ryzen 5 5500U, Chrome 150; table in SPEC_online.md
+§12.1 "Browser").** `tools/web_tools.sh tool=bench mode=coop humans=2
+enemies=4` runs `tools/net_bench` in the browser. The sim in WASM costs
+~1.6× the native release template (~1.3× the editor binary): an 8-tick
+rollback at 6 fighters is 4.25 ms mean in Chrome vs 2.63 ms native. 1v1 is
+far inside the 8 ms budget (full rollback ≤ 4.2 ms). At the default online
+field of 6 fighters, a typical frame is ~4.3 ms p95 but a full 8-tick
+rollback frame is 9.0 ms p95, over budget; 8 fighters is 12+ ms.
 
-- Run `tools/net_bench` logic in the browser (another web-only debug entry
-  point) to get real numbers.
-- A lower `coop.online_field_cap` and/or `max_rollback_frames` for any
-  session with a browser peer. The host knows each peer's platform if HELLO
-  carries it: add a `platform` field to HELLO and pick caps from it, which
-  keeps the sim the same for everyone (caps are match config, not code
-  branches).
+So a session with a browser peer gets **caps, as match config**: the host
+calls `MatchConfig.apply_platform_caps(session.includes_platform("web"))`
+when it starts a match (`OnlineRoom._begin`, rematches too), which sets
+`MatchConfig.online_field_cap = Tuning.coop.online_field_cap_web` (6, same
+as today; `CoopRun.field_cap_for` reads it) and
+`MatchConfig.max_rollback_frames = Tuning.net.max_rollback_frames_web` (6;
+`RollbackDriver.max_rollback_frames` reads it, ~7 ms full rollback). Both
+travel in MATCH_START, so every peer simulates the same field; 0 = the
+normal Tuning values. Slower devices (phones) need their own measurement:
+open the Web Tools export there with `?tool=bench&...`.
+
+Other consequences:
+
 - The browser main loop runs on `requestAnimationFrame`; background tabs
   get throttled to ~1 Hz or paused. A peer whose tab goes to the background
   will stall the session and then time out. Detect it
@@ -199,7 +227,14 @@ soon as a backend exists; each needs a room-code path:
   1.2.2, Linux/Windows x86_64; `exclude_tags = ["web"]`, the browser has its
   own). Direct-IP ENet stays on desktop for LAN / port-forwarded play.
 - **Cross-play** desktop ↔ browser, gated on the cross-runtime replay hash
-  check. If hashes differ, rooms reject mixed platforms until fixed.
+  check. If hashes differ, rooms reject mixed platforms until fixed
+  (`Tuning.net.cross_play` = false). Check passed 2026-10-30, so it is on.
+- The web export presets exclude `addons/webrtc_native/*` (desktop-only
+  GDExtension, ~16 MB of .so/.dll that `exclude_tags` alone would still
+  pack). Debug web entry points: "Web Probe" (`tools/web_probe.sh`,
+  presentation) and "Web Tools" (`tools/web_tools.sh`, replay hashes and
+  net_bench; bundles `tools/replays/*.ghr`); the normal "Web" preset
+  excludes `tools/`.
 - **Signaling server: Python** (asyncio + `websockets`) in `server/`.
 - **TURN: coturn shipped, opt-in** (`docker compose --profile turn`). The
   signaling server hands out ICE servers from its own config, with

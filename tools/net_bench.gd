@@ -40,7 +40,7 @@ const CONNECT_FRAMES := 300
 
 
 func _ready() -> void:
-	for a in OS.get_cmdline_user_args():
+	for a in ToolArgs.pairs():
 		var kv := a.split("=")
 		if kv.size() != 2:
 			continue
@@ -65,6 +65,7 @@ func _ready() -> void:
 	var ok := _bench()
 	if ok and _args["driver"] != 0:
 		ok = _bench_driver()
+	print("NET_BENCH DONE %s" % ("OK" if ok else "FAIL"))
 	get_tree().quit(0 if ok else 1)
 
 
@@ -242,7 +243,7 @@ func _bench_driver() -> bool:
 		for slot: int in local:
 			(local[slot] as CpuInput).attach(d, slot)
 		drivers.append(drv)
-	var rb: int = Tuning.net.max_rollback_frames
+	var rb: int = drivers[0].max_rollback_frames
 	var frame_us: Array = []  # per peer: Array[int] of advance() µs
 	for drv in drivers:
 		frame_us.append([] as Array[int])

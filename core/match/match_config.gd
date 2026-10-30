@@ -12,6 +12,8 @@ const MAX_PLAYERS := 16
 const MAX_ROUNDS_TO_WIN := 99
 const MAX_ROUND_SECONDS := 999
 const MAX_ID_LENGTH := 64
+const MAX_FIELD_CAP := 16
+const MAX_ROLLBACK_FRAMES := 30
 
 @export var mode: Mode = Mode.LOCAL_VERSUS
 @export var players: Array[PlayerSlotConfig] = []
@@ -26,6 +28,11 @@ const MAX_ID_LENGTH := 64
 @export var friendly_fire: bool = false
 ## Co-op run setup (Mode.COOP only, else null).
 @export var coop: CoopConfig
+## Online caps the host picks for the session (apply_platform_caps), shared
+## in MATCH_START so every peer simulates the same field. 0 = the Tuning
+## default (coop.online_field_cap, net.max_rollback_frames).
+@export var online_field_cap: int = 0
+@export var max_rollback_frames: int = 0
 
 
 static func from_defaults(p_mode: Mode = Mode.LOCAL_VERSUS) -> MatchConfig:
@@ -111,6 +118,22 @@ func local_view_slots() -> Array[int]:
 	return out
 
 
+## Host, online: the caps for a session with a browser peer
+## (Tuning.coop.online_field_cap_web, Tuning.net.max_rollback_frames_web;
+## the browser re-simulates ~1.6x slower, docs/SPEC_online.md §12.1) or the
+## defaults (0) without one. Config, not code branches: every peer reads the
+## same values from MATCH_START. Returns self.
+func apply_platform_caps(has_web_peer: bool) -> MatchConfig:
+	online_field_cap = Tuning.coop.online_field_cap_web if has_web_peer else 0
+	max_rollback_frames = Tuning.net.max_rollback_frames_web if has_web_peer else 0
+	return self
+
+
+## max_rollback_frames, or Tuning.net.max_rollback_frames when unset.
+func rollback_frames() -> int:
+	return max_rollback_frames if max_rollback_frames > 0 else Tuning.net.max_rollback_frames
+
+
 # --- plain-data form (wire, replays) -------------------------------------------
 
 ## Plain Dictionary/Array/int/bool/String copy (no Resources), so it can go
@@ -125,6 +148,7 @@ func to_dict() -> Dictionary:
 		"round_time_seconds": round_time_seconds, "arena_id": String(arena_id),
 		"rng_seed": rng_seed, "friendly_fire": friendly_fire,
 		"coop": coop.to_dict() if coop != null else null,
+		"online_field_cap": online_field_cap, "max_rollback_frames": max_rollback_frames,
 	}
 
 
@@ -144,7 +168,10 @@ static func from_dict(d: Variant) -> MatchConfig:
 	var ff_v: Variant = d.get("friendly_fire", false)
 	var ps: Variant = d.get("players", [])
 	var coop_v: Variant = d.get("coop", null)
-	if mode_v == null or rounds_v == null or time_v == null or not seed_v is int or not ff_v is bool \
+	var cap_v: Variant = dict_int(d, "online_field_cap", 0, 0, MAX_FIELD_CAP)
+	var rb_v: Variant = dict_int(d, "max_rollback_frames", 0, 0, MAX_ROLLBACK_FRAMES)
+	if mode_v == null or rounds_v == null or time_v == null or cap_v == null or rb_v == null \
+			or not seed_v is int or not ff_v is bool \
 			or not (arena_v is String or arena_v is StringName) or String(arena_v).length() > MAX_ID_LENGTH \
 			or not ps is Array or (ps as Array).size() > MAX_PLAYERS:
 		return null
@@ -167,6 +194,8 @@ static func from_dict(d: Variant) -> MatchConfig:
 	c.rng_seed = seed_v
 	c.arena_id = StringName(arena_v)
 	c.friendly_fire = ff_v
+	c.online_field_cap = cap_v
+	c.max_rollback_frames = rb_v
 	return c
 
 

@@ -74,7 +74,8 @@ static func planned_field_size(config: MatchConfig) -> int:
 
 
 ## Fighter cap of the field for this config: Tuning.coop.field_cap, clamped
-## to Tuning.coop.online_field_cap online (every peer re-simulates the whole
+## online to config.online_field_cap (set by the host, e.g. for a browser
+## peer) or else Tuning.coop.online_field_cap (every peer re-simulates the whole
 ## field on a rollback; SPEC_ONLINE.md §12), and never so low that team 0
 ## leaves no room for an enemy. Shared config -> same on every peer.
 static func field_cap_for(config: MatchConfig) -> int:
@@ -82,7 +83,7 @@ static func field_cap_for(config: MatchConfig) -> int:
 		return Tuning.coop.field_cap
 	var cap := Tuning.coop.field_cap
 	if config.is_online():
-		cap = mini(cap, Tuning.coop.online_field_cap)
+		cap = mini(cap, config.online_field_cap if config.online_field_cap > 0 else Tuning.coop.online_field_cap)
 	return maxi(cap, config.players.size() + 1)
 
 

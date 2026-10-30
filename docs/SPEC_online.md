@@ -392,7 +392,10 @@ Uses now: desync debugging, `tools/replay_hash`, determinism tests. Viewer: late
   `save_state`, `load_state` and an 8-tick resim. Run it per milestone and
   record results in this spec.
 - `coop.online_field_cap` *(tunable, 6)* clamps `field_cap` online; raise it
-  if the bench allows.
+  if the bench allows. A session with a browser peer uses
+  `coop.online_field_cap_web` and `net.max_rollback_frames_web` instead,
+  written by the host into the MatchConfig (`online_field_cap`,
+  `max_rollback_frames`; 0 = the defaults). Browser numbers: §12.1.
 - Snapshot cost: the ring buffer holds Dictionaries. Skipping the snapshots
   of ticks that are already final (below the confirmed tick) was tried and
   measured (§12.1, 2026-10-19 second block): it saves only 1–2 % of the
@@ -508,6 +511,66 @@ What it implies (milestone 3):
   cap needs cheaper state (PackedArray per-entity snapshots, a cheaper
   `step` for far/idle enemies), sparser snapshots, or `max_rollback_frames`
   ≤ 5 for fields over 6; the skip-final-snapshots idea does not help (above).
+
+#### Browser (Chrome, WASM nothreads)
+
+2026-10-30, AMD Ryzen 5 5500U laptop (the first block's box; 6 cores, 16 GB,
+Linux, nothing else heavy running). Same `net_bench` defaults (600-tick
+warmup, 1800 measured ticks, rollback 8, CPU humans level 7, enemies level
+3, seed 7). Three runtimes of the same commit: **web** = the "Web Tools"
+export (`web_nothreads_release` template, Chrome 150 `--headless=new`) via
+`tools/web_tools.sh tool=bench ...`; **native release** = the
+`linux_release.x86_64` template running the same tools pack; **editor** =
+the editor binary headless, as in the blocks above. Network shapes as in
+the milestone-3 block (typical 60±10 ms, 2 % loss, auto delay; worst
+120±20 ms, delay 0). Times in ms, mean / p95. The browser clock is coarse
+(`performance.now()` is 0.1 ms without cross-origin isolation), so web p95s
+of sub-ms calls are rounded up to the next 0.1 ms; compare means. Every run
+determinism OK (offline resims byte-identical; driver checkpoint hashes
+equal, 0 resyncs). Co-op 2 + 0 isn't a usable row: with no enemies the run
+is won at once, the bench restarts every tick and never rolls back.
+
+| Run | Runtime | step | save_state | load_state | 8-tick rollback | Full | Drv frame p95 (typ.) | Full (driver) (worst) |
+|---|---|---|---|---|---|---|---|---|
+| versus 1v1 (2) | web | 0.14 / 0.3 | 0.12 / 0.2 | 0.16 / 0.2 | 1.17 / 1.5 | 4.2 | 1.3 | 3.5 |
+| | native release | 0.09 / 0.13 | 0.09 / 0.10 | 0.09 / 0.11 | 0.70 / 0.89 | 1.9 | 0.9 | 2.2 |
+| | editor | 0.11 / 0.16 | 0.09 / 0.11 | 0.12 / 0.15 | 0.88 / 1.17 | 2.3 | 1.1 | 2.5 |
+| co-op 2 + 2 (4) | web | 0.33 / 0.5 | 0.23 / 0.3 | 0.28 / 0.6 | 2.74 / 3.6 | 7.0 | 2.8 | 7.0 |
+| | native release | 0.21 / 0.28 | 0.16 / 0.18 | 0.18 / 0.40 | 1.71 / 2.20 | 4.0 | 2.2 | 4.7 |
+| | editor | 0.25 / 0.34 | 0.18 / 0.19 | 0.22 / 0.47 | 2.11 / 2.73 | 4.7 | 2.5 | 5.4 |
+| co-op 2 + 4 (6) | web | 0.52 / 0.7 | 0.33 / 0.4 | 0.35 / 0.6 | 4.25 / 5.2 | 9.4 | 4.3 | **9.0** |
+| | native release | 0.32 / 0.40 | 0.24 / 0.26 | 0.22 / 0.26 | 2.63 / 3.10 | 5.5 | 3.2 | 6.9 |
+| | editor | 0.41 / 0.54 | 0.26 / 0.30 | 0.29 / 0.36 | 3.30 / 3.84 | 7.1 | 4.2 | 7.9 |
+| co-op 2 + 6 (8) | web | 0.72 / 0.9 | 0.43 / 0.5 | 0.44 / 0.8 | 5.98 / 6.9 | 12.0 | 6.1 | 12.4 |
+| | native release | 0.47 / 0.65 | 0.33 / 0.38 | 0.31 / 0.54 | 3.77 / 4.32 | 8.8 | 4.8 | 9.7 |
+| | editor | 0.57 / 0.74 | 0.35 / 0.41 | 0.38 / 0.64 | 4.58 / 5.14 | 9.9 | 5.8 | 11.6 |
+
+("Full" = offline `8×(step + save) + load` from p95s; "Full (driver)" =
+measured p95 of the frames that rolled back the full 8 ticks at the worst
+shape, 5–6 % of peer-frames.)
+
+What it implies:
+
+- **WASM costs ~1.6× native release** (8-tick rollback mean 4.25 vs 2.63 ms
+  at 6 fighters, 1.17 vs 0.70 in 1v1), ~1.3× the editor binary the earlier
+  blocks used. The same ratio shows in replay playback (4800-tick 8-fighter
+  co-op replay: 3.8 s in Chrome, 2.2 s native release). Much less than the
+  "several times slower" seen for presentation code (docs/web_performance.md):
+  the sim is plain GDScript arithmetic, and WASM handles that well.
+- 1v1 is far inside budget in the browser (≤ 4.2 ms worst case).
+- At the default online field (6 fighters) the browser's full-depth
+  rollback frame is **9.0 ms p95, over the 8 ms budget** (native: 6.9 ms),
+  while typical frames stay at ~4.3 ms. Hence the browser caps
+  (docs/web_online.md, "Performance in the browser"): a session with a web peer runs with
+  `net.max_rollback_frames_web` = 6 (a full rollback ≈ 7/9 of the 8-tick
+  one, ~7 ms) and `coop.online_field_cap_web` = 6 (unchanged; the knob is
+  there for slower devices). The host writes both into the MatchConfig
+  (`MatchConfig.apply_platform_caps`), so every peer simulates the same
+  field and stalls at the same depth.
+- 8 fighters is out of reach in the browser (12+ ms), as it already was on
+  desktop. Phones and low-end laptops will be slower than this box: rerun
+  `tools/web_tools.sh tool=bench` (or open the Web Tools export on the
+  device: `?tool=bench&mode=coop&humans=2&enemies=4`) before raising any cap.
 
 ## 13. Disconnects, drop-in, reconnect
 

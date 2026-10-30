@@ -27,7 +27,8 @@ extends RefCounted
 ##
 ## Starting: when every slot is ready the host counts down
 ## Tuning.net.lobby_countdown_frames (guests count the same frames from the
-## broadcast), then sends MATCH_START (config dict + seed). Every peer turns
+## broadcast), then sends MATCH_START (config dict + seed; the host sets the
+## browser caps in it when a member is on web, apply_platform_caps). Every peer turns
 ## it into a MatchConfig, fills in the device of each slot it owns from
 ## `local_devices`, and emits `match_starting` (Net -> Game.start_match).
 ## A rematch restarts with the same lobby and a new seed once every human
@@ -418,6 +419,9 @@ func _begin(config_dict: Dictionary, seed_value: int) -> void:
 		push_warning("OnlineRoom: invalid match config")
 		return
 	shared.rng_seed = seed_value
+	if is_host():
+		# Browser caps when any member is on web (rematches re-pick them).
+		shared.apply_platform_caps(session.includes_platform(Protocol.PLATFORM_WEB))
 	_set_phase(Phase.MATCH)
 	if is_host():
 		session.start_match(shared.to_dict(), seed_value)

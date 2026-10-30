@@ -99,3 +99,14 @@ extends Resource
 ## Port of the signaling server next to the web page (ws://, or wss:// when
 ## the page is https).
 @export_range(1, 65535) var signaling_port: int = 8765
+
+@export_group("Cross-play (desktop <-> browser)")
+## Hosts accept guests of the other platform (HELLO `platform`); off = REJECT
+## Reason.PLATFORM. The browser build replays desktop-recorded matches hash
+## for hash (tools/web_tools.sh tool=replay; docs/web_online.md).
+@export var cross_play: bool = true
+## max_rollback_frames for a session with a browser peer (the host puts it
+## in the MatchConfig, MatchConfig.apply_platform_caps). WASM re-simulates
+## ~1.6x slower than native: a full 8-tick rollback at 6 fighters measured
+## 9.0 ms p95 in Chrome vs the 8 ms budget (docs/SPEC_online.md §12.1).
+@export_range(1, 30) var max_rollback_frames_web: int = 6

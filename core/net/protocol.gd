@@ -30,10 +30,13 @@ extends RefCounted
 ##   PING        sender, time_ms, tick        PONG  sender, echo_time_ms, tick
 ##   HASH        sender, tick, hash
 ##   HELLO       protocol_version, engine_version, game_build, content_hash,
-##               name, reconnect_token ("" = none)
-##   WELCOME     peer_id, reconnect_token, lobby, peers: {peer_id: name}
+##               name, reconnect_token ("" = none), platform (PLATFORMS;
+##               decoded as "" when an older build leaves it out)
+##   WELCOME     peer_id, reconnect_token, lobby, peers: {peer_id: name},
+##               platforms: {peer_id: platform}
 ##   REJECT      reason (Reason), detail
-##   LOBBY_STATE lobby                        PEERS peers: {peer_id: name}
+##   LOBBY_STATE lobby                        PEERS peers: {peer_id: name},
+##               platforms: {peer_id: platform}
 ##   MATCH_START config, seed, start (opaque start info)
 ##   CMD         cmd ({"tick": int, "kind": int, ...})
 ##   DROP        peer, last_tick, reason      BYE   reason
@@ -41,7 +44,15 @@ extends RefCounted
 ##   RESYNC      tick, snapshot               SNAPSHOT tick, snapshot, extra
 
 ## Bump on any wire change; HELLO carries it.
-const PROTOCOL_VERSION := 2
+const PROTOCOL_VERSION := 3
+
+## HELLO `platform` values (PlatformCaps.platform_name()).
+const PLATFORM_DESKTOP := "desktop"
+const PLATFORM_WEB := "web"
+const PLATFORMS: Array[String] = [PLATFORM_DESKTOP, PLATFORM_WEB]
+## Longest HELLO platform string decoded (the host rejects unknown ones as
+## PROTOCOL; this only bounds garbage).
+const PLATFORM_MAX_LEN := 16
 
 enum Type {
 	# hot, channel 0
@@ -57,6 +68,9 @@ enum Type {
 enum Reason {
 	NONE = 0, VERSION = 1, CONTENT = 2, ROOM_FULL = 3, IN_PROGRESS = 4,
 	BAD_NAME = 5, HOST_CLOSING = 6, PROTOCOL = 7,
+	## The guest's platform differs from the host's and Tuning.net.cross_play
+	## is off (desktop <-> browser; docs/web_online.md).
+	PLATFORM = 8,
 	## BYE / DROP only
 	LEFT = 16, TIMEOUT = 17, DISCONNECTED = 18,
 	## BYE: the host ended the match after too many desync resyncs.
@@ -92,12 +106,12 @@ const _HOST_ONLY: Array[int] = [
 const _SCHEMAS := {
 	Type.HELLO: {"protocol_version": TYPE_INT, "engine_version": TYPE_INT,
 		"game_build": TYPE_STRING, "content_hash": TYPE_STRING, "name": TYPE_STRING,
-		"reconnect_token": TYPE_STRING},
+		"reconnect_token": TYPE_STRING, "platform": TYPE_STRING},
 	Type.WELCOME: {"peer_id": TYPE_INT, "reconnect_token": TYPE_STRING,
-		"lobby": TYPE_DICTIONARY, "peers": TYPE_DICTIONARY},
+		"lobby": TYPE_DICTIONARY, "peers": TYPE_DICTIONARY, "platforms": TYPE_DICTIONARY},
 	Type.REJECT: {"reason": TYPE_INT, "detail": TYPE_STRING},
 	Type.LOBBY_STATE: {"lobby": TYPE_DICTIONARY},
-	Type.PEERS: {"peers": TYPE_DICTIONARY},
+	Type.PEERS: {"peers": TYPE_DICTIONARY, "platforms": TYPE_DICTIONARY},
 	Type.MATCH_START: {"config": TYPE_DICTIONARY, "seed": TYPE_INT, "start": TYPE_DICTIONARY},
 	Type.CMD: {"cmd": TYPE_DICTIONARY},
 	Type.DROP: {"peer": TYPE_INT, "last_tick": TYPE_INT, "reason": TYPE_INT},
@@ -105,6 +119,11 @@ const _SCHEMAS := {
 	Type.LOBBY_REQ: {"req": TYPE_DICTIONARY},
 	Type.RESYNC: {"tick": TYPE_INT, "snapshot": TYPE_DICTIONARY},
 	Type.SNAPSHOT: {"tick": TYPE_INT, "snapshot": TYPE_DICTIONARY, "extra": TYPE_DICTIONARY},
+}
+## Fields an older build may leave out, decoded as this default: an old
+## guest's HELLO still decodes, so the host can answer REJECT VERSION.
+const _OPTIONAL := {
+	Type.HELLO: {"platform": ""},
 }
 
 
@@ -203,10 +222,12 @@ static func encode_hash(sender: int, tick: int, hash_value: int) -> PackedByteAr
 
 # --- reliable / bulk encoders ---------------------------------------------------
 
-## `info` keys as in the HELLO schema; `protocol_version` and
-## `reconnect_token` may be omitted.
+## `info` keys as in the HELLO schema; `protocol_version`,
+## `reconnect_token` and `platform` (default: this platform's) may be omitted.
 static func encode_hello(info: Dictionary) -> PackedByteArray:
 	var d := info.duplicate()
+	if not d.has("platform"):
+		d["platform"] = PlatformCaps.platform_name()
 	if not d.has("reconnect_token"):
 		d["reconnect_token"] = ""
 	if not d.has("protocol_version"):
@@ -215,9 +236,9 @@ static func encode_hello(info: Dictionary) -> PackedByteArray:
 
 
 static func encode_welcome(peer_id: int, reconnect_token: String, lobby: Dictionary,
-		peers: Dictionary) -> PackedByteArray:
+		peers: Dictionary, platforms: Dictionary = {}) -> PackedByteArray:
 	return _encode_dict(Type.WELCOME, {"peer_id": peer_id, "reconnect_token": reconnect_token,
-		"lobby": lobby, "peers": peers})
+		"lobby": lobby, "peers": peers, "platforms": platforms})
 
 
 static func encode_reject(reason: int, detail: String = "") -> PackedByteArray:
@@ -228,8 +249,8 @@ static func encode_lobby_state(lobby: Dictionary) -> PackedByteArray:
 	return _encode_dict(Type.LOBBY_STATE, {"lobby": lobby})
 
 
-static func encode_peers(peers: Dictionary) -> PackedByteArray:
-	return _encode_dict(Type.PEERS, {"peers": peers})
+static func encode_peers(peers: Dictionary, platforms: Dictionary = {}) -> PackedByteArray:
+	return _encode_dict(Type.PEERS, {"peers": peers, "platforms": platforms})
 
 
 static func encode_match_start(config: Dictionary, seed_value: int, start: Dictionary = {}) -> PackedByteArray:
@@ -440,16 +461,24 @@ static func _check_schema(type: int, fields: Dictionary) -> Dictionary:
 	if schema.is_empty():
 		return {}
 	var out := {}
+	var optional: Dictionary = _OPTIONAL.get(type, {})
 	for key: String in schema:
+		if not fields.has(key) and optional.has(key):
+			out[key] = optional[key]
+			continue
 		if not fields.has(key) or typeof(fields[key]) != schema[key]:
 			return {}
 		out[key] = fields[key]
 	match type:
+		Type.HELLO:
+			if (out["platform"] as String).length() > PLATFORM_MAX_LEN:
+				return {}
 		Type.WELCOME:
-			if not _peer_ok(out["peer_id"]) or not _peers_ok(out["peers"]):
+			if not _peer_ok(out["peer_id"]) or not _peers_ok(out["peers"]) \
+					or not _platforms_ok(out["platforms"]):
 				return {}
 		Type.PEERS:
-			if not _peers_ok(out["peers"]):
+			if not _peers_ok(out["peers"]) or not _platforms_ok(out["platforms"]):
 				return {}
 		Type.CMD:
 			var cmd: Dictionary = out["cmd"]
@@ -463,6 +492,14 @@ static func _check_schema(type: int, fields: Dictionary) -> Dictionary:
 			if not _tick_ok(out["tick"]):
 				return {}
 	return out
+
+
+## {peer: platform}, every value one of PLATFORMS.
+static func _platforms_ok(platforms: Dictionary) -> bool:
+	for k: Variant in platforms:
+		if not _peer_ok(k) or typeof(platforms[k]) != TYPE_STRING or not platforms[k] in PLATFORMS:
+			return false
+	return true
 
 
 static func _peers_ok(peers: Dictionary) -> bool:

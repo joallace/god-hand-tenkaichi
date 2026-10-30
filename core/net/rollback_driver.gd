@@ -54,6 +54,9 @@ var director: MatchDirector
 var session: Session
 var hub: MatchEventHub
 var input_delay: int = 0
+## Ticks ahead of the oldest remote confirmed input this peer may run (and
+## so the deepest rollback): config.rollback_frames(), set by start().
+var max_rollback_frames: int = 0
 ## Local slots send neutral frames (pause overlay open).
 var local_paused := false
 ## Every slot's input is final up to here; events/hashes act on it.
@@ -95,6 +98,7 @@ func start(d: MatchDirector, s: Session, config: MatchConfig, local_sources: Dic
 	session = s
 	hub = p_hub
 	input_delay = delay
+	max_rollback_frames = config.rollback_frames()
 	_local = local_sources
 	config.localize_for_peer(session.local_peer_id)
 	var owners := {}
@@ -214,7 +218,7 @@ func waiting_for() -> String:
 
 func _can_advance() -> bool:
 	var oldest := _min_remote_confirmed()
-	if oldest != InputHistory.NO_LIMIT and director.tick + 1 - oldest > Tuning.net.max_rollback_frames:
+	if oldest != InputHistory.NO_LIMIT and director.tick + 1 - oldest > max_rollback_frames:
 		return false
 	return not session.time_sync.should_wait(_frame)
 
@@ -236,7 +240,7 @@ func _step_local() -> void:
 		session.submit_local_input(slot, t, sent)
 	director.step()
 	_snapshots[director.tick] = director.save_state()
-	_snapshots.erase(director.tick - Tuning.net.max_rollback_frames - 2)
+	_snapshots.erase(director.tick - max_rollback_frames - 2)
 
 
 func _apply_rollback() -> void:

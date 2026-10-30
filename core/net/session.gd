@@ -93,7 +93,8 @@ var state: State = State.CONNECTING
 var local_peer_id: int = Transport.NO_PEER
 var local_name: String = ""
 ## What HELLO carries and what the host requires (see default_identity()):
-## protocol_version, engine_version, game_build, content_hash.
+## protocol_version, engine_version, game_build, content_hash, platform
+## (must match the host's only when Tuning.net.cross_play is off).
 var identity: Dictionary = {}
 ## Guest: token from WELCOME (send it back in HELLO to reconnect).
 var reconnect_token: String = ""
@@ -122,6 +123,8 @@ var _frame: int = 0
 var _links: Dictionary = {}
 ## Every session member incl. self: peer -> name.
 var _names: Dictionary = {}
+## Every session member incl. self: peer -> Protocol platform (HELLO).
+var _platforms: Dictionary = {}
 ## slot -> owning peer
 var _slot_owner: Dictionary = {}
 ## origin -> {dest: tick}
@@ -140,6 +143,7 @@ func _init(t: Transport, session_role: Role, player_name: String, ident: Diction
 		local_peer_id = Transport.HOST_PEER
 		state = State.CONNECTED
 		_names[local_peer_id] = local_name
+		_platforms[local_peer_id] = identity["platform"]
 
 
 static func create_host(t: Transport, player_name: String, ident: Dictionary = {}) -> Session:
@@ -158,6 +162,7 @@ static func default_identity() -> Dictionary:
 		"engine_version": int(Engine.get_version_info()["hex"]),
 		"game_build": build if not build.is_empty() else DEV_BUILD,
 		"content_hash": "",
+		"platform": PlatformCaps.platform_name(),
 	}
 
 
@@ -368,6 +373,21 @@ func peer_name(peer: int) -> String:
 	return _names.get(peer, "")
 
 
+## A member's platform (Protocol.PLATFORM_*; "" = unknown / not a member).
+## The host learns it from HELLO and shares it in WELCOME / PEERS.
+func peer_platform(peer: int) -> String:
+	return _platforms.get(peer, "")
+
+
+## Some member (incl. self) runs on `platform` (e.g. Protocol.PLATFORM_WEB:
+## the host picks the browser caps for the match config).
+func includes_platform(platform: String) -> bool:
+	for p: int in _platforms:
+		if _platforms[p] == platform:
+			return true
+	return false
+
+
 ## Directly linked peers that finished the handshake, sorted.
 func link_peers() -> Array[int]:
 	var out: Array[int] = []
@@ -448,6 +468,7 @@ func _drop_guest(peer: int, reason: int) -> void:
 		return
 	var last_tick := ack(peer, local_peer_id)
 	_names.erase(peer)
+	_platforms.erase(peer)
 	_acks.erase(peer)
 	for o: int in _acks:
 		(_acks[o] as Dictionary).erase(peer)
@@ -494,7 +515,7 @@ func _on_packet(peer: int, channel: int, data: PackedByteArray) -> void:
 			rejected.emit(msg["reason"], msg["detail"])
 			_end(msg["reason"])
 		Protocol.Type.PEERS:
-			_set_names(msg["peers"])
+			_set_names(msg["peers"], msg["platforms"])
 		Protocol.Type.LOBBY_REQ:
 			if is_host():
 				lobby_request_received.emit(peer, msg["req"])
@@ -545,6 +566,12 @@ func _on_hello(peer: int, msg: Dictionary) -> void:
 	elif msg["content_hash"] != identity["content_hash"]:
 		reason = Protocol.Reason.CONTENT
 		detail = "game data differs from the host's"
+	elif not msg["platform"] in Protocol.PLATFORMS:
+		reason = Protocol.Reason.PROTOCOL
+		detail = "unknown platform"
+	elif not Tuning.net.cross_play and msg["platform"] != identity["platform"]:
+		reason = Protocol.Reason.PLATFORM
+		detail = cross_play_text(identity["platform"], msg["platform"])
 	elif not accepting_joins:
 		reason = Protocol.Reason.IN_PROGRESS
 	elif link_peers().size() >= max_guests:
@@ -561,10 +588,11 @@ func _on_hello(peer: int, msg: Dictionary) -> void:
 	link["next_ping"] = _frame
 	link["token"] = Crypto.new().generate_random_bytes(TOKEN_BYTES).hex_encode()
 	_names[peer] = nm
-	_send(peer, Protocol.encode_welcome(peer, link["token"], lobby_state, _names))
+	_platforms[peer] = msg["platform"]
+	_send(peer, Protocol.encode_welcome(peer, link["token"], lobby_state, _names, _platforms))
 	for other in link_peers():
 		if other != peer:
-			_send(other, Protocol.encode_peers(_names))
+			_send(other, Protocol.encode_peers(_names, _platforms))
 	peer_joined.emit(peer, nm)
 	peers_changed.emit()
 
@@ -577,15 +605,17 @@ func _on_welcome(msg: Dictionary) -> void:
 	lobby_state = msg["lobby"]
 	state = State.CONNECTED
 	_links[Transport.HOST_PEER]["welcomed"] = true
-	_set_names(msg["peers"])
+	_set_names(msg["peers"], msg["platforms"])
 	welcomed.emit(local_peer_id)
 	lobby_state_received.emit(lobby_state)
 
 
-func _set_names(peers: Dictionary) -> void:
+func _set_names(peers: Dictionary, platforms: Dictionary) -> void:
 	var old := _names.duplicate()
 	_names = peers.duplicate()
 	_names[local_peer_id] = local_name
+	_platforms = platforms.duplicate()
+	_platforms[local_peer_id] = identity["platform"]
 	for p: int in _names:
 		if not old.has(p) and p != local_peer_id:
 			peer_joined.emit(p, _names[p])
@@ -597,6 +627,7 @@ func _on_drop(msg: Dictionary) -> void:
 	if peer == local_peer_id or not _names.has(peer):
 		return
 	_names.erase(peer)
+	_platforms.erase(peer)
 	time_sync.remove_peer(peer)
 	peer_left.emit(peer, msg["reason"], msg["last_tick"])
 	peers_changed.emit()
@@ -735,6 +766,11 @@ func _broadcast(bytes: PackedByteArray) -> bool:
 func _now_ms_u32() -> int:
 	var now: float = clock.call() if clock.is_valid() else Time.get_ticks_usec() * MS_PER_USEC
 	return int(now) & Protocol.U32_MAX
+
+
+## REJECT PLATFORM detail: "Cross-play unavailable (host: desktop, you: web)".
+static func cross_play_text(host_platform: String, guest_platform: String) -> String:
+	return "Cross-play unavailable (host: %s, you: %s)" % [host_platform, guest_platform]
 
 
 static func _engine_str(hex: int) -> String:
