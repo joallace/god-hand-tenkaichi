@@ -34,7 +34,10 @@ const STANDARD_LAYOUT := "a:b0,b:b1,x:b2,y:b3,leftshoulder:b4,rightshoulder:b5,l
 ## moved. A fractional value on button 6/7 can only be the stick (0.5 at
 ## center, 0 until first moved), so it tells the two Firefox layouts apart.
 ## An exact 0 or 1 there is ignored until that axis first moves and again
-## after a trigger pull: it's the digital trigger writing over the stick.
+## after a trigger pull: it's the digital trigger writing over the stick. An
+## 8BitDo Ultimate 2 sends its digital release before the analog axis rests.
+## A jump straight to 0 or 1 must also hold for 3 samples: a digital press
+## may land just before its analog axis moves, which then cancels the jump.
 const FIREFOX_LINUX_SHIM := """
 (function () {
 	const ua = navigator.userAgent;
@@ -57,7 +60,9 @@ const FIREFOX_LINUX_SHIM := """
 		} else if (!exact) {
 			s.ignore[i] = false;
 		}
-		if (!exact || !s.ignore[i]) {
+		const jump = Math.abs(value * 2 - 1 - s.stick[i]) > 0.5;
+		s.jump[i] = exact && jump && !s.ignore[i] ? s.jump[i] + 1 : 0;
+		if (!exact || (!s.ignore[i] && (!jump || s.jump[i] >= 3))) {
 			s.stick[i] = value * 2 - 1;
 		}
 	};
@@ -68,7 +73,7 @@ const FIREFOX_LINUX_SHIM := """
 		}
 		let s = states[slot];
 		if (!s || s.id !== pad.id) {
-			s = states[slot] = {id: pad.id, on_buttons: false, stick: [0, 0], ignore: [true, true]};
+			s = states[slot] = {id: pad.id, on_buttons: false, stick: [0, 0], ignore: [true, true], jump: [0, 0]};
 		}
 		const a = pad.axes;
 		const b = Array.from(pad.buttons);

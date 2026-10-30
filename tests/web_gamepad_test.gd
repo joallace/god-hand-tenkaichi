@@ -106,11 +106,19 @@ func _check_firefox_stick_on_buttons() -> void:
 	f = _frames([_f(-1, -1, 1, 0), _f(-1, -1, 0, 1)])
 	_check(f[0]["lt"] == 1.0 and f[1]["rt"] == 1.0, "132: digital triggers on buttons 6/7 still count")
 
-	f = _frames([_f(0, 0, 0, 0), _f(0, 0, 0.75, 0.5), _f(0, 0, 1, 0.5), _f(0, 0, 0.5, 1), _f(0, 0, 0.5, 0.25), _f(0, 0, 0, 0.5)])
+	f = _frames([_f(0, 0, 0, 0), _f(0, 0, 0.75, 0.5), _f(0, 0, 1, 0.5), _f(0, 0, 0.5, 0.75), _f(0, 0, 0.5, 1), _f(0, 0, 0.5, 0.25), _f(0, 0, 0.25, 0.5), _f(0, 0, 0, 0.5)])
 	_check(f[1]["rs"] == [0.5, 0.0], "158: stick X comes from button 6 (%s)" % str(f[1]["rs"]))
-	_check(f[2]["rs"] == [1.0, 0.0] and f[3]["rs"] == [0.0, 1.0], "158: stick reaches full right and full down")
-	_check(f[4]["rs"] == [0.0, -0.5] and f[5]["rs"] == [-1.0, 0.0], "158: stick up and full left")
-	_check(f[2]["lt"] == 0.0 and f[3]["rt"] == 0.0, "158: the stick no longer presses LT/RT")
+	_check(f[2]["rs"] == [1.0, 0.0] and f[4]["rs"] == [0.0, 1.0], "158: stick reaches full right and full down")
+	_check(f[5]["rs"] == [0.0, -0.5] and f[7]["rs"] == [-1.0, 0.0], "158: stick up and full left")
+	_check(f[2]["lt"] == 0.0 and f[4]["rt"] == 0.0, "158: the stick no longer presses LT/RT")
+
+	# The real pad's digital LT can land a sample before its analog axis moves.
+	f = _frames([_f(-1, -1, 0.5, 0.5), _f(-1, -1, 1, 0.5), _f(-1, 0.5, 1, 0.5), _f(-1, 1, 1, 0.5), _f(-1, 0.5, 0, 0.5), _f(-1, -1, 0, 0.5)])
+	_check(f[1]["rs"] == [0.0, 0.0] and f[2]["rs"] == [0.0, 0.0] and f[5]["rs"] == [0.0, 0.0], "158: digital LT ahead of the analog axis is no flick (%s)" % str(f[1]["rs"]))
+
+	# A flick that lands on the edge between two samples still counts, a moment later.
+	f = _frames([_f(-1, -1, 0.5, 0.5), _f(-1, -1, 1, 0.5), _f(-1, -1, 1, 0.5), _f(-1, -1, 1, 0.5)])
+	_check(f[1]["rs"] == [0.0, 0.0] and f[3]["rs"] == [1.0, 0.0], "158: a held jump to the edge is accepted (%s)" % str(f[3]["rs"]))
 
 	f = _frames([_f(0, 0, 0.75, 0)])
 	_check(f[0]["rs"] == [0.5, 0.0], "158: an axis that never moved stays centered when the other one moves (%s)" % str(f[0]["rs"]))
