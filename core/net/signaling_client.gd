@@ -72,6 +72,13 @@ func poll() -> Array[Dictionary]:
 		if _frames >= _next_ping:
 			_next_ping = _frames + Tuning.net.signaling_keepalive_frames
 			_send_now({"op": "ping"})
+	elif st == WebSocketPeer.STATE_CLOSING:
+		# The server sends `error` and closes right after: read it now, the
+		# peer may not keep it once the close completes.
+		while _ws.get_available_packet_count() > 0:
+			var msg := _decode(_ws.get_packet())
+			if not msg.is_empty():
+				out.append(msg)
 	elif st == WebSocketPeer.STATE_CLOSED:
 		# Drain what arrived before the close (an `error` before the server
 		# closes the socket).
@@ -97,9 +104,14 @@ func send(msg: Dictionary) -> void:
 		_outbox.append(msg)
 
 
+## Nobody polls a closed client: push the close frame out now, then release
+## the peer (that closes the TCP socket), so the server always sees us leave
+## (a host's room code dies with its socket).
 func close() -> void:
 	if _ws != null and _alive:
 		_ws.close()
+		_ws.poll()
+	_ws = null
 	_shutdown()
 
 

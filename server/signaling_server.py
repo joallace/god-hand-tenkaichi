@@ -109,6 +109,10 @@ class Config:
     idle_timeout: float = _opt(30.0, "GHT_SIGNAL_IDLE_TIMEOUT",
                                "seconds a socket may stay without hosting/joining")
     room_lifetime: float = _opt(6 * 3600.0, "GHT_SIGNAL_ROOM_LIFETIME", "max seconds a room stays open")
+    close_grace: float = _opt(1.0, "GHT_SIGNAL_CLOSE_GRACE",
+                              "seconds a socket gets to close itself after a final message "
+                              "(error, room_closed) before the server closes it; Godot's native "
+                              "WebSocketPeer drops a frame that arrives together with the close")
     sweep_interval: float = _opt(1.0, "GHT_SIGNAL_SWEEP_INTERVAL",
                                  "seconds between idle/lifetime checks")
     ping_interval: float = _opt(20.0, "GHT_SIGNAL_PING_INTERVAL",
@@ -362,6 +366,13 @@ class SignalingServer:
     async def _close(self, client: Client, code: int, reason: str) -> None:
         client.closing = True
         try:
+            if self.cfg.close_grace > 0:
+                # Let the client read the last message and close its end.
+                try:
+                    await asyncio.wait_for(client.ws.wait_closed(), self.cfg.close_grace)
+                    return
+                except asyncio.TimeoutError:
+                    pass
             await client.ws.close(code, reason)
         except ConnectionClosed:
             pass

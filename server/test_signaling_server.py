@@ -37,7 +37,8 @@ class Base(unittest.IsolatedAsyncioTestCase):
     overrides: dict = {}
 
     async def asyncSetUp(self):
-        cfg = ss.Config(bind="127.0.0.1", port=0, ping_interval=0, sweep_interval=0.05)
+        cfg = ss.Config(bind="127.0.0.1", port=0, ping_interval=0, sweep_interval=0.05,
+                        close_grace=0)
         cfg = dataclasses.replace(cfg, **self.overrides)
         self.server = ss.SignalingServer(cfg)
         await self.server.start()
