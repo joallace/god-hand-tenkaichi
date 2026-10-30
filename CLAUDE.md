@@ -15,6 +15,41 @@ Tests are scenes (`tests/*.tscn`), not `godot --script`: bare scripts run
 before autoloads exist. See `tests/README.md`. Always wrap Godot calls in
 `timeout`. Run the suite before committing.
 
+## Workflow (every agent, subagents included)
+
+- **One worktree per task.** Before the first edit, isolate: `EnterWorktree`
+  / `claude -w <name>`, or `git worktree add .claude/worktrees/<name> -b
+  worktree-<name> main`. Never edit the repo-root checkout (it is the
+  user's), and never touch or remove another agent's worktree. A fresh
+  worktree has no `.godot/` cache: `run_all.sh` imports first; anything else
+  run `timeout 180 godot --headless --import` once.
+- **Never push.** No `git push` to origin (or any remote), no PRs, no
+  `gh` command that writes to GitHub. Commit locally on the worktree branch
+  and the user reviews, merges and pushes. No commits on `main`, no merges
+  into it, no force/rewrite of branches you didn't create.
+- **Parallel agents share state outside git:** `user://` (one app-data dir
+  per project name, so every worktree shares `controls.cfg`, `online.cfg`,
+  `replays/`), `/tmp`, and the git stash stack. Use your own temp dir, and
+  a WIP commit instead of a bare `git stash`.
+- **Done means checked.** Bug: first a failing test scene that reproduces
+  it, then the fix. Sim change: `determinism_lint_test` and `rollback_test`
+  pass, new sim state is covered by a save/load round trip, and touching the
+  rollback hot path also runs `net_bench`'s determinism check. Visual/feel
+  changes the tests can't see: run the scene (or `frame_probe`) and say
+  what was not verified.
+- **Report with evidence:** commands run and their result (not just "tests
+  pass"), worktree path, branch, commit hash, and follow-ups noticed but
+  left out of scope.
+- **Plan before cross-cutting changes** (sim + net, save_state shape, a new
+  spawnable type, protocol): read the relevant SPEC.md / SPEC_ONLINE.md
+  section first and ask when the intent is ambiguous instead of guessing.
+- **Independent review** for non-trivial diffs before the final commit:
+  `/code-review` or a subagent that didn't write the code, against the spec
+  it was built from; fix correctness findings, skip style.
+- **Keep this file lean:** only what the code doesn't say. When the user
+  corrects the same thing twice, add a line here; a rule that must never
+  break belongs in `.claude/settings.json` (deny rule / hook) instead.
+
 ## Architecture
 
 - `core/` — mode-agnostic foundation.
