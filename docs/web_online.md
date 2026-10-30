@@ -1,8 +1,10 @@
 # Online play in the browser — initial notes
 
-Status: **in progress** (decisions and design contract at the end). The
-notes below were written first; "What exists today" describes the offline
-web build before this work.
+Status: **implemented** (2026-10-30): WebRTC room codes on web and desktop,
+cross-play, `server/` signaling + opt-in coturn; tested headless and
+Chrome <-> desktop on one machine (`tools/crossplay_e2e.py`), not yet over a
+real LAN/WAN or TURN. Decisions and the design contract are at the end; the
+notes below were written first ("What exists today" = the offline build).
 
 ## What exists today
 
