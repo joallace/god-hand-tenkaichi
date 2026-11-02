@@ -21,6 +21,8 @@ const WALK_CYCLE_HZ := 2.2
 const CHARGE_GLOW_COLOR := Color(1.0, 0.7, 0.2)
 const CHARGE_GLOW_FULL_COLOR := Color(1.0, 1.0, 0.85)
 const CHARGE_GLOW_ENERGY := 1.6
+## How far the belly sphere sits ahead of the torso, in belly radii.
+const BELLY_FORWARD := 0.45
 
 ## Named poses: joint -> rotation (deg). "root" = body offset (m).
 ## Missing joints fall back to &"idle".
@@ -93,6 +95,12 @@ const POSES := {
 		&"hip_r": Vector3(10, 0, 80), &"kn_r": Vector3(0, 0, 0), &"root": Vector3(0, -0.5, 0)},
 	&"dash_punch": {&"torso": Vector3(35, -15, 0), &"sh_r": Vector3(90, 0, 0), &"el_r": Vector3(0, 0, 0),
 		&"sh_l": Vector3(-35, 0, -10), &"hip_l": Vector3(45, 0, 0), &"hip_r": Vector3(-35, 0, 0)},
+	# Belly bump: leans back with the arms out, gut thrust at the target.
+	&"belly_bump": {&"torso": Vector3(-25, 0, 0), &"head": Vector3(20, 0, 0), &"sh_l": Vector3(-30, 0, -45),
+		&"sh_r": Vector3(-30, 0, 45), &"hip_l": Vector3(35, 0, 0), &"kn_l": Vector3(-30, 0, 0),
+		&"hip_r": Vector3(-25, 0, 0), &"root": Vector3(0, -0.06, 0)},
+	&"belly_bump_windup": {&"torso": Vector3(25, 0, 0), &"sh_l": Vector3(20, 0, -35), &"sh_r": Vector3(20, 0, 35),
+		&"kn_l": Vector3(-35, 0, 0), &"kn_r": Vector3(-35, 0, 0), &"root": Vector3(0, -0.15, 0)},
 	&"ki_blast": {&"torso": Vector3(0, -25, 0), &"sh_r": Vector3(90, 0, 0), &"el_r": Vector3(0, 0, 0)},
 	&"beam": {&"torso": Vector3(0, 0, 0), &"sh_l": Vector3(88, 0, 12), &"el_l": Vector3(0, 0, 0),
 		&"sh_r": Vector3(88, 0, -12), &"el_r": Vector3(0, 0, 0),
@@ -293,7 +301,7 @@ func _process(delta: float) -> void:
 		(_joints[j] as Node3D).rotation_degrees = _current[j]
 	var root_target: Vector3 = pose.get(&"root", POSES[&"idle"][&"root"])
 	_root_offset = _root_offset.lerp(root_target, k)
-	_body.position = _root_offset
+	_body.position = _root_offset * _body.scale.y
 	_apply_procedural()
 	_update_flash(delta)
 	_update_aura()
@@ -506,6 +514,9 @@ func _build() -> void:
 	_capsule(torso, Vector3(0, 0.33, 0), 0.22, 0.7, _mat)
 	var head := _joint(&"head", torso, Vector3(0, 0.68, 0))
 	_sphere(head, Vector3(0, 0.15, 0), 0.15, skin)
+	var d: CharacterDef = _fighter.def if _fighter else null
+	if d != null and d.belly_radius > 0.0:
+		_sphere(torso, Vector3(0, 0.2, -d.belly_radius * BELLY_FORWARD), d.belly_radius, _mat)
 
 	for side in [-1.0, 1.0]:
 		var sfx := "_l" if side < 0.0 else "_r"
@@ -521,6 +532,8 @@ func _build() -> void:
 		_capsule(kn, Vector3(0, -0.22, 0), 0.075, 0.46, dark)
 		_box(kn, Vector3(0, -0.46, -0.06), Vector3(0.12, 0.08, 0.24), _mat)
 
+	if d != null:
+		_body.scale = d.body_scale
 	_aura = MeshInstance3D.new()
 	var aura_mesh := SphereMesh.new()
 	aura_mesh.radius = 1.1
@@ -528,7 +541,8 @@ func _build() -> void:
 	_aura.mesh = aura_mesh
 	var c := _mat.albedo_color.lightened(0.5)
 	_aura.material_override = FxMaterials.make(FxMaterials.Kind.AURA, Color(c, 0.35))
-	_aura.position = Vector3(0, 1.0, 0)
+	_aura.position = Vector3(0, 1.0, 0) * _body.scale.y
+	_aura.scale = _body.scale
 	_aura.visible = false
 	add_child(_aura)
 

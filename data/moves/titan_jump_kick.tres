@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_0jnf5"]
+
+[resource]
+script = ExtResource("1_0jnf5")
+id = &"titan_jump_kick"
+button = 1
+pose = &"jump_kick"
+startup = 8
+active = 8
+recovery = 13
+damage = 65.0
+hitstun = 24
+guard_stun = 12
+knockback = Vector3(0, 0, 3)
+guard_ki_cost = 11.5
+guard_results = Array[int]([0, 0, 4])
+hitbox_offset = Vector3(0.1, 0.77, 0.976)
+hitbox_radius = 0.671
+land_cancel = true

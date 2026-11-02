@@ -1,0 +1,23 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_dfwoh"]
+
+[resource]
+script = ExtResource("1_dfwoh")
+id = &"sprite_dash_punch"
+button = 1
+pose = &"dash_punch"
+active = 5
+recovery = 14
+damage = 50.4
+hitstun = 26
+guard_stun = 14
+knockback = Vector3(0, 3, 6)
+knockdown = true
+guard_ki_cost = 17.0
+guard_results = Array[int]([1, 1, 1])
+is_heavy = true
+hitbox_offset = Vector3(0, 1.196, 0.81)
+hitbox_radius = 0.49500000000000005
+lunge_speed = 10.0
+lunge_frames = 10

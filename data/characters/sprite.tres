@@ -1,0 +1,77 @@
+[gd_resource type="Resource" script_class="CharacterDef" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_v575v"]
+[ext_resource type="Resource" path="res://data/moves/sprite_jab1.tres" id="2_uxu8h"]
+[ext_resource type="Resource" path="res://data/moves/sprite_jab2.tres" id="3_ckiip"]
+[ext_resource type="Resource" path="res://data/moves/sprite_hook.tres" id="4_rdupc"]
+[ext_resource type="Resource" path="res://data/moves/sprite_kick.tres" id="5_vqgxe"]
+[ext_resource type="Resource" path="res://data/moves/sprite_finisher_high.tres" id="6_l6gxm"]
+[ext_resource type="Resource" path="res://data/moves/sprite_finisher.tres" id="7_2840s"]
+[ext_resource type="Resource" path="res://data/moves/sprite_finisher_low.tres" id="8_76kn0"]
+[ext_resource type="Resource" path="res://data/moves/sprite_kick_high.tres" id="9_u50xi"]
+[ext_resource type="Resource" path="res://data/moves/sprite_kick_mid.tres" id="10_v8yuk"]
+[ext_resource type="Resource" path="res://data/moves/sprite_kick_low.tres" id="11_apasm"]
+[ext_resource type="Resource" path="res://data/moves/sprite_charge_punch.tres" id="12_guq5w"]
+[ext_resource type="Resource" path="res://data/moves/sprite_smash_up.tres" id="13_r1unj"]
+[ext_resource type="Resource" path="res://data/moves/sprite_smash_down.tres" id="14_la3rd"]
+[ext_resource type="Resource" path="res://data/moves/sprite_smash_left.tres" id="15_pgt2x"]
+[ext_resource type="Resource" path="res://data/moves/sprite_smash_right.tres" id="16_yu8fs"]
+[ext_resource type="Resource" path="res://data/moves/sprite_charge_kick.tres" id="17_xu415"]
+[ext_resource type="Resource" path="res://data/moves/sprite_jump_kick.tres" id="18_e4jk6"]
+[ext_resource type="Resource" path="res://data/moves/sprite_dive_kick.tres" id="19_jwxn2"]
+[ext_resource type="Resource" path="res://data/moves/sprite_duck_kick.tres" id="20_m7x16"]
+[ext_resource type="Resource" path="res://data/moves/sprite_getup_kick.tres" id="21_85k61"]
+[ext_resource type="Resource" path="res://data/moves/sprite_dash_punch.tres" id="22_s7q1s"]
+[ext_resource type="Resource" path="res://data/moves/sprite_throw.tres" id="23_kdu4v"]
+[ext_resource type="Resource" path="res://data/moves/sprite_counter.tres" id="24_l31ci"]
+[ext_resource type="Resource" path="res://data/moves/sprite_ki_blast.tres" id="25_3iibi"]
+[ext_resource type="Resource" path="res://data/moves/sprite_rush.tres" id="26_72u16"]
+[ext_resource type="Resource" path="res://data/moves/sprite_rush_2.tres" id="27_l8eft"]
+[ext_resource type="Resource" path="res://data/moves/sprite_rush_3.tres" id="28_h3fkn"]
+[ext_resource type="Resource" path="res://data/moves/sprite_rush_4.tres" id="29_ucqen"]
+[ext_resource type="Resource" path="res://data/moves/sprite_rush_finish.tres" id="30_hcjtb"]
+[ext_resource type="Resource" path="res://data/moves/sprite_beam.tres" id="31_dtqv4"]
+[ext_resource type="Resource" path="res://data/moves/sprite_ultimate.tres" id="32_c4o7q"]
+[ext_resource type="Script" path="res://gameplay/characters/character_def.gd" id="33_apv8m"]
+
+[resource]
+script = ExtResource("33_apv8m")
+id = &"sprite"
+display_name = "Sprite"
+color = Color(0.9, 0.75, 0.2, 1)
+body_scale = Vector3(0.78, 0.8, 0.78)
+moves = Array[ExtResource("1_v575v")]([ExtResource("2_uxu8h"), ExtResource("3_ckiip"), ExtResource("4_rdupc"), ExtResource("5_vqgxe"), ExtResource("6_l6gxm"), ExtResource("7_2840s"), ExtResource("8_76kn0"), ExtResource("9_u50xi"), ExtResource("10_v8yuk"), ExtResource("11_apasm"), ExtResource("12_guq5w"), ExtResource("13_r1unj"), ExtResource("14_la3rd"), ExtResource("15_pgt2x"), ExtResource("16_yu8fs"), ExtResource("17_xu415"), ExtResource("18_e4jk6"), ExtResource("19_jwxn2"), ExtResource("20_m7x16"), ExtResource("21_85k61"), ExtResource("22_s7q1s"), ExtResource("23_kdu4v"), ExtResource("24_l31ci"), ExtResource("25_3iibi"), ExtResource("26_72u16"), ExtResource("27_l8eft"), ExtResource("28_h3fkn"), ExtResource("29_ucqen"), ExtResource("30_hcjtb"), ExtResource("31_dtqv4"), ExtResource("32_c4o7q")])
+light_string = Array[StringName]([&"sprite_jab1", &"sprite_jab2", &"sprite_hook", &"sprite_kick"])
+heavy = &"sprite_kick_mid"
+heavy_high = &"sprite_kick_high"
+heavy_low = &"sprite_kick_low"
+finisher = &"sprite_finisher"
+jump_attack = &"sprite_jump_kick"
+jump_heavy = &"sprite_dive_kick"
+duck_heavy = &"sprite_duck_kick"
+getup_attack = &"sprite_getup_kick"
+dash_attack = &"sprite_dash_punch"
+ki_blast = &"sprite_ki_blast"
+throw = &"sprite_throw"
+counter = &"sprite_counter"
+super1 = &"sprite_rush"
+super2 = &"sprite_beam"
+ultimate = &"sprite_ultimate"
+stat_overrides = {
+"backflip_distance": 3.3,
+"body_height": 1.45,
+"body_radius": 0.36,
+"charge_hold_frames": 10,
+"dash_speed": 19.0,
+"duck_height": 0.75,
+"getup_attack_invuln_frames": 15,
+"jump_velocity": 8.6,
+"ki_charge_per_frame": 1.6129032258064515,
+"knockback_taken_mult": 1.2,
+"lying_height": 0.4,
+"max_health": 850.0,
+"sway_distance": 1.9,
+"teleport_cost_bars": 0.75,
+"teleport_max_per_combo": 3,
+"walk_speed": 7.6
+}

@@ -1,0 +1,27 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_ofpsv"]
+
+[resource]
+script = ExtResource("1_ofpsv")
+id = &"sprite_counter"
+pose = &"finisher"
+startup = 2
+active = 4
+recovery = 18
+damage = 58.8
+hitstun = 30
+guard_stun = 16
+knockback = Vector3(0, 7, 3)
+knockdown = true
+guard_ki_cost = 17.0
+guard_results = Array[int]([2, 1, 1])
+is_heavy = true
+hitbox_offset = Vector3(0, 1.242, 0.81)
+hitbox_radius = 0.49500000000000005
+lunge_speed = 3.0
+lunge_frames = 6
+cancel_start = 6
+cancel_end = 24
+cancel_requires_hit = true
+special_cancelable = true

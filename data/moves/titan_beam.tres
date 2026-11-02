@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_075wo"]
+[ext_resource type="Resource" path="res://data/moves/titan_beam_shot.tres" id="2_3scbn"]
+
+[resource]
+script = ExtResource("1_075wo")
+id = &"titan_beam"
+pose = &"beam"
+startup = 23
+active = 0
+recovery = 104
+damage = 0.0
+guard_ki_cost = 5.75
+hitbox_offset = Vector3(0, 1.54, 1.0979999)
+hitbox_radius = 0.549
+air_hang_frames = -1
+spawn_kind = &"beam"
+spawn_frame = 23
+spawn_move = ExtResource("2_3scbn")

@@ -1,0 +1,32 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_m704u"]
+
+[resource]
+script = ExtResource("1_m704u")
+id = &"sprite_smash_right"
+pose = &"smash_right"
+startup = 14
+active = 4
+recovery = 19
+damage = 46.199999999999996
+hitstun = 26
+guard_stun = 16
+knockback = Vector3(8, 1.5, 2)
+knockdown = true
+guard_ki_cost = 12.75
+guard_results = Array[int]([1, 1, 1])
+is_heavy = true
+hitbox_offset = Vector3(0.25, 1.242, 0.76500005)
+hitbox_radius = 0.49500000000000005
+lunge_speed = 6.5
+lunge_start = 8
+lunge_frames = 8
+cancel_start = 18
+cancel_end = 32
+cancel_requires_hit = true
+special_cancelable = true
+charge_frame = 8
+charge_max_frames = 45
+charge_damage_mult = 2.2
+charge_guard_mult = 3.0

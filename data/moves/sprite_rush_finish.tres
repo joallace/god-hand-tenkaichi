@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_2s0w5"]
+
+[resource]
+script = ExtResource("1_2s0w5")
+id = &"sprite_rush_finish"
+pose = &"finisher"
+recovery = 22
+damage = 100.8
+hitstun = 40
+guard_stun = 12
+knockback = Vector3(0, 8, 9)
+knockdown = true
+guard_ki_cost = 12.75
+guard_results = Array[int]([1, 1, 1])
+is_heavy = true
+hitstop = 14
+grants_hit_ki = false
+single_target = true
+hitbox_offset = Vector3(0, 1.196, 0.76500005)
+hitbox_radius = 0.49500000000000005

@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_rmqat"]
+[ext_resource type="Resource" path="res://data/moves/sprite_beam_shot.tres" id="2_gv8tl"]
+
+[resource]
+script = ExtResource("1_rmqat")
+id = &"sprite_beam"
+pose = &"beam"
+startup = 14
+active = 0
+recovery = 64
+damage = 0.0
+guard_ki_cost = 4.25
+hitbox_offset = Vector3(0, 1.288, 0.81)
+hitbox_radius = 0.405
+air_hang_frames = -1
+spawn_kind = &"beam"
+spawn_frame = 14
+spawn_move = ExtResource("2_gv8tl")

@@ -94,7 +94,8 @@ func _separate_fighters() -> void:
 			var b := fs[j]
 			if a.is_vanished() or b.is_vanished() or a.is_entering() or b.is_entering():
 				continue
-			if absf(a.global_position.y - b.global_position.y) >= a.tuning.body_height:
+			var lower := a if a.global_position.y <= b.global_position.y else b
+			if absf(a.global_position.y - b.global_position.y) >= lower.tuning.body_height:
 				continue
 			var d := b.global_position - a.global_position
 			d.y = 0.0

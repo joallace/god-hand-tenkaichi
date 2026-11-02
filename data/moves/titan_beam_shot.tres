@@ -1,0 +1,23 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_820e7"]
+
+[resource]
+script = ExtResource("1_820e7")
+id = &"titan_beam_shot"
+active = 72
+damage = 23.400000000000002
+guard_stun = 12
+knockback = Vector3(0, 0, 1)
+guard_ki_cost = 13.799999999999999
+guard_results = Array[int]([1, 1, 1])
+is_heavy = true
+hitstop = 1
+grants_hit_ki = false
+multi_hit_interval = 6
+hitbox_offset = Vector3(0, 1.485, 0.73200005)
+hitbox_radius = 0.854
+hitbox_length = 18.0
+travel_speed = 25.0
+beam_homing_deg = 1.5
+beam_homing_stop_distance = 4.0

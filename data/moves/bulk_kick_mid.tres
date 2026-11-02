@@ -1,0 +1,29 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_fvsvd"]
+
+[resource]
+script = ExtResource("1_fvsvd")
+id = &"bulk_kick_mid"
+button = 2
+pose = &"kick_mid"
+startup = 17
+active = 4
+recovery = 26
+damage = 90.0
+hitstun = 30
+guard_stun = 20
+knockback = Vector3(0, 0, 7)
+guard_ki_cost = 49.50000000000001
+guard_results = Array[int]([2, 1, 1])
+is_heavy = true
+hitbox_offset = Vector3(0.1, 1.15, 0.9975)
+hitbox_radius = 0.5775000000000001
+lunge_speed = 4.0
+lunge_frames = 12
+armor_hits = 1
+cancel_start = 19
+cancel_end = 40
+cancel_requires_hit = true
+special_cancelable = true
+charge_move = &"bulk_charge_kick"

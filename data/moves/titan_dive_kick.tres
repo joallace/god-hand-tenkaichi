@@ -1,0 +1,26 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_v0u3p"]
+
+[resource]
+script = ExtResource("1_v0u3p")
+id = &"titan_dive_kick"
+button = 2
+pose = &"dive_kick"
+startup = 10
+active = 12
+recovery = 16
+damage = 84.5
+hitstun = 28
+guard_stun = 16
+knockback = Vector3(0, 3, 4)
+knockdown = true
+guard_ki_cost = 28.749999999999996
+guard_results = Array[int]([1, 1, 4])
+is_heavy = true
+hitbox_offset = Vector3(0.1, 0.49499997, 0.915)
+hitbox_radius = 0.671
+lunge_speed = 9.0
+lunge_start = 8
+lunge_frames = 14
+land_cancel = true

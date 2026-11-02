@@ -1,0 +1,24 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_3rt3w"]
+
+[resource]
+script = ExtResource("1_3rt3w")
+id = &"bulk_hook"
+button = 1
+pose = &"hook"
+startup = 8
+recovery = 17
+damage = 40.0
+hitstun = 22
+knockback = Vector3(-0.5, 0, 2)
+guard_ki_cost = 4.4
+hitbox_offset = Vector3(0.1, 1.4, 0.89250004)
+hitbox_radius = 0.525
+lunge_speed = 2.5
+lunge_frames = 6
+cancel_start = 9
+cancel_end = 26
+cancel_into = Array[StringName]([&"bulk_kick", &"bulk_finisher_high", &"bulk_finisher", &"bulk_finisher_low"])
+special_cancelable = true
+charge_move = &"bulk_charge_punch"

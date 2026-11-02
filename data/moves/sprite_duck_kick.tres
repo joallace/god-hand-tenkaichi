@@ -1,0 +1,28 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_d5v7p"]
+
+[resource]
+script = ExtResource("1_d5v7p")
+id = &"sprite_duck_kick"
+button = 2
+pose = &"duck_kick"
+height = 2
+active = 4
+recovery = 14
+damage = 46.199999999999996
+hitstun = 26
+guard_stun = 12
+knockback = Vector3(0, 2.5, 1.5)
+knockdown = true
+guard_ki_cost = 17.0
+guard_results = Array[int]([1, 4, 2])
+is_heavy = true
+hitbox_offset = Vector3(0.1, 0.27600002, 0.855)
+lunge_speed = 3.0
+lunge_frames = 6
+low_profile = true
+cancel_start = 6
+cancel_end = 21
+cancel_requires_hit = true
+special_cancelable = true

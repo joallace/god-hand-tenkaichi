@@ -1,0 +1,33 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_u7kgb"]
+
+[resource]
+script = ExtResource("1_u7kgb")
+id = &"titan_smash_up"
+pose = &"uppercut"
+height = 1
+startup = 23
+active = 4
+recovery = 31
+damage = 71.5
+hitstun = 26
+guard_stun = 16
+knockback = Vector3(0, 9.5, 1.5)
+knockdown = true
+guard_ki_cost = 17.25
+guard_results = Array[int]([1, 1, 4])
+is_heavy = true
+hitbox_offset = Vector3(0.1, 1.65, 1.0370001)
+hitbox_radius = 0.671
+lunge_speed = 6.5
+lunge_start = 13
+lunge_frames = 8
+cancel_start = 29
+cancel_end = 52
+cancel_requires_hit = true
+special_cancelable = true
+charge_frame = 13
+charge_max_frames = 45
+charge_damage_mult = 2.2
+charge_guard_mult = 3.0

@@ -1,0 +1,28 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_117o1"]
+
+[resource]
+script = ExtResource("1_117o1")
+id = &"sprite_finisher"
+button = 2
+pose = &"kick_mid"
+startup = 8
+active = 4
+recovery = 21
+damage = 67.2
+hitstun = 30
+guard_stun = 18
+knockback = Vector3(0, 6, 6)
+knockdown = true
+guard_ki_cost = 29.75
+guard_results = Array[int]([3, 1, 1])
+is_heavy = true
+hitbox_offset = Vector3(0.1, 1.058, 0.81)
+hitbox_radius = 0.49500000000000005
+lunge_speed = 3.0
+lunge_frames = 8
+cancel_start = 10
+cancel_end = 24
+cancel_requires_hit = true
+special_cancelable = true

@@ -1,0 +1,31 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_1mn5x"]
+
+[resource]
+script = ExtResource("1_1mn5x")
+id = &"bulk_kick_low"
+button = 2
+pose = &"kick_low"
+height = 2
+startup = 15
+active = 4
+recovery = 28
+damage = 65.0
+hitstun = 28
+guard_stun = 14
+knockback = Vector3(0, 2.5, 1.5)
+knockdown = true
+guard_ki_cost = 27.500000000000004
+guard_results = Array[int]([1, 4, 2])
+is_heavy = true
+hitbox_offset = Vector3(0.1, 0.35, 0.9975)
+hitbox_radius = 0.525
+lunge_speed = 2.5
+lunge_frames = 8
+armor_hits = 1
+cancel_start = 18
+cancel_end = 40
+cancel_requires_hit = true
+special_cancelable = true
+charge_move = &"bulk_charge_kick"

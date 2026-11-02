@@ -1,0 +1,34 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_jflkh"]
+
+[resource]
+script = ExtResource("1_jflkh")
+id = &"sprite_smash_down"
+pose = &"hammer"
+height = 2
+startup = 14
+active = 4
+recovery = 19
+damage = 46.199999999999996
+hitstun = 26
+guard_stun = 16
+knockback = Vector3(0, -4, 1)
+knockdown = true
+guard_ki_cost = 12.75
+guard_results = Array[int]([1, 4, 1])
+ground_bounce = true
+is_heavy = true
+hitbox_offset = Vector3(0.1, 0.874, 0.81)
+hitbox_radius = 0.54
+lunge_speed = 6.5
+lunge_start = 8
+lunge_frames = 8
+cancel_start = 18
+cancel_end = 32
+cancel_requires_hit = true
+special_cancelable = true
+charge_frame = 8
+charge_max_frames = 45
+charge_damage_mult = 2.2
+charge_guard_mult = 3.0

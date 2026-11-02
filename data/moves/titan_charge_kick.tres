@@ -1,0 +1,31 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_xwiak"]
+
+[resource]
+script = ExtResource("1_xwiak")
+id = &"titan_charge_kick"
+pose = &"charge_kick"
+startup = 26
+active = 4
+recovery = 34
+damage = 91.0
+hitstun = 28
+guard_stun = 20
+knockback = Vector3(0, 0, 6)
+guard_ki_cost = 23.0
+guard_results = Array[int]([1, 1, 1])
+is_heavy = true
+hitbox_offset = Vector3(0.1, 1.265, 1.159)
+hitbox_radius = 0.671
+lunge_speed = 7.0
+lunge_start = 16
+lunge_frames = 8
+cancel_start = 31
+cancel_end = 57
+cancel_requires_hit = true
+special_cancelable = true
+charge_frame = 16
+charge_max_frames = 60
+charge_damage_mult = 2.0
+charge_guard_mult = 3.0

@@ -522,7 +522,7 @@ func _answer(a: Fighter, side: bool) -> void:
 		&"beam":
 			_defend_beam(m, a)
 		_:
-			if a.attack_phase() <= 1 and _dist_to(a) <= _reach(m) + cfg.reach_margin:
+			if a.attack_phase() <= 1 and _dist_to(a) <= _reach(m, me) + cfg.reach_margin:
 				if m.is_throw:
 					_defend_throw(m, a)
 				else:
@@ -1011,7 +1011,7 @@ func _on_recover() -> void:
 	var a := director.fighter_for_slot(_last_hit_by)
 	if a == null or a.team == me.team or a.is_ko() or a.def == null or a.def.light_string.is_empty():
 		return
-	if _dist_to(a) > _reach(a.def.move(a.def.light_string[0])) + cfg.reach_margin:
+	if _dist_to(a) > _reach(a.def.move(a.def.light_string[0]), me) + cfg.reach_margin:
 		return
 	if a == opp and _punishable():
 		return
@@ -1094,7 +1094,7 @@ func _habit_bias() -> float:
 func _note_opener() -> void:
 	var m := opp.current_move()
 	if m == null or not opp.move_opens_string() or m.spawn_kind != &"" or m.is_throw \
-			or _dist() > _reach(m) + cfg.reach_margin:
+			or _dist() > _reach(m, me) + cfg.reach_margin:
 		return
 	var delay := _clock - opp.state_frame() - _opp_attack_end
 	if m.id != _habit_move:
@@ -1138,7 +1138,7 @@ func _read_habit() -> bool:
 	var hit_at := ends_at + _habit_delay + m.startup - 1
 	if hit_at <= _clock or hit_at == _read_hit_at or hit_at - _clock > cfg.habit_read_horizon_frames:
 		return false
-	if _dist() > _reach(m) + cfg.reach_margin:
+	if _dist() > _reach(m, me) + cfg.reach_margin:
 		return false
 	_read_hit_at = hit_at
 	if not _roll(cfg.habit_read_chance):
@@ -1163,7 +1163,7 @@ func _read_habit() -> bool:
 			_tap(B.LIGHT, maxi(hit_at - early, _clock + 1), 1.0)
 		&"backoff":
 			var per_frame := t.walk_speed / Tuning.match_rules.tick_rate
-			var need := ceili((_reach(m) + cfg.reach_margin - _dist()) / per_frame)
+			var need := ceili((_reach(m, me) + cfg.reach_margin - _dist()) / per_frame)
 			if need <= lead:
 				_walk = Vector2(0.0, -1.0)
 				_walk_until = end
@@ -1704,12 +1704,14 @@ func _near_wall() -> bool:
 	return Vector2(p.x, p.z).length() > director.arena_radius - cfg.charge_abort_distance
 
 
-## How far (ground meters, center to center) `m` can hit, lunge included.
-func _reach(m: MoveData) -> float:
+## How far (ground meters, center to center) `m` can hit, lunge included,
+## against `victim` (default: my target; pass `me` for an incoming move).
+func _reach(m: MoveData, victim: Fighter = null) -> float:
 	if m == null:
 		return 0.0
+	var v := victim if victim != null else (opp if opp != null else me)
 	var lunge := m.lunge_speed * m.lunge_frames / float(Tuning.match_rules.tick_rate)
-	return m.hitbox_offset.z + m.hitbox_length + m.hitbox_radius + lunge + me.tuning.body_radius
+	return m.hitbox_offset.z + m.hitbox_length + m.hitbox_radius + lunge + v.tuning.body_radius
 
 
 # =============================================================================

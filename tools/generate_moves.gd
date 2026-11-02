@@ -40,12 +40,20 @@ const G_KI_HIGH := [KI, KI, UNBL]
 const G_KI_LOW := [KI, UNBL, KI]
 # Jump attacks are overheads: a low guard doesn't stop them.
 const G_OVERHEAD := [PLAIN, PLAIN, UNBL]
+# Roster variants (_profiles) are derived from this character's moves.
+const BASE_PREFIX := "brawler_"
+# Frame numbers scaled together, so cancels and spawns stay in step.
+const FRAME_PROPS: Array[String] = ["startup", "recovery", "cancel_start", "cancel_end", "spawn_frame",
+	"charge_frame", "lunge_start"]
 
 
 func _init() -> void:
 	DirAccess.make_dir_recursive_absolute(MOVES_DIR)
 	DirAccess.make_dir_recursive_absolute(CHAR_DIR)
-	_save_char(_brawler())
+	var brawler: Resource = _brawler()
+	_save_char(brawler)
+	for p: Dictionary in _profiles():
+		_save_char(_derive(brawler, p))
 	quit()
 
 
@@ -209,7 +217,7 @@ func _brawler() -> Resource:
 	# pushing each victim away). Invulnerable through the spin
 	# (FighterTuning.getup_attack_invuln_frames); a blocked one is punishable.
 	moves.append(_mk({}, {
-		"id": &"brawler_getup_kick", "button": LIGHT, "pose": &"getup_kick", "height": LOW,
+		"id": &"brawler_getup_kick", "button": LIGHT, "pose": &"getup_kick", "height": LOW, "track_frames": 0,
 		"guard_results": G_HEAVY_LOW, "low_profile": true, "is_heavy": true, "radial": true,
 		"startup": 6, "active": 10, "recovery": 20, "damage": 45.0, "hitstun": 26,
 		"knockback": Vector3(0, 3.0, 4.0), "knockdown": true, "guard_stun": 12, "guard_ki_cost": 15.0,
@@ -339,6 +347,131 @@ func _brawler() -> Resource:
 	d.super2 = &"brawler_beam"
 	d.ultimate = &"brawler_ultimate"
 	return d
+
+
+## Roster variants of the base moveset, so they follow every Brawler change.
+## damage / guard_ki scale hits, frames scales startup + recovery (and the
+## frames that depend on them), reach scales the hitbox's z and radius,
+## height its y (keep highs reaching short fighters and over a duck: see
+## tests/characters_test). armor_heavies = MoveData.armor_hits on heavies.
+## `moves` overrides single moves after scaling, keyed by the id without
+## "brawler_". Balance: tools/matchup_sim.tscn.
+func _profiles() -> Array[Dictionary]:
+	return [
+		{  # Tall striker (Sagat, God Hand's big enemies): out-ranges and hits
+			# hardest, but every swing and step is slow and it's a big target.
+			"id": &"titan", "name": "Titan", "color": Color(0.55, 0.3, 0.75),
+			"body_scale": Vector3(1.12, 1.25, 1.12),
+			"damage": 1.3, "frames": 1.3, "reach": 1.22, "height": 1.1, "guard_ki": 1.15,
+			"stats": {
+				"max_health": 1050.0, "walk_speed": 4.8, "dash_speed": 13.5, "jump_velocity": 6.8,
+				"body_height": 2.25, "body_radius": 0.5, "duck_height": 1.1, "lying_height": 0.5,
+				"sway_distance": 1.4, "backflip_distance": 2.4, "attack_track_turn_deg": 300.0,
+				"knockback_taken_mult": 0.9,
+			},
+			"moves": {},
+		},
+		{  # Fat bruiser (God Hand): most health, shrugs off launches and jabs
+			# through its heavies, but the slowest and widest target. Throws and
+			# heavies beat the armor.
+			"id": &"bulk", "name": "Bulk", "color": Color(0.3, 0.6, 0.35),
+			"body_scale": Vector3(1.45, 1.02, 1.4), "belly_radius": 0.3,
+			"damage": 1.0, "frames": 1.18, "reach": 1.05, "height": 1.0, "guard_ki": 1.1,
+			"armor_heavies": 1,
+			"stats": {
+				"max_health": 1170.0, "walk_speed": 4.2, "dash_speed": 12.0, "jump_velocity": 6.2,
+				"body_height": 1.85, "body_radius": 0.6, "duck_height": 1.2, "lying_height": 0.5,
+				"sway_distance": 1.2, "backflip_distance": 2.0, "knockback_taken_mult": 0.65,
+			},
+			"moves": {
+				"dash_punch": {"pose": &"belly_bump", "hitbox_radius": 0.75, "knockback": Vector3(0, 3.5, 8.0)},
+				"throw": {"damage": 130.0},
+			},
+		},
+		{  # Small speedster: fastest hands and feet, cheap teleports, fast ki,
+			# but short reach, weak hits, little health and flies far when hit.
+			"id": &"sprite", "name": "Sprite", "color": Color(0.9, 0.75, 0.2),
+			"body_scale": Vector3(0.78, 0.8, 0.78),
+			"damage": 0.84, "frames": 0.8, "reach": 0.9, "height": 0.92, "guard_ki": 0.85,
+			"stats": {
+				"max_health": 850.0, "walk_speed": 7.6, "dash_speed": 19.0, "jump_velocity": 8.6,
+				"body_height": 1.45, "body_radius": 0.36, "duck_height": 0.75, "lying_height": 0.4,
+				"sway_distance": 1.9, "backflip_distance": 3.3, "knockback_taken_mult": 1.2,
+				"teleport_cost_bars": 0.75, "teleport_max_per_combo": 3, "charge_hold_frames": 10,
+				"ki_charge_per_frame": 100.0 / 62.0,
+			},
+			"moves": {},
+		},
+	]
+
+
+## A character built from `base`'s moves scaled by profile `p`.
+func _derive(base: Resource, p: Dictionary) -> Resource:
+	var prefix := String(p["id"]) + "_"
+	var moves: Array[MoveData] = []
+	var overrides: Dictionary = p["moves"].duplicate()
+	for src: Resource in base.moves:
+		var m: Resource = _variant_move(src, p, prefix, overrides, false)
+		_save_move(m)
+		moves.append(load(m.resource_path))
+	assert(overrides.is_empty(), "unknown move overrides: %s" % overrides)
+	var d: Resource = base.duplicate()
+	_rename_refs(d, prefix)
+	d.id = p["id"]
+	d.display_name = p["name"]
+	d.color = p["color"]
+	d.body_scale = p["body_scale"]
+	d.belly_radius = p.get("belly_radius", 0.0)
+	d.moves = moves
+	# The get-up strike stays invulnerable through its scaled spin.
+	var getup: Resource = d.move(d.getup_attack)
+	d.stat_overrides = p["stats"].duplicate()
+	d.stat_overrides["getup_attack_invuln_frames"] = getup.startup + getup.active
+	return d
+
+
+## `payload` = a projectile / beam hit: only its damage and hitbox scale.
+func _variant_move(src: Resource, p: Dictionary, prefix: String, overrides: Dictionary, payload: bool) -> Resource:
+	var m: Resource = src.duplicate()
+	_rename_refs(m, prefix)
+	if src.spawn_move != null:
+		var shot: Resource = _variant_move(src.spawn_move, p, prefix, overrides, true)
+		_save_move(shot)
+		m.spawn_move = shot
+	m.damage = src.damage * p["damage"]
+	m.guard_ki_cost = src.guard_ki_cost * p["guard_ki"]
+	var o: Vector3 = src.hitbox_offset
+	m.hitbox_offset = Vector3(o.x, o.y * p["height"], o.z * p["reach"])
+	m.hitbox_radius = src.hitbox_radius * p["reach"]
+	if not payload:
+		for prop: String in FRAME_PROPS:
+			if src.get(prop) > 0:
+				m.set(prop, maxi(roundi(src.get(prop) * p["frames"]), 1))
+		if src.cancel_start > src.startup:  # rounding can't cancel before the hit
+			m.cancel_start = maxi(m.cancel_start, m.startup + 1)
+		if src.is_heavy and not src.single_target and not src.is_throw:
+			m.armor_hits = p.get("armor_heavies", 0)
+	var key := String(src.id).trim_prefix(BASE_PREFIX)
+	if overrides.has(key):
+		for prop: String in overrides[key]:
+			m.set(prop, overrides[key][prop])
+		overrides.erase(key)
+	return m
+
+
+## Points every move reference of `r` at the prefix's copies.
+func _rename_refs(r: Resource, prefix: String) -> void:
+	for prop: Dictionary in r.get_property_list():
+		if not prop["usage"] & PROPERTY_USAGE_STORAGE:
+			continue
+		var v: Variant = r.get(prop["name"])
+		if v is StringName and String(v).begins_with(BASE_PREFIX):
+			r.set(prop["name"], StringName(prefix + String(v).trim_prefix(BASE_PREFIX)))
+		elif v is Array and not v.is_empty() and v[0] is StringName:
+			var a: Array = v.duplicate()
+			for i in a.size():
+				a[i] = StringName(prefix + String(a[i]).trim_prefix(BASE_PREFIX))
+			r.set(prop["name"], a)
 
 
 ## New MoveData from a shared base dict overlaid with specifics.
