@@ -148,7 +148,11 @@ before autoloads exist. See `tests/README.md`. Always wrap Godot calls in
     reaction delay and emits `InputFrame`s (no cheating, no fighter changes).
     Difficulty levels and every behavior knob live in `data/tuning/cpu.tres`
     (`Vector2` = weakest..strongest level, lerped per level).
-- `presentation/` — match scene, arena, split-screen `ViewLayout` (2 side by side, 3-4 in a 2x2 grid),
+- `presentation/` — match scene, arena (`Arena.create(MatchConfig.arena_id)`,
+  stages listed in `core/match/ArenaCatalog`, picked on the lobby's Stage row;
+  visual only, the play area is always the arena_radius circle, so nothing
+  solid may stand inside it; `BeachArena` + `PropMesh`: repeated props are
+  MultiMeshes of one vertex-coloured mesh), split-screen `ViewLayout` (2 side by side, 3-4 in a 2x2 grid),
   `FighterCamera`, HUD, VFX, pause menu. Observes signals only, through
   `MatchEventHub` (SPEC_ONLINE.md §9): the immediate stream (`fighter_event`,
   `fighter_state`, `director_event`; keyed by tick/sim_id/kind, muted during
@@ -232,6 +236,11 @@ console. Web costs to remember: `Resource.duplicate()` on a material ~0.3 ms,
 `Sfx.play` ~0.6-2 ms, a new node/material/tween ~0.02-0.04 ms each, so
 per-hit effects are pooled (`VfxManager`, `FxMaterials`). Measured costs,
 fixes done and open web/mobile optimizations: `docs/web_performance.md`.
+
+`tools/arena_preview.tscn`: screenshots a stage from fixed spots, or a CPU
+match on it with `match=1` (needs a window; add `--rendering-method
+gl_compatibility` for the web renderer): `godot res://tools/arena_preview.tscn
+--resolution 1280x720 -- arena=beach_bar radius=18 out=<dir>`.
 
 `tools/replay_hash.tscn`: `-- replay=<file>` plays a replay headless, prints
 `<tick> <hash>` per checkpoint, exits 1 on a mismatch (cross-OS determinism

@@ -59,7 +59,7 @@ func _ready() -> void:
 	world.name = "World"
 	add_child(world)
 
-	arena = Arena.new()
+	arena = Arena.create(config.arena_id)
 	arena.radius = MatchDirector.arena_radius_for(config)
 	world.add_child(arena)
 

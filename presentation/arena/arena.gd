@@ -66,6 +66,15 @@ func _init() -> void:
 	name = "Arena"
 
 
+## The stage for a MatchConfig.arena_id (ArenaCatalog); unknown ids play on
+## the default one.
+static func create(id: StringName) -> Arena:
+	match id:
+		ArenaCatalog.BEACH_BAR:
+			return BeachArena.new()
+	return Arena.new()
+
+
 func _ready() -> void:
 	if radius <= 0.0:
 		radius = Tuning.match_rules.arena_radius
@@ -75,16 +84,26 @@ func _ready() -> void:
 	_build_scenery()
 
 
-func _build_environment() -> void:
-	var a := Tuning.arena
+## The tuning this stage's sky and light read.
+func look() -> ArenaTuning:
+	return Tuning.arena
+
+
+func _make_sky_material() -> Material:
+	var a := look()
 	var sky_mat := ProceduralSkyMaterial.new()
 	sky_mat.sky_top_color = a.sky_top_color
 	sky_mat.sky_horizon_color = a.sky_horizon_color
 	sky_mat.ground_bottom_color = a.ground_bottom_color
 	sky_mat.ground_horizon_color = a.ground_horizon_color
 	sky_mat.sun_angle_max = 20.0
+	return sky_mat
+
+
+func _build_environment() -> void:
+	var a := look()
 	var sky := Sky.new()
-	sky.sky_material = sky_mat
+	sky.sky_material = _make_sky_material()
 	sky.radiance_size = Sky.RADIANCE_SIZE_64
 
 	var env := Environment.new()
@@ -93,13 +112,14 @@ func _build_environment() -> void:
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	env.ambient_light_energy = a.ambient_energy
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	env.tonemap_mode = a.tonemap_mode
+	env.tonemap_exposure = a.tonemap_exposure
 	env.glow_enabled = a.glow_enabled
 	env.glow_intensity = 0.5
 	env.glow_bloom = 0.05
 	env.fog_enabled = true
 	env.fog_light_color = a.sky_horizon_color
-	env.fog_density = 0.002
+	env.fog_density = a.fog_density
 	env.fog_sky_affect = 0.0
 
 	var we := WorldEnvironment.new()
@@ -160,8 +180,12 @@ func _build_ground() -> void:
 	outer_mi.position.y = -0.55
 	outer_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(outer_mi)
+	_build_floor_body()
 
-	# Flat floor collider (top surface at y = 0).
+
+## Flat floor collider (top surface at y = 0).
+func _build_floor_body() -> void:
+	var a := look()
 	var body := StaticBody3D.new()
 	body.name = "FloorBody"
 	var shape := CollisionShape3D.new()

@@ -20,6 +20,7 @@ func _ready() -> void:
 	_test_model_teams()
 	_test_binding_profiles()
 	_test_model_carry_coop()
+	_test_model_stage()
 	_test_rooms()
 	await _test_scene_hosting()
 	print("LOBBY %s (%d failures)" % ["OK" if _fails == 0 else "FAIL", _fails])
@@ -33,6 +34,44 @@ func check(cond: bool, what: String) -> void:
 
 
 # --- model --------------------------------------------------------------------
+
+func _test_model_stage() -> void:
+	var m := LobbyModel.new(MatchConfig.Mode.LOCAL_VERSUS)
+	var a := m.join(Bindings.Kind.PAD, 0)
+	check(m.rows().has(LobbyModel.Row.STAGE), "versus lobby has a Stage row")
+	check(m.build_config(1).arena_id == ArenaCatalog.DEFAULT, "the default stage is unchanged")
+	m.slots[a].cursor = LobbyModel.Row.STAGE
+	m.command(a, LobbyModel.Cmd.RIGHT)
+	check(m.build_config(1).arena_id == ArenaCatalog.BEACH_BAR, "Stage row picks the beach bar for a versus config")
+	m.command(a, LobbyModel.Cmd.RIGHT)
+	check(m.stage_index == 0, "Stage row wraps")
+	m.command(a, LobbyModel.Cmd.LEFT)
+	check(MatchConfig.from_dict(m.build_config(1).to_dict()).arena_id == ArenaCatalog.BEACH_BAR,
+			"the stage survives the config's wire form")
+
+	var mirror := LobbyModel.new(MatchConfig.Mode.ONLINE, true)
+	check(mirror.apply_dict(m.to_dict()) and mirror.stage_index == m.stage_index, "the stage is in LOBBY_STATE")
+	var bad := m.to_dict()
+	bad["stage"] = 99
+	check(mirror.apply_dict(bad) and mirror.stage_index == ArenaCatalog.IDS.size() - 1, "a bad stage index is clamped")
+
+	var room := LobbyModel.new(MatchConfig.Mode.ONLINE, true)
+	room.carry_rules_from(m)
+	check(room.stage_index == m.stage_index, "a new room takes the local lobby's stage")
+
+	var c := LobbyModel.new(MatchConfig.Mode.COOP)
+	var h := c.join(Bindings.Kind.PAD, 0)
+	check(c.rows().has(LobbyModel.Row.STAGE), "co-op lobby has a Stage row")
+	c.slots[h].cursor = LobbyModel.Row.STAGE
+	c.command(h, LobbyModel.Cmd.RIGHT)
+	check(c.build_config(1).arena_id == ArenaCatalog.BEACH_BAR, "co-op configs carry the stage too")
+
+	var o := LobbyModel.new(MatchConfig.Mode.ONLINE, true)
+	var host := o.join(Bindings.Kind.PAD, 0, Transport.HOST_PEER, "H")
+	var guest := o.join(Bindings.Kind.PAD, 1, 2, "G")
+	check(o.rows_for(host).has(LobbyModel.Row.STAGE) and not o.rows_for(guest).has(LobbyModel.Row.STAGE),
+			"online, the stage is the host's")
+
 
 func _test_model_modes() -> void:
 	var m := LobbyModel.new(MatchConfig.Mode.LOCAL_VERSUS)
