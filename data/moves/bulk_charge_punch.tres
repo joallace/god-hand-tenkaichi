@@ -1,0 +1,33 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_pe7to"]
+
+[resource]
+script = ExtResource("1_pe7to")
+id = &"bulk_charge_punch"
+pose = &"heavy"
+startup = 21
+active = 4
+recovery = 28
+damage = 55.0
+hitstun = 26
+guard_stun = 16
+knockback = Vector3(0, 0, 4.5)
+guard_ki_cost = 16.5
+guard_results = Array[int]([1, 1, 1])
+is_heavy = true
+hitbox_offset = Vector3(0.1, 1.4, 0.945)
+hitbox_radius = 0.5775000000000001
+lunge_speed = 6.5
+lunge_start = 12
+lunge_frames = 8
+armor_hits = 1
+cancel_start = 26
+cancel_end = 47
+cancel_requires_hit = true
+special_cancelable = true
+smash_variants = Array[StringName]([&"bulk_smash_up", &"bulk_smash_down", &"bulk_smash_left", &"bulk_smash_right"])
+charge_frame = 12
+charge_max_frames = 45
+charge_damage_mult = 2.2
+charge_guard_mult = 3.0

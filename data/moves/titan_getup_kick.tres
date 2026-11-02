@@ -1,0 +1,26 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_1xky1"]
+
+[resource]
+script = ExtResource("1_1xky1")
+id = &"titan_getup_kick"
+button = 1
+pose = &"getup_kick"
+height = 2
+startup = 8
+active = 10
+recovery = 26
+damage = 58.5
+hitstun = 26
+guard_stun = 12
+knockback = Vector3(0, 3, 4)
+knockdown = true
+guard_ki_cost = 17.25
+guard_results = Array[int]([1, 4, 2])
+is_heavy = true
+hitbox_offset = Vector3(0, 0.44, 0)
+hitbox_radius = 1.525
+radial = true
+track_frames = 0
+low_profile = true

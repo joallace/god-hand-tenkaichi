@@ -1,0 +1,30 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_1e4am"]
+
+[resource]
+script = ExtResource("1_1e4am")
+id = &"titan_kick_high"
+button = 2
+pose = &"kick_high"
+height = 1
+startup = 17
+active = 4
+recovery = 29
+damage = 91.0
+hitstun = 30
+guard_stun = 16
+knockback = Vector3(0, 6.5, 2)
+knockdown = true
+guard_ki_cost = 34.5
+guard_results = Array[int]([1, 2, 4])
+is_heavy = true
+hitbox_offset = Vector3(0.1, 1.8149999, 1.0979999)
+hitbox_radius = 0.549
+lunge_speed = 3.0
+lunge_frames = 10
+cancel_start = 20
+cancel_end = 42
+cancel_requires_hit = true
+special_cancelable = true
+charge_move = &"titan_charge_kick"

@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_f0vm8"]
+
+[resource]
+script = ExtResource("1_f0vm8")
+id = &"sprite_throw"
+button = 1024
+pose = &"throw"
+startup = 4
+recovery = 22
+damage = 75.6
+hitstun = 30
+knockback = Vector3(0, 5, 5.5)
+knockdown = true
+guard_ki_cost = 4.25
+is_throw = true
+is_heavy = true
+hitbox_offset = Vector3(0, 1.012, 0.63)
+hitbox_radius = 0.405
+track_frames = 3

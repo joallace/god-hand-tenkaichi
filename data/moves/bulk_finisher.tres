@@ -1,0 +1,29 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_okx4k"]
+
+[resource]
+script = ExtResource("1_okx4k")
+id = &"bulk_finisher"
+button = 2
+pose = &"kick_mid"
+startup = 12
+active = 4
+recovery = 31
+damage = 80.0
+hitstun = 30
+guard_stun = 18
+knockback = Vector3(0, 6, 6)
+knockdown = true
+guard_ki_cost = 38.5
+guard_results = Array[int]([3, 1, 1])
+is_heavy = true
+hitbox_offset = Vector3(0.1, 1.15, 0.945)
+hitbox_radius = 0.5775000000000001
+lunge_speed = 3.0
+lunge_frames = 8
+armor_hits = 1
+cancel_start = 14
+cancel_end = 35
+cancel_requires_hit = true
+special_cancelable = true

@@ -182,6 +182,10 @@ extends Resource
 @export var taunt_counter_damage_mult: float = 1.25
 
 @export_group("Hit reactions")
+## Scales the knockback (launches, pushback) this fighter takes: its weight.
+@export var knockback_taken_mult: float = 1.0
+## Damage kept when MoveData.armor_hits absorbs a hit.
+@export_range(0.0, 1.0) var armor_damage_ratio: float = 0.5
 @export var hitstop_light: int = 4
 @export var hitstop_heavy: int = 8
 ## Longest a fighter stays lying on the ground (no input) before getting up.

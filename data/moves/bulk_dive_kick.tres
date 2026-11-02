@@ -1,0 +1,27 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_kqugx"]
+
+[resource]
+script = ExtResource("1_kqugx")
+id = &"bulk_dive_kick"
+button = 2
+pose = &"dive_kick"
+startup = 9
+active = 12
+recovery = 14
+damage = 65.0
+hitstun = 28
+guard_stun = 16
+knockback = Vector3(0, 3, 4)
+knockdown = true
+guard_ki_cost = 27.500000000000004
+guard_results = Array[int]([1, 1, 4])
+is_heavy = true
+hitbox_offset = Vector3(0.1, 0.45, 0.7875)
+hitbox_radius = 0.5775000000000001
+lunge_speed = 9.0
+lunge_start = 7
+lunge_frames = 14
+armor_hits = 1
+land_cancel = true

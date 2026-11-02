@@ -1,0 +1,74 @@
+[gd_resource type="Resource" script_class="CharacterDef" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_8jv23"]
+[ext_resource type="Resource" path="res://data/moves/bulk_jab1.tres" id="2_8y8of"]
+[ext_resource type="Resource" path="res://data/moves/bulk_jab2.tres" id="3_gutql"]
+[ext_resource type="Resource" path="res://data/moves/bulk_hook.tres" id="4_idpos"]
+[ext_resource type="Resource" path="res://data/moves/bulk_kick.tres" id="5_2ldyq"]
+[ext_resource type="Resource" path="res://data/moves/bulk_finisher_high.tres" id="6_7a4wl"]
+[ext_resource type="Resource" path="res://data/moves/bulk_finisher.tres" id="7_j4kd2"]
+[ext_resource type="Resource" path="res://data/moves/bulk_finisher_low.tres" id="8_fi87i"]
+[ext_resource type="Resource" path="res://data/moves/bulk_kick_high.tres" id="9_kajvo"]
+[ext_resource type="Resource" path="res://data/moves/bulk_kick_mid.tres" id="10_1h38a"]
+[ext_resource type="Resource" path="res://data/moves/bulk_kick_low.tres" id="11_n5lco"]
+[ext_resource type="Resource" path="res://data/moves/bulk_charge_punch.tres" id="12_h20kw"]
+[ext_resource type="Resource" path="res://data/moves/bulk_smash_up.tres" id="13_g4f5j"]
+[ext_resource type="Resource" path="res://data/moves/bulk_smash_down.tres" id="14_wg7jv"]
+[ext_resource type="Resource" path="res://data/moves/bulk_smash_left.tres" id="15_xanw3"]
+[ext_resource type="Resource" path="res://data/moves/bulk_smash_right.tres" id="16_16nl1"]
+[ext_resource type="Resource" path="res://data/moves/bulk_charge_kick.tres" id="17_x8ag0"]
+[ext_resource type="Resource" path="res://data/moves/bulk_jump_kick.tres" id="18_xelqp"]
+[ext_resource type="Resource" path="res://data/moves/bulk_dive_kick.tres" id="19_dypgs"]
+[ext_resource type="Resource" path="res://data/moves/bulk_duck_kick.tres" id="20_p03sv"]
+[ext_resource type="Resource" path="res://data/moves/bulk_getup_kick.tres" id="21_o8nlb"]
+[ext_resource type="Resource" path="res://data/moves/bulk_dash_punch.tres" id="22_n20m5"]
+[ext_resource type="Resource" path="res://data/moves/bulk_throw.tres" id="23_so28x"]
+[ext_resource type="Resource" path="res://data/moves/bulk_counter.tres" id="24_th0kp"]
+[ext_resource type="Resource" path="res://data/moves/bulk_ki_blast.tres" id="25_u3jeo"]
+[ext_resource type="Resource" path="res://data/moves/bulk_rush.tres" id="26_ukdeb"]
+[ext_resource type="Resource" path="res://data/moves/bulk_rush_2.tres" id="27_i53hc"]
+[ext_resource type="Resource" path="res://data/moves/bulk_rush_3.tres" id="28_jb7nf"]
+[ext_resource type="Resource" path="res://data/moves/bulk_rush_4.tres" id="29_4vfsn"]
+[ext_resource type="Resource" path="res://data/moves/bulk_rush_finish.tres" id="30_1whxb"]
+[ext_resource type="Resource" path="res://data/moves/bulk_beam.tres" id="31_3mwy3"]
+[ext_resource type="Resource" path="res://data/moves/bulk_ultimate.tres" id="32_tlx3j"]
+[ext_resource type="Script" path="res://gameplay/characters/character_def.gd" id="33_17obv"]
+
+[resource]
+script = ExtResource("33_17obv")
+id = &"bulk"
+display_name = "Bulk"
+color = Color(0.3, 0.6, 0.35, 1)
+body_scale = Vector3(1.45, 1.02, 1.4)
+belly_radius = 0.3
+moves = Array[ExtResource("1_8jv23")]([ExtResource("2_8y8of"), ExtResource("3_gutql"), ExtResource("4_idpos"), ExtResource("5_2ldyq"), ExtResource("6_7a4wl"), ExtResource("7_j4kd2"), ExtResource("8_fi87i"), ExtResource("9_kajvo"), ExtResource("10_1h38a"), ExtResource("11_n5lco"), ExtResource("12_h20kw"), ExtResource("13_g4f5j"), ExtResource("14_wg7jv"), ExtResource("15_xanw3"), ExtResource("16_16nl1"), ExtResource("17_x8ag0"), ExtResource("18_xelqp"), ExtResource("19_dypgs"), ExtResource("20_p03sv"), ExtResource("21_o8nlb"), ExtResource("22_n20m5"), ExtResource("23_so28x"), ExtResource("24_th0kp"), ExtResource("25_u3jeo"), ExtResource("26_ukdeb"), ExtResource("27_i53hc"), ExtResource("28_jb7nf"), ExtResource("29_4vfsn"), ExtResource("30_1whxb"), ExtResource("31_3mwy3"), ExtResource("32_tlx3j")])
+light_string = Array[StringName]([&"bulk_jab1", &"bulk_jab2", &"bulk_hook", &"bulk_kick"])
+heavy = &"bulk_kick_mid"
+heavy_high = &"bulk_kick_high"
+heavy_low = &"bulk_kick_low"
+finisher = &"bulk_finisher"
+jump_attack = &"bulk_jump_kick"
+jump_heavy = &"bulk_dive_kick"
+duck_heavy = &"bulk_duck_kick"
+getup_attack = &"bulk_getup_kick"
+dash_attack = &"bulk_dash_punch"
+ki_blast = &"bulk_ki_blast"
+throw = &"bulk_throw"
+counter = &"bulk_counter"
+super1 = &"bulk_rush"
+super2 = &"bulk_beam"
+ultimate = &"bulk_ultimate"
+stat_overrides = {
+"backflip_distance": 2.0,
+"body_height": 1.85,
+"body_radius": 0.6,
+"dash_speed": 12.0,
+"duck_height": 1.2,
+"getup_attack_invuln_frames": 17,
+"jump_velocity": 6.2,
+"knockback_taken_mult": 0.65,
+"lying_height": 0.5,
+"max_health": 1170.0,
+"sway_distance": 1.2,
+"walk_speed": 4.2
+}

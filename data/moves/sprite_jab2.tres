@@ -1,0 +1,23 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_wdsyq"]
+
+[resource]
+script = ExtResource("1_wdsyq")
+id = &"sprite_jab2"
+button = 1
+pose = &"jab2"
+startup = 4
+recovery = 10
+damage = 25.2
+hitstun = 20
+guard_ki_cost = 3.4
+hitbox_offset = Vector3(0.15, 1.334, 0.76500005)
+hitbox_radius = 0.405
+lunge_speed = 2.5
+lunge_frames = 6
+cancel_start = 5
+cancel_end = 14
+cancel_into = Array[StringName]([&"sprite_hook", &"sprite_finisher_high", &"sprite_finisher", &"sprite_finisher_low"])
+special_cancelable = true
+charge_move = &"sprite_charge_punch"

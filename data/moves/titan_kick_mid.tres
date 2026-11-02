@@ -1,0 +1,28 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_ogw6r"]
+
+[resource]
+script = ExtResource("1_ogw6r")
+id = &"titan_kick_mid"
+button = 2
+pose = &"kick_mid"
+startup = 18
+active = 4
+recovery = 29
+damage = 117.0
+hitstun = 30
+guard_stun = 20
+knockback = Vector3(0, 0, 7)
+guard_ki_cost = 51.74999999999999
+guard_results = Array[int]([2, 1, 1])
+is_heavy = true
+hitbox_offset = Vector3(0.1, 1.265, 1.159)
+hitbox_radius = 0.671
+lunge_speed = 4.0
+lunge_frames = 12
+cancel_start = 21
+cancel_end = 44
+cancel_requires_hit = true
+special_cancelable = true
+charge_move = &"titan_charge_kick"

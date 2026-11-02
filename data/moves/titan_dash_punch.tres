@@ -1,0 +1,24 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_ilmmu"]
+
+[resource]
+script = ExtResource("1_ilmmu")
+id = &"titan_dash_punch"
+button = 1
+pose = &"dash_punch"
+startup = 8
+active = 5
+recovery = 23
+damage = 78.0
+hitstun = 26
+guard_stun = 14
+knockback = Vector3(0, 3, 6)
+knockdown = true
+guard_ki_cost = 23.0
+guard_results = Array[int]([1, 1, 1])
+is_heavy = true
+hitbox_offset = Vector3(0, 1.43, 1.0979999)
+hitbox_radius = 0.671
+lunge_speed = 10.0
+lunge_frames = 10

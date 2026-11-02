@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_fhb76"]
+
+[resource]
+script = ExtResource("1_fhb76")
+id = &"bulk_jump_kick"
+button = 1
+pose = &"jump_kick"
+startup = 7
+active = 8
+damage = 50.0
+hitstun = 24
+guard_stun = 12
+knockback = Vector3(0, 0, 3)
+guard_ki_cost = 11.0
+guard_results = Array[int]([0, 0, 4])
+hitbox_offset = Vector3(0.1, 0.7, 0.84000003)
+hitbox_radius = 0.5775000000000001
+land_cancel = true

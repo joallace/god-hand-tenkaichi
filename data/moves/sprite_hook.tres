@@ -1,0 +1,23 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_76l03"]
+
+[resource]
+script = ExtResource("1_76l03")
+id = &"sprite_hook"
+button = 1
+pose = &"hook"
+startup = 6
+recovery = 11
+damage = 33.6
+hitstun = 22
+knockback = Vector3(-0.5, 0, 2)
+guard_ki_cost = 3.4
+hitbox_offset = Vector3(0.1, 1.288, 0.76500005)
+lunge_speed = 2.5
+lunge_frames = 6
+cancel_start = 7
+cancel_end = 18
+cancel_into = Array[StringName]([&"sprite_kick", &"sprite_finisher_high", &"sprite_finisher", &"sprite_finisher_low"])
+special_cancelable = true
+charge_move = &"sprite_charge_punch"

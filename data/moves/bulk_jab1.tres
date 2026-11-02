@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_deprl"]
+
+[resource]
+script = ExtResource("1_deprl")
+id = &"bulk_jab1"
+button = 1
+pose = &"jab"
+startup = 6
+recovery = 14
+hitstun = 20
+guard_ki_cost = 4.4
+hitbox_offset = Vector3(-0.15, 1.45, 0.89250004)
+hitbox_radius = 0.47250000000000003
+lunge_speed = 2.5
+lunge_frames = 6
+cancel_start = 7
+cancel_end = 21
+cancel_into = Array[StringName]([&"bulk_jab2", &"bulk_finisher_high", &"bulk_finisher", &"bulk_finisher_low"])
+special_cancelable = true
+charge_move = &"bulk_charge_punch"

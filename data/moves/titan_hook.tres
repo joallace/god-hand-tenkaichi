@@ -1,0 +1,24 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_bjjf0"]
+
+[resource]
+script = ExtResource("1_bjjf0")
+id = &"titan_hook"
+button = 1
+pose = &"hook"
+startup = 9
+recovery = 18
+damage = 52.0
+hitstun = 22
+knockback = Vector3(-0.5, 0, 2)
+guard_ki_cost = 4.6
+hitbox_offset = Vector3(0.1, 1.54, 1.0370001)
+hitbox_radius = 0.61
+lunge_speed = 2.5
+lunge_frames = 6
+cancel_start = 10
+cancel_end = 29
+cancel_into = Array[StringName]([&"titan_kick", &"titan_finisher_high", &"titan_finisher", &"titan_finisher_low"])
+special_cancelable = true
+charge_move = &"titan_charge_punch"

@@ -1,0 +1,74 @@
+[gd_resource type="Resource" script_class="CharacterDef" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_i45fh"]
+[ext_resource type="Resource" path="res://data/moves/titan_jab1.tres" id="2_aeeyj"]
+[ext_resource type="Resource" path="res://data/moves/titan_jab2.tres" id="3_4cqjl"]
+[ext_resource type="Resource" path="res://data/moves/titan_hook.tres" id="4_827ap"]
+[ext_resource type="Resource" path="res://data/moves/titan_kick.tres" id="5_83iog"]
+[ext_resource type="Resource" path="res://data/moves/titan_finisher_high.tres" id="6_bi1h5"]
+[ext_resource type="Resource" path="res://data/moves/titan_finisher.tres" id="7_garuf"]
+[ext_resource type="Resource" path="res://data/moves/titan_finisher_low.tres" id="8_3pf7a"]
+[ext_resource type="Resource" path="res://data/moves/titan_kick_high.tres" id="9_vbhxh"]
+[ext_resource type="Resource" path="res://data/moves/titan_kick_mid.tres" id="10_6ikce"]
+[ext_resource type="Resource" path="res://data/moves/titan_kick_low.tres" id="11_l4ygt"]
+[ext_resource type="Resource" path="res://data/moves/titan_charge_punch.tres" id="12_5axvv"]
+[ext_resource type="Resource" path="res://data/moves/titan_smash_up.tres" id="13_imokh"]
+[ext_resource type="Resource" path="res://data/moves/titan_smash_down.tres" id="14_pi3yo"]
+[ext_resource type="Resource" path="res://data/moves/titan_smash_left.tres" id="15_pxmsu"]
+[ext_resource type="Resource" path="res://data/moves/titan_smash_right.tres" id="16_cwe8j"]
+[ext_resource type="Resource" path="res://data/moves/titan_charge_kick.tres" id="17_ltg8s"]
+[ext_resource type="Resource" path="res://data/moves/titan_jump_kick.tres" id="18_7geow"]
+[ext_resource type="Resource" path="res://data/moves/titan_dive_kick.tres" id="19_sf766"]
+[ext_resource type="Resource" path="res://data/moves/titan_duck_kick.tres" id="20_lqu8u"]
+[ext_resource type="Resource" path="res://data/moves/titan_getup_kick.tres" id="21_kgw5v"]
+[ext_resource type="Resource" path="res://data/moves/titan_dash_punch.tres" id="22_dnfya"]
+[ext_resource type="Resource" path="res://data/moves/titan_throw.tres" id="23_w4ipq"]
+[ext_resource type="Resource" path="res://data/moves/titan_counter.tres" id="24_u2bkt"]
+[ext_resource type="Resource" path="res://data/moves/titan_ki_blast.tres" id="25_fvoh3"]
+[ext_resource type="Resource" path="res://data/moves/titan_rush.tres" id="26_81ck2"]
+[ext_resource type="Resource" path="res://data/moves/titan_rush_2.tres" id="27_bn16a"]
+[ext_resource type="Resource" path="res://data/moves/titan_rush_3.tres" id="28_hwmip"]
+[ext_resource type="Resource" path="res://data/moves/titan_rush_4.tres" id="29_3nfh0"]
+[ext_resource type="Resource" path="res://data/moves/titan_rush_finish.tres" id="30_4str0"]
+[ext_resource type="Resource" path="res://data/moves/titan_beam.tres" id="31_rdldt"]
+[ext_resource type="Resource" path="res://data/moves/titan_ultimate.tres" id="32_q6r4g"]
+[ext_resource type="Script" path="res://gameplay/characters/character_def.gd" id="33_4rikl"]
+
+[resource]
+script = ExtResource("33_4rikl")
+id = &"titan"
+display_name = "Titan"
+color = Color(0.55, 0.3, 0.75, 1)
+body_scale = Vector3(1.12, 1.25, 1.12)
+moves = Array[ExtResource("1_i45fh")]([ExtResource("2_aeeyj"), ExtResource("3_4cqjl"), ExtResource("4_827ap"), ExtResource("5_83iog"), ExtResource("6_bi1h5"), ExtResource("7_garuf"), ExtResource("8_3pf7a"), ExtResource("9_vbhxh"), ExtResource("10_6ikce"), ExtResource("11_l4ygt"), ExtResource("12_5axvv"), ExtResource("13_imokh"), ExtResource("14_pi3yo"), ExtResource("15_pxmsu"), ExtResource("16_cwe8j"), ExtResource("17_ltg8s"), ExtResource("18_7geow"), ExtResource("19_sf766"), ExtResource("20_lqu8u"), ExtResource("21_kgw5v"), ExtResource("22_dnfya"), ExtResource("23_w4ipq"), ExtResource("24_u2bkt"), ExtResource("25_fvoh3"), ExtResource("26_81ck2"), ExtResource("27_bn16a"), ExtResource("28_hwmip"), ExtResource("29_3nfh0"), ExtResource("30_4str0"), ExtResource("31_rdldt"), ExtResource("32_q6r4g")])
+light_string = Array[StringName]([&"titan_jab1", &"titan_jab2", &"titan_hook", &"titan_kick"])
+heavy = &"titan_kick_mid"
+heavy_high = &"titan_kick_high"
+heavy_low = &"titan_kick_low"
+finisher = &"titan_finisher"
+jump_attack = &"titan_jump_kick"
+jump_heavy = &"titan_dive_kick"
+duck_heavy = &"titan_duck_kick"
+getup_attack = &"titan_getup_kick"
+dash_attack = &"titan_dash_punch"
+ki_blast = &"titan_ki_blast"
+throw = &"titan_throw"
+counter = &"titan_counter"
+super1 = &"titan_rush"
+super2 = &"titan_beam"
+ultimate = &"titan_ultimate"
+stat_overrides = {
+"attack_track_turn_deg": 300.0,
+"backflip_distance": 2.4,
+"body_height": 2.25,
+"body_radius": 0.5,
+"dash_speed": 13.5,
+"duck_height": 1.1,
+"getup_attack_invuln_frames": 18,
+"jump_velocity": 6.8,
+"knockback_taken_mult": 0.9,
+"lying_height": 0.5,
+"max_health": 1050.0,
+"sway_distance": 1.4,
+"walk_speed": 4.8
+}

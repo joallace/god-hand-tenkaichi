@@ -1,0 +1,30 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_22gcv"]
+
+[resource]
+script = ExtResource("1_22gcv")
+id = &"bulk_finisher_high"
+button = 2
+pose = &"kick_high"
+height = 1
+startup = 12
+active = 4
+recovery = 31
+damage = 70.0
+hitstun = 30
+guard_stun = 18
+knockback = Vector3(0, 8, 2)
+knockdown = true
+guard_ki_cost = 38.5
+guard_results = Array[int]([1, 3, 4])
+is_heavy = true
+hitbox_offset = Vector3(0.1, 1.65, 0.89250004)
+hitbox_radius = 0.47250000000000003
+lunge_speed = 3.0
+lunge_frames = 8
+armor_hits = 1
+cancel_start = 14
+cancel_end = 35
+cancel_requires_hit = true
+special_cancelable = true

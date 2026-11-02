@@ -1,0 +1,25 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_on6sx"]
+
+[resource]
+script = ExtResource("1_on6sx")
+id = &"bulk_rush_3"
+pose = &"hook"
+startup = 4
+active = 2
+recovery = 7
+damage = 35.0
+hitstun = 30
+guard_stun = 12
+knockback = Vector3(0, 0, 0.5)
+guard_ki_cost = 16.5
+guard_results = Array[int]([1, 1, 1])
+hitstop = 3
+grants_hit_ki = false
+single_target = true
+hitbox_offset = Vector3(0, 1.3, 0.89250004)
+hitbox_radius = 0.5775000000000001
+lunge_speed = 2.0
+lunge_frames = 4
+auto_next_on_hit = &"bulk_rush_4"

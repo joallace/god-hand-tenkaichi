@@ -296,6 +296,8 @@ var _move_opens_string: bool = true
 ## moves that hit, relaunches taken, and the last melee move activation seen.
 var _combo_moves_taken: Array[StringName] = []
 var _combo_relaunches: int = 0
+## Hits the current move can still absorb (MoveData.armor_hits).
+var _armor_left: int = 0
 var _combo_last_melee: int = -1
 ## Clean hits taken in the current combo from any attacker (drives damage
 ## scaling, so teammates juggling one victim scale together). Unlike the
@@ -965,6 +967,8 @@ func receive_hit(hb: Hitbox) -> Contact:
 		if res != MoveData.GuardResult.UNBLOCKABLE:
 			_take_blocked(hb, res)
 			return Contact.BLOCKED
+	if _try_armor(hb):
+		return Contact.BLOCKED
 	_take_hit(hb)
 	return Contact.HIT
 
@@ -1320,6 +1324,7 @@ func _start_move(m: MoveData) -> void:
 	_spawned = false
 	_charging = false
 	_charge = 0
+	_armor_left = m.armor_hits
 	_enter(State.ATTACK)
 	_damage_mult = mult
 
@@ -1565,7 +1570,7 @@ func _tick_thrown() -> void:
 	if thrower == null or thrower.state != State.THROW or thrower._grab_partner_slot != slot:
 		_enter(State.IDLE)
 		return
-	global_position = thrower.global_position + thrower._fwd() * tuning.throw_hold_distance
+	global_position = thrower.global_position + thrower._fwd() * thrower._throw_hold_distance(self)
 	_set_ground_velocity(Vector3.ZERO)
 	_face_toward(thrower, PI)
 	if _throw_breakable and _state_frame < tuning.throw_break_frames \
@@ -1653,7 +1658,7 @@ func _execute_throw() -> void:
 	var victim := _grabbed_victim()
 	var dir := -_fwd() if _throw_back else _fwd()
 	if _throw_back:
-		victim.global_position = global_position + dir * tuning.throw_hold_distance
+		victim.global_position = global_position + dir * _throw_hold_distance(victim)
 	var hb := Hitbox.new()
 	hb.source = self
 	hb.attacker = self
@@ -1662,12 +1667,18 @@ func _execute_throw() -> void:
 	hb.forward = dir
 	hb.right = Vector3(-dir.z, 0.0, dir.x)
 	hb.origin = global_position
-	hb.a = victim.global_position + Vector3.UP * tuning.body_height * 0.5
+	hb.a = victim.global_position + Vector3.UP * victim.tuning.body_height * 0.5
 	hb.b = hb.a
 	hb.is_melee = false
 	hb.opens_string = false
 	victim._take_hit(hb)
 	on_hitbox_contact(hb, victim, Contact.HIT)
+
+
+## Where a grabbed victim is held: the tuned distance, or far enough for the
+## two bodies not to overlap (wide characters).
+func _throw_hold_distance(victim: Fighter) -> float:
+	return maxf(tuning.throw_hold_distance, tuning.body_radius + victim.tuning.body_radius)
 
 
 ## Wind-up (no ki for charge_windup_frames; specials already work), then
@@ -2068,11 +2079,27 @@ func _try_counter_guard(hb: Hitbox) -> bool:
 	return true
 
 
+## MoveData.armor_hits: a light hit during the startup or active frames takes
+## reduced damage and doesn't interrupt the move (reported like a block: the
+## attacker gets no combo). Heavies, supers, stuns, guard breaks and throws go
+## through.
+func _try_armor(hb: Hitbox) -> bool:
+	if state != State.ATTACK or _armor_left <= 0 or _state_frame >= _move.startup + _move.active:
+		return false
+	if hb.move.is_heavy or not hb.move.grants_hit_ki or hb.breaks_guard or hb.stun_frames > 0:
+		return false
+	_armor_left -= 1
+	var dmg := hb.move.damage * hb.damage_mult * tuning.armor_damage_ratio
+	_set_health(maxf(health - dmg, minf(health, tuning.chip_min_health)))  # armor can't KO
+	_emit_hit(hb, dmg, true, MoveData.GuardResult.PLAIN)
+	return true
+
+
 func _take_blocked(hb: Hitbox, res: int) -> void:
 	var m := hb.move
 	var chip := m.damage * hb.damage_mult * tuning.guard_chip_ratio
 	_set_health(maxf(health - chip, minf(health, tuning.chip_min_health)))  # chip can't KO
-	var push := hb.world_knockback(global_position) * tuning.guard_pushback_ratio
+	var push := hb.world_knockback(global_position) * tuning.guard_pushback_ratio * tuning.knockback_taken_mult
 	push.y = 0.0
 	var crash := hb.breaks_guard
 	match res:
@@ -2132,7 +2159,7 @@ func _take_hit(hb: Hitbox) -> void:
 		_end_vanish_battle(attacker.slot if attacker else -1)
 	if attacker != null:
 		attacker._on_hit_dealt(m, self)
-	var kb := hb.world_knockback(global_position)
+	var kb := hb.world_knockback(global_position) * tuning.knockback_taken_mult
 	var was_juggle := state == State.KNOCKDOWN
 	var loop := _is_loop_hit(hb, was_juggle)
 	if health <= 0.0:
@@ -2646,7 +2673,7 @@ func save_state() -> Dictionary:
 		"charge_btn": _charge_btn, "heavy_height": _heavy_height,
 		"since_guard_press": _since_guard_press, "guard_press_armed": _guard_press_armed,
 		"move_opens_string": _move_opens_string, "combo_moves_taken": _combo_moves_taken.duplicate(),
-		"combo_relaunches": _combo_relaunches, "combo_last_melee": _combo_last_melee,
+		"combo_relaunches": _combo_relaunches, "combo_last_melee": _combo_last_melee, "armor_left": _armor_left,
 		"combo_hits_taken": _combo_hits_taken,
 		"dodge_kind": _dodge_kind, "dodge_chain": _dodge_chain, "duck_variant": _duck_variant, "dodge_queued_btn": _dodge_queued_btn,
 		"guard_pose": _guard_pose, "guard_pose_want": _guard_pose_want,
@@ -2722,6 +2749,7 @@ func load_state(s: Dictionary) -> void:
 	_move_opens_string = s["move_opens_string"]
 	_combo_moves_taken = (s["combo_moves_taken"] as Array[StringName]).duplicate()
 	_combo_relaunches = s["combo_relaunches"]
+	_armor_left = s["armor_left"]
 	_combo_last_melee = s["combo_last_melee"]
 	_combo_hits_taken = s["combo_hits_taken"]
 	_dodge_kind = s["dodge_kind"]

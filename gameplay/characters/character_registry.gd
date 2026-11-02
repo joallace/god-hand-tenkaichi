@@ -5,7 +5,7 @@ extends RefCounted
 ## generator (tools/generate_moves.gd) and its id to IDS.
 
 const DIR := "res://data/characters/"
-const IDS: Array[StringName] = [&"brawler"]
+const IDS: Array[StringName] = [&"brawler", &"titan", &"bulk", &"sprite"]
 
 
 static func ids() -> Array[StringName]:

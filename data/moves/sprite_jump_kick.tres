@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_elp5n"]
+
+[resource]
+script = ExtResource("1_elp5n")
+id = &"sprite_jump_kick"
+button = 1
+pose = &"jump_kick"
+active = 8
+recovery = 8
+damage = 42.0
+hitstun = 24
+guard_stun = 12
+knockback = Vector3(0, 0, 3)
+guard_ki_cost = 8.5
+guard_results = Array[int]([0, 0, 4])
+hitbox_offset = Vector3(0.1, 0.644, 0.72)
+hitbox_radius = 0.49500000000000005
+land_cancel = true

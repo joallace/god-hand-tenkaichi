@@ -1,0 +1,32 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_it7u0"]
+
+[resource]
+script = ExtResource("1_it7u0")
+id = &"titan_charge_punch"
+pose = &"heavy"
+startup = 23
+active = 4
+recovery = 31
+damage = 71.5
+hitstun = 26
+guard_stun = 16
+knockback = Vector3(0, 0, 4.5)
+guard_ki_cost = 17.25
+guard_results = Array[int]([1, 1, 1])
+is_heavy = true
+hitbox_offset = Vector3(0.1, 1.54, 1.0979999)
+hitbox_radius = 0.671
+lunge_speed = 6.5
+lunge_start = 13
+lunge_frames = 8
+cancel_start = 29
+cancel_end = 52
+cancel_requires_hit = true
+special_cancelable = true
+smash_variants = Array[StringName]([&"titan_smash_up", &"titan_smash_down", &"titan_smash_left", &"titan_smash_right"])
+charge_frame = 13
+charge_max_frames = 45
+charge_damage_mult = 2.2
+charge_guard_mult = 3.0

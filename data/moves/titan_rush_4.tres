@@ -1,0 +1,25 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_yk30i"]
+
+[resource]
+script = ExtResource("1_yk30i")
+id = &"titan_rush_4"
+pose = &"kick"
+startup = 4
+active = 2
+recovery = 8
+damage = 45.5
+hitstun = 30
+guard_stun = 12
+knockback = Vector3(0, 0, 0.5)
+guard_ki_cost = 17.25
+guard_results = Array[int]([1, 1, 1])
+hitstop = 3
+grants_hit_ki = false
+single_target = true
+hitbox_offset = Vector3(0, 1.43, 1.0370001)
+hitbox_radius = 0.671
+lunge_speed = 2.0
+lunge_frames = 4
+auto_next_on_hit = &"titan_rush_finish"

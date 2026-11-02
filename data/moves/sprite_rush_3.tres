@@ -1,0 +1,25 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_isd68"]
+
+[resource]
+script = ExtResource("1_isd68")
+id = &"sprite_rush_3"
+pose = &"hook"
+startup = 2
+active = 2
+recovery = 5
+damage = 29.4
+hitstun = 30
+guard_stun = 12
+knockback = Vector3(0, 0, 0.5)
+guard_ki_cost = 12.75
+guard_results = Array[int]([1, 1, 1])
+hitstop = 3
+grants_hit_ki = false
+single_target = true
+hitbox_offset = Vector3(0, 1.196, 0.76500005)
+hitbox_radius = 0.49500000000000005
+lunge_speed = 2.0
+lunge_frames = 4
+auto_next_on_hit = &"sprite_rush_4"

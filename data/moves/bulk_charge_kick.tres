@@ -1,0 +1,32 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_70pns"]
+
+[resource]
+script = ExtResource("1_70pns")
+id = &"bulk_charge_kick"
+pose = &"charge_kick"
+startup = 24
+active = 4
+recovery = 31
+damage = 70.0
+hitstun = 28
+guard_stun = 20
+knockback = Vector3(0, 0, 6)
+guard_ki_cost = 22.0
+guard_results = Array[int]([1, 1, 1])
+is_heavy = true
+hitbox_offset = Vector3(0.1, 1.15, 0.9975)
+hitbox_radius = 0.5775000000000001
+lunge_speed = 7.0
+lunge_start = 14
+lunge_frames = 8
+armor_hits = 1
+cancel_start = 28
+cancel_end = 52
+cancel_requires_hit = true
+special_cancelable = true
+charge_frame = 14
+charge_max_frames = 60
+charge_damage_mult = 2.0
+charge_guard_mult = 3.0

@@ -6,6 +6,11 @@ extends Resource
 @export var id: StringName = &""
 @export var display_name: String = ""
 @export var color: Color = Color(0.8, 0.4, 0.2)
+## Placeholder body proportions (presentation only): (width, height, depth).
+## The sim's hurtbox comes from stat_overrides (body_height, body_radius).
+@export var body_scale: Vector3 = Vector3.ONE
+## Belly radius (m, before body_scale); 0 = none.
+@export var belly_radius: float = 0.0
 ## Every move the character can perform (normals, specials, payloads).
 @export var moves: Array[MoveData] = []
 

@@ -98,6 +98,9 @@ enum GuardResult { PLAIN, KI_GUARD, PUSH_OFF, PUSH_STOP, UNBLOCKABLE }
 ## Frames (from move start) during which the attacker still turns to track.
 ## -1 = track through startup.
 @export var track_frames: int = -1
+## Light hits absorbed from the first frame through the active frames (God
+## Hand heavy enemies): see Fighter._try_armor.
+@export var armor_hits: int = 0
 ## Started airborne: the attacker stalls in the air (no gravity, no drift)
 ## for this many frames; -1 = the whole move (air beams). A lunge started in
 ## the air dives toward the opponent instead (see Fighter._dive_velocity).

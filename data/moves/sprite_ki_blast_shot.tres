@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_awnxl"]
+
+[resource]
+script = ExtResource("1_awnxl")
+id = &"sprite_ki_blast_shot"
+active = 1
+damage = 21.0
+hitstun = 16
+guard_stun = 8
+knockback = Vector3(0, 0, 2)
+guard_ki_cost = 5.1
+hitstop = 3
+ki_gain = -2.0
+hitbox_offset = Vector3(0.2, 1.242, 0.72)
+hitbox_radius = 0.27
+travel_speed = 22.0
+lifetime_frames = 70

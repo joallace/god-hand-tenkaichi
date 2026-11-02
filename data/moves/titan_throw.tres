@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="MoveData" format=3]
+
+[ext_resource type="Script" path="res://gameplay/combat/move_data.gd" id="1_vkt7g"]
+
+[resource]
+script = ExtResource("1_vkt7g")
+id = &"titan_throw"
+button = 1024
+pose = &"throw"
+startup = 7
+recovery = 36
+damage = 117.0
+hitstun = 30
+knockback = Vector3(0, 5, 5.5)
+knockdown = true
+guard_ki_cost = 5.75
+is_throw = true
+is_heavy = true
+hitbox_offset = Vector3(0, 1.21, 0.854)
+hitbox_radius = 0.549
+track_frames = 3
