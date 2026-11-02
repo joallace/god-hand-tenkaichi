@@ -42,7 +42,7 @@ enum Row {
 	CHARACTER, CPU_CHARACTER, CPU_LEVEL, ROUNDS, TIMER,
 	COOP_STRUCTURE, ENEMY_COUNT, WAVES, ENEMY_LEVEL, ENEMY_ROSTER,
 	ALLY, ALLY_LEVEL, ALLY_CHARACTER, FRIENDLY_FIRE, MODE,
-	TEAM, SEAT, SEAT_TYPE, SEAT_TEAM, LOCK_TEAMS, COLOR,
+	TEAM, SEAT, SEAT_TYPE, SEAT_TEAM, LOCK_TEAMS, COLOR, STAGE
 }
 
 ## What a command did (the screen plays sounds / punches panels for it).
@@ -95,6 +95,8 @@ var slots: Array[Slot] = []
 var rounds_to_win: int = 2
 var time_index: int = 0
 var time_options: PackedInt32Array
+## Index into ArenaCatalog.IDS.
+var stage_index: int = 0
 
 # Co-op run setup (COOP mode only).
 var coop_structure: int = Tuning.coop.default_structure
@@ -385,7 +387,7 @@ func rows() -> Array[int]:
 			r.append_array([Row.CPU_CHARACTER, Row.CPU_LEVEL])
 		if online:
 			r.append(Row.LOCK_TEAMS)
-		r.append_array([Row.ROUNDS, Row.TIMER])
+		r.append_array([Row.ROUNDS, Row.TIMER, Row.STAGE])
 		return r
 	if is_coop():
 		r.append_array([Row.COOP_STRUCTURE, Row.ENEMY_COUNT])
@@ -394,11 +396,11 @@ func rows() -> Array[int]:
 		r.append_array([Row.ENEMY_LEVEL, Row.ENEMY_ROSTER, Row.ALLY])
 		if coop_ally:
 			r.append_array([Row.ALLY_LEVEL, Row.ALLY_CHARACTER])
-		r.append_array([Row.FRIENDLY_FIRE, Row.TIMER])
+		r.append_array([Row.FRIENDLY_FIRE, Row.TIMER, Row.STAGE])
 		return r
 	if cpu_slot() >= 0:
 		r.append_array([Row.CPU_CHARACTER, Row.CPU_LEVEL])
-	r.append_array([Row.ROUNDS, Row.TIMER])
+	r.append_array([Row.ROUNDS, Row.TIMER, Row.STAGE])
 	return r
 
 
@@ -445,6 +447,8 @@ func _change_row(idx: int, dir: int) -> void:
 			rounds_to_win = clampi(rounds_to_win + dir, MIN_ROUNDS, MAX_ROUNDS)
 		Row.TIMER:
 			time_index = posmod(time_index + dir, time_options.size())
+		Row.STAGE:
+			stage_index = posmod(stage_index + dir, ArenaCatalog.IDS.size())
 		Row.COOP_STRUCTURE:
 			coop_structure = posmod(coop_structure + dir, CoopConfig.Structure.size())
 		Row.ENEMY_COUNT:
@@ -627,6 +631,7 @@ func build_config(seed_value: int) -> MatchConfig:
 	cfg.rounds_to_win = rounds_to_win
 	cfg.round_time_seconds = time_options[time_index]
 	cfg.rng_seed = seed_value
+	cfg.arena_id = ArenaCatalog.IDS[stage_index]
 	var ids := MenuHelpers.character_ids()
 	var teams := config_teams()
 	var colors := resolved_colors()
@@ -660,6 +665,7 @@ func build_coop_config(seed_value: int) -> MatchConfig:
 	cfg.round_time_seconds = time_options[time_index]
 	cfg.rng_seed = seed_value
 	cfg.friendly_fire = friendly_fire
+	cfg.arena_id = ArenaCatalog.IDS[stage_index]
 	var ids := MenuHelpers.character_ids()
 	var colors := resolved_colors()
 	for i in slots.size():
@@ -706,6 +712,7 @@ func build_coop_config(seed_value: int) -> MatchConfig:
 ## setup), any versus becomes online versus.
 func carry_rules_from(local: LobbyModel) -> void:
 	rounds_to_win = local.rounds_to_win
+	stage_index = local.stage_index
 	coop_structure = local.coop_structure
 	coop_enemy_count = local.coop_enemy_count
 	coop_waves = local.coop_waves
@@ -730,7 +737,7 @@ func to_dict() -> Dictionary:
 			"owner": s.owner_peer, "name": s.display_name, "order": s.join_order, "cpu_level": s.cpu_level,
 			"team": s.team, "color": s.color_index})
 	return {
-		"mode": mode, "online": online, "slots": ss, "rounds": rounds_to_win, "time": time_index,
+		"mode": mode, "online": online, "slots": ss, "rounds": rounds_to_win, "time": time_index, "stage": stage_index,
 		"coop": [coop_structure, coop_enemy_count, coop_waves, coop_enemy_level, coop_roster,
 			coop_ally, coop_ally_level, coop_ally_char],
 		"ff": friendly_fire, "seat": seat, "lock": lock_teams,
@@ -766,6 +773,7 @@ func apply_dict(d: Dictionary) -> bool:
 		slots.append(s)
 	rounds_to_win = clampi(_int(d, "rounds", rounds_to_win), MIN_ROUNDS, MAX_ROUNDS)
 	time_index = clampi(_int(d, "time", time_index), 0, time_options.size() - 1)
+	stage_index = clampi(_int(d, "stage", stage_index), 0, ArenaCatalog.IDS.size() - 1)
 	var c: Variant = d.get("coop")
 	if c is Array and (c as Array).size() == 8:
 		coop_structure = clampi(_int_at(c, 0, coop_structure), 0, CoopConfig.Structure.size() - 1)
@@ -806,10 +814,10 @@ func remember() -> void:
 			"chars": chars, "colors": colors, "time": time_options[time_index], "structure": coop_structure,
 			"enemies": coop_enemy_count, "waves": coop_waves, "enemy_level": coop_enemy_level,
 			"roster": coop_roster, "ally": coop_ally, "ally_level": coop_ally_level,
-			"ally_char": coop_ally_char, "friendly_fire": friendly_fire,
+			"ally_char": coop_ally_char, "friendly_fire": friendly_fire, "stage": stage_index,
 		}
 		return
-	_memory = {"rounds": rounds_to_win, "time": time_options[time_index], "chars": chars, "colors": colors, "teams": teams}
+	_memory = {"rounds": rounds_to_win, "time": time_options[time_index], "chars": chars, "colors": colors, "teams": teams, "stage": stage_index}
 	var cpu := cpu_slot()
 	if cpu >= 0:
 		_memory["cpu_level"] = slots[cpu].cpu_level
@@ -822,6 +830,7 @@ func restore() -> void:
 	var t := time_options.find(int(m.get("time", -999)))
 	if t >= 0:
 		time_index = t
+	stage_index = clampi(int(m.get("stage", stage_index)), 0, ArenaCatalog.IDS.size() - 1)
 	var n := MenuHelpers.character_ids().size()
 	var chars: Array = m.get("chars", [])
 	for i in mini(chars.size(), slots.size()):

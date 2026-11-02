@@ -817,6 +817,7 @@ func _build_settings_panel() -> Control:
 			Row.ALLY, Row.ALLY_LEVEL, Row.ALLY_CHARACTER, Row.FRIENDLY_FIRE]:
 		_coop_labels[r] = _add_row_label(col, r)
 	_add_row_label(col, Row.TIMER)
+	_add_row_label(col, Row.STAGE)
 	var how := MenuHelpers.label("", &"HintLabel", HORIZONTAL_ALIGNMENT_CENTER)
 	how.name = "How"
 	how.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -1006,6 +1007,7 @@ func _refresh_rows() -> void:
 		Row.ROUNDS: ["Rounds to win", str(model.rounds_to_win)],
 		Row.TIMER: ["Time limit" if is_coop() else "Timer",
 				MenuHelpers.round_time_label(model.time_options[model.time_index])],
+		Row.STAGE: ["Stage", ArenaCatalog.display_name(ArenaCatalog.IDS[model.stage_index])],
 		Row.COOP_STRUCTURE: ["Run", "Waves" if waves else "Brawl"],
 		Row.ENEMY_COUNT: [("First wave" if model.coop_endless() else "Enemies per wave") if waves else "Enemies",
 				str(model.coop_enemy_count)],

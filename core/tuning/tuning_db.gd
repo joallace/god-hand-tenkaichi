@@ -18,6 +18,7 @@ const REGISTRY := {
 	"colors": preload("res://core/tuning/colors_tuning.gd"),
 	"vfx": preload("res://core/tuning/vfx_tuning.gd"),
 	"arena": preload("res://core/tuning/arena_tuning.gd"),
+	"arena_beach": preload("res://core/tuning/beach_arena_tuning.gd"),
 	"sfx": preload("res://core/tuning/sfx_tuning.gd"),
 	"cpu": preload("res://core/tuning/cpu_tuning.gd"),
 	"targeting": preload("res://core/tuning/targeting_tuning.gd"),
@@ -35,6 +36,7 @@ var hud: HudTuning
 var colors: ColorsTuning
 var vfx: VfxTuning
 var arena: ArenaTuning
+var arena_beach: BeachArenaTuning
 var sfx: SfxTuning
 var cpu: CpuTuning
 var targeting: TargetingTuning

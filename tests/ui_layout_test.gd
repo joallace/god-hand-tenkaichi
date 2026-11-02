@@ -216,9 +216,9 @@ func _check_join(m: MatchConfig.Mode, tag: String) -> void:
 			for i in j.rows().size() - 1:
 				j._command(0, Lobby.Cmd.DOWN)
 			await frames(3)
-			var last: Label = j._row_labels[Lobby.Row.TIMER]
+			var last: Label = j._row_labels[Lobby.Row.STAGE]
 			var view := scroll.get_global_rect().grow(TOLERANCE)
-			check(j.slots[0].cursor == Lobby.Row.TIMER and view.encloses(last.get_global_rect()),
+			check(j.slots[0].cursor == Lobby.Row.STAGE and view.encloses(last.get_global_rect()),
 					what + "settings list follows the cursor to the last row " + tag)
 	LobbyModel._memory = {}
 	LobbyModel._coop_memory = {}
