@@ -280,7 +280,7 @@ func _test_results_screen() -> void:
 	add_child(r)
 	await _frames(3)
 	_check(r._headline.text == UiTheme.tuning().results_text_team_winner % "P2 & P4", "results screen: team headline")
-	_check(r._headline.get_theme_color("font_color").is_equal_approx(UiTheme.tuning().player_color(1)),
+	_check(r._headline.get_theme_color("font_color").is_equal_approx(Tuning.colors.color(1)),
 			"results screen: headline in the winner slot's colour")
 	_check(r._tally.text.contains("1  -  2"), "results screen: team tally (%s)" % r._tally.text)
 	r.queue_free()

@@ -128,10 +128,15 @@ func _test_join_screen() -> void:
 	check(j.slots[1].state == Lobby.SlotState.JOINED and j.slots[1].device_kind == Bindings.Kind.KEYBOARD,
 			"Enter joins keyboard into P2")
 
-	# Settings: P1 pad moves past Team, Game and the Seat rows (its own seat:
+	# Settings: P1 pad moves past Colour, Team, Game and the Seat rows (its own seat:
 	# Seat, Seat team) to Rounds, then Timer, cycles to infinite.
 	await pad_tap(0, JOY_BUTTON_DPAD_DOWN)
-	check(j.slots[0].cursor == Lobby.Row.TEAM, "down from fighter reaches the Team row")
+	check(j.slots[0].cursor == Lobby.Row.COLOR, "down from fighter reaches the Colour row")
+	await pad_tap(0, JOY_BUTTON_DPAD_RIGHT)
+	check(j.slots[0].color_index == 1 and (j._ui[0]["swatch"] as Label).text.contains(Tuning.colors.color_name(1))
+			and j._ui[0]["color"] == Tuning.colors.color(1), "right picks the next colour, the panel shows it")
+	await pad_tap(0, JOY_BUTTON_DPAD_DOWN)
+	check(j.slots[0].cursor == Lobby.Row.TEAM, "then the Team row")
 	await pad_tap(0, JOY_BUTTON_DPAD_DOWN)
 	check(j.slots[0].cursor == Lobby.Row.MODE, "then the Game row")
 	for i in 3:
@@ -180,8 +185,8 @@ func _test_join_screen_cpu() -> void:
 
 	await pad_tap(0, JOY_BUTTON_START)
 	check(j.slots[0].state == Lobby.SlotState.JOINED, "pad 0 joins the human slot")
-	await pad_tap(0, JOY_BUTTON_DPAD_DOWN)
-	await pad_tap(0, JOY_BUTTON_DPAD_DOWN)
+	for i in 3:
+		await pad_tap(0, JOY_BUTTON_DPAD_DOWN)
 	check(j.slots[0].cursor == Lobby.Row.CPU_CHARACTER, "down past Game reaches CPU fighter row")
 	await pad_tap(0, JOY_BUTTON_DPAD_DOWN)
 	check(j.slots[0].cursor == Lobby.Row.CPU_LEVEL, "next row is CPU level")
@@ -225,8 +230,8 @@ func _test_join_screen_coop() -> void:
 	check(not j.all_ready(), "nobody joined: not ready")
 
 	await pad_tap(0, JOY_BUTTON_START)
-	await pad_tap(0, JOY_BUTTON_DPAD_DOWN)
-	await pad_tap(0, JOY_BUTTON_DPAD_DOWN)
+	for i in 3:
+		await pad_tap(0, JOY_BUTTON_DPAD_DOWN)
 	check(j.slots[0].cursor == Lobby.Row.COOP_STRUCTURE, "down past Game reaches Run")
 	await pad_tap(0, JOY_BUTTON_DPAD_RIGHT)
 	check(j.model.coop_structure == CoopConfig.Structure.WAVES and j.rows().has(Lobby.Row.WAVES), "Mode -> Waves shows the Waves row")

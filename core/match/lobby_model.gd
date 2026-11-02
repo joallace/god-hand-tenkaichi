@@ -42,7 +42,7 @@ enum Row {
 	CHARACTER, CPU_CHARACTER, CPU_LEVEL, ROUNDS, TIMER,
 	COOP_STRUCTURE, ENEMY_COUNT, WAVES, ENEMY_LEVEL, ENEMY_ROSTER,
 	ALLY, ALLY_LEVEL, ALLY_CHARACTER, FRIENDLY_FIRE, MODE,
-	TEAM, SEAT, SEAT_TYPE, SEAT_TEAM, LOCK_TEAMS,
+	TEAM, SEAT, SEAT_TYPE, SEAT_TEAM, LOCK_TEAMS, COLOR,
 }
 
 ## What a command did (the screen plays sounds / punches panels for it).
@@ -83,6 +83,10 @@ class Slot:
 	var cpu_level: int = Tuning.cpu.clamp_level(-1)
 	## Team versus: TEAM_FFA or an index into TEAM_NAMES.
 	var team: int = TEAM_FFA
+	## Index into Tuning.colors.palette, or -1 until the player picks one
+	## (resolved_colors gives it a free colour meanwhile). A remembered pick
+	## on an empty or CPU slot waits for a player and reserves nothing.
+	var color_index: int = -1
 
 var mode: MatchConfig.Mode = MatchConfig.Mode.LOCAL_VERSUS
 ## Networked lobby (ONLINE modes, owner peers, host-only rules).
@@ -301,6 +305,7 @@ func leave(idx: int) -> void:
 	s.device_id = -1
 	s.owner_peer = 0
 	s.display_name = ""
+	s.color_index = -1
 
 
 ## Every slot owned by `peer` freed (a guest left the room).
@@ -351,11 +356,11 @@ func command(idx: int, cmd: int) -> StringName:
 
 
 ## Rows the player in slot `idx` can pick, top to bottom (online guests:
-## their character, and their team unless the host locked teams; the rules
+## their character and colour, and their team unless the host locked teams; the rules
 ## are the host's).
 func rows_for(idx: int) -> Array[int]:
 	if online and idx >= 0 and idx < slots.size() and slots[idx].owner_peer != Transport.HOST_PEER:
-		var r: Array[int] = [Row.CHARACTER]
+		var r: Array[int] = [Row.CHARACTER, Row.COLOR]
 		if team_mode() and not lock_teams:
 			r.append(Row.TEAM)
 		return r
@@ -364,7 +369,7 @@ func rows_for(idx: int) -> Array[int]:
 
 ## Every row this mode shows, top to bottom.
 func rows() -> Array[int]:
-	var r: Array[int] = [Row.CHARACTER]
+	var r: Array[int] = [Row.CHARACTER, Row.COLOR]
 	if team_mode():
 		r.append(Row.TEAM)
 	if modes().size() > 1:
@@ -411,6 +416,9 @@ func _change_row(idx: int, dir: int) -> void:
 	match s.cursor:
 		Row.CHARACTER:
 			s.char_index = posmod(s.char_index + dir, maxi(n, 1))
+			return
+		Row.COLOR:
+			_step_color(idx, dir)
 			return
 		Row.SEAT:
 			seat = posmod(seat + dir, slots.size())
@@ -461,6 +469,67 @@ func _change_row(idx: int, dir: int) -> void:
 	if online:
 		unready_all(idx)
 	fix_cursors()
+
+
+## Palette index of every slot: its pick, else the first free colour from the
+## slot's own default on. Picks are unique (_step_color), so slots only share
+## a colour when the palette is smaller than the field.
+func resolved_colors() -> PackedInt32Array:
+	var taken := PackedInt32Array()
+	for i in slots.size():
+		if _picked_color(i) >= 0:
+			taken.append(_picked_color(i))
+	var out := PackedInt32Array()
+	for i in slots.size():
+		var c := _picked_color(i)
+		if c < 0:
+			c = _free_color(i, taken)
+			taken.append(c)
+		out.append(c)
+	return out
+
+
+## The colour player `i` picked, or -1 (no pick, or no player there).
+func _picked_color(i: int) -> int:
+	var s := slots[i]
+	return s.color_index if s.type == SlotType.HUMAN and s.state != SlotState.EMPTY else -1
+
+
+## Colour of the CPU ally: that of the last empty human slot (the place the
+## lobby shows it in), or a free one when every slot has a player.
+func ally_color() -> int:
+	var colors := resolved_colors()
+	for i in range(slots.size() - 1, -1, -1):
+		if slots[i].type == SlotType.HUMAN and slots[i].state == SlotState.EMPTY:
+			return colors[i]
+	return _free_color(slots.size(), colors)
+
+
+static func _free_color(start: int, taken: PackedInt32Array) -> int:
+	var n := Tuning.colors.count()
+	for k in n:
+		var c := posmod(start + k, n)
+		if not c in taken:
+			return c
+	return posmod(start, n)
+
+
+## Next palette colour in direction `dir` that no other slot has picked.
+func _step_color(idx: int, dir: int) -> void:
+	var taken := PackedInt32Array()
+	for i in slots.size():
+		if i != idx and _picked_color(i) >= 0:
+			taken.append(_picked_color(i))
+	var n := Tuning.colors.count()
+	var c := resolved_colors()[idx]
+	for k in n:
+		c = posmod(c + dir, n)
+		if not c in taken:
+			slots[idx].color_index = c
+			for s in slots:  # a remembered pick waiting on a free slot
+				if s != slots[idx] and s.color_index == c:
+					s.color_index = -1
+			return
 
 
 static func _next_team(team: int, dir: int) -> int:
@@ -560,6 +629,7 @@ func build_config(seed_value: int) -> MatchConfig:
 	cfg.rng_seed = seed_value
 	var ids := MenuHelpers.character_ids()
 	var teams := config_teams()
+	var colors := resolved_colors()
 	for i in slots.size():
 		var s := slots[i]
 		if s.state == SlotState.EMPTY:
@@ -567,6 +637,7 @@ func build_config(seed_value: int) -> MatchConfig:
 		var p := PlayerSlotConfig.new()
 		p.slot = i
 		p.team = teams[i]
+		p.color_index = colors[i]
 		p.character_id = ids[s.char_index] if s.char_index < ids.size() else ids[0]
 		match s.type:
 			SlotType.CPU:
@@ -590,12 +661,15 @@ func build_coop_config(seed_value: int) -> MatchConfig:
 	cfg.rng_seed = seed_value
 	cfg.friendly_fire = friendly_fire
 	var ids := MenuHelpers.character_ids()
-	for s in slots:
+	var colors := resolved_colors()
+	for i in slots.size():
+		var s := slots[i]
 		if s.type != SlotType.HUMAN or s.state == SlotState.EMPTY:
 			continue
 		var p := PlayerSlotConfig.new()
 		p.slot = cfg.players.size()
 		p.team = 0
+		p.color_index = colors[i]
 		p.character_id = ids[clampi(s.char_index, 0, ids.size() - 1)]
 		p.input_kind = PlayerSlotConfig.InputKind.LOCAL
 		p.device_kind = s.device_kind
@@ -619,6 +693,7 @@ func build_coop_config(seed_value: int) -> MatchConfig:
 		var a := PlayerSlotConfig.new()
 		a.slot = cfg.players.size()
 		a.team = 0
+		a.color_index = ally_color()
 		a.character_id = c.ally_character
 		a.input_kind = PlayerSlotConfig.InputKind.CPU
 		a.cpu_level = coop_ally_level
@@ -653,7 +728,7 @@ func to_dict() -> Dictionary:
 	for s in slots:
 		ss.append({"type": s.type, "state": s.state, "char": s.char_index, "cursor": s.cursor,
 			"owner": s.owner_peer, "name": s.display_name, "order": s.join_order, "cpu_level": s.cpu_level,
-			"team": s.team})
+			"team": s.team, "color": s.color_index})
 	return {
 		"mode": mode, "online": online, "slots": ss, "rounds": rounds_to_win, "time": time_index,
 		"coop": [coop_structure, coop_enemy_count, coop_waves, coop_enemy_level, coop_roster,
@@ -686,6 +761,7 @@ func apply_dict(d: Dictionary) -> bool:
 			s.join_order = _int(sd, "order", 0)
 			s.cpu_level = Tuning.cpu.clamp_level(_int(sd, "cpu_level", -1))
 			s.team = clampi(_int(sd, "team", TEAM_FFA), TEAM_FFA, TEAM_NAMES.size() - 1)
+			s.color_index = clampi(_int(sd, "color", -1), -1, Tuning.colors.count() - 1)
 		s.device_id = -1
 		slots.append(s)
 	rounds_to_win = clampi(_int(d, "rounds", rounds_to_win), MIN_ROUNDS, MAX_ROUNDS)
@@ -720,18 +796,20 @@ static func _int_at(a: Array, i: int, fallback: int) -> int:
 func remember() -> void:
 	var chars: Array[int] = []
 	var teams: Array[int] = []
+	var colors: Array[int] = []
 	for s in slots:
 		chars.append(s.char_index)
 		teams.append(s.team)
+		colors.append(s.color_index)
 	if is_coop():
 		_coop_memory = {
-			"chars": chars, "time": time_options[time_index], "structure": coop_structure,
+			"chars": chars, "colors": colors, "time": time_options[time_index], "structure": coop_structure,
 			"enemies": coop_enemy_count, "waves": coop_waves, "enemy_level": coop_enemy_level,
 			"roster": coop_roster, "ally": coop_ally, "ally_level": coop_ally_level,
 			"ally_char": coop_ally_char, "friendly_fire": friendly_fire,
 		}
 		return
-	_memory = {"rounds": rounds_to_win, "time": time_options[time_index], "chars": chars, "teams": teams}
+	_memory = {"rounds": rounds_to_win, "time": time_options[time_index], "chars": chars, "colors": colors, "teams": teams}
 	var cpu := cpu_slot()
 	if cpu >= 0:
 		_memory["cpu_level"] = slots[cpu].cpu_level
@@ -748,6 +826,9 @@ func restore() -> void:
 	var chars: Array = m.get("chars", [])
 	for i in mini(chars.size(), slots.size()):
 		slots[i].char_index = clampi(int(chars[i]), 0, n - 1)
+	var colors: Array = m.get("colors", [])
+	for i in mini(colors.size(), slots.size()):
+		slots[i].color_index = clampi(int(colors[i]), -1, Tuning.colors.count() - 1)
 	if not is_coop():
 		var teams: Array = m.get("teams", [])
 		for i in mini(teams.size(), slots.size()):

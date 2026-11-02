@@ -1,0 +1,8 @@
+[gd_resource type="Resource" script_class="ColorsTuning" format=3]
+
+[ext_resource type="Script" path="res://core/tuning/colors_tuning.gd" id="1_ea1st"]
+
+[resource]
+script = ExtResource("1_ea1st")
+palette = PackedColorArray(1, 0.55, 0.1, 1, 0.2, 0.6, 1, 1, 0.8, 0.45, 1, 1, 0.3, 0.95, 0.75, 1, 1, 0.9, 0.2, 1, 1, 0.45, 0.75, 1, 0.95, 0.95, 0.95, 1, 0.55, 0.9, 0.25, 1)
+names = PackedStringArray("Orange", "Blue", "Purple", "Teal", "Yellow", "Pink", "White", "Lime")

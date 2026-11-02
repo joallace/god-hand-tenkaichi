@@ -56,6 +56,15 @@ func layout() -> Layout:
 	return Layout.SPLIT_SCREEN if locals >= 2 else Layout.SINGLE_VIEW
 
 
+## Colour of the fighter in `slot`: the player's pick, else the slot's palette
+## default. Slots that aren't config players are co-op enemies.
+func color_of(slot: int) -> Color:
+	for p in players:
+		if p.slot == slot:
+			return Tuning.colors.color(p.color_index if p.color_index >= 0 else slot)
+	return Tuning.colors.enemy_color
+
+
 ## Short on-screen name of a slot: "CPU" for CPU slots; for humans the
 ## profile `display_name` when online (is_online()) and set, else "P1", "P2"...
 func player_tag(slot: int) -> String:

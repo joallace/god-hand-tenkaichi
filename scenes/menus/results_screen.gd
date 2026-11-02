@@ -65,8 +65,8 @@ func _ready() -> void:
 	_headline = MenuHelpers.title(headline_text(res))
 	if is_coop(res):
 		_headline.add_theme_color_override("font_color", u.color_ready if coop_cleared(res) else u.color_text_dim)
-	elif winner >= 0:
-		_headline.add_theme_color_override("font_color", u.player_color(winner))
+	elif winner >= 0 and cfg != null:
+		_headline.add_theme_color_override("font_color", cfg.color_of(winner))
 	col.add_child(_headline)
 
 	if is_coop(res):
@@ -248,7 +248,7 @@ static func _tag_color(cfg: MatchConfig, slot: int, taken: PackedInt32Array) -> 
 	var u := UiTheme.tuning()
 	if cfg.player_tag(slot) == "CPU" or slot in taken:
 		return u.color_text_dim
-	return u.player_color(slot)
+	return cfg.color_of(slot)
 
 
 ## Versus score line; `wins` is indexed by team. Two teams: "<A>   2  -  1

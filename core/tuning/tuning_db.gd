@@ -15,6 +15,7 @@ const REGISTRY := {
 	"ui": preload("res://core/tuning/ui_tuning.gd"),
 	"camera": preload("res://core/tuning/camera_tuning.gd"),
 	"hud": preload("res://core/tuning/hud_tuning.gd"),
+	"colors": preload("res://core/tuning/colors_tuning.gd"),
 	"vfx": preload("res://core/tuning/vfx_tuning.gd"),
 	"arena": preload("res://core/tuning/arena_tuning.gd"),
 	"sfx": preload("res://core/tuning/sfx_tuning.gd"),
@@ -31,6 +32,7 @@ var fighter: FighterTuning
 var ui: UiTuning
 var camera: CameraTuning
 var hud: HudTuning
+var colors: ColorsTuning
 var vfx: VfxTuning
 var arena: ArenaTuning
 var sfx: SfxTuning

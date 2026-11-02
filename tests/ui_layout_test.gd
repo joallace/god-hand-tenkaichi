@@ -204,7 +204,7 @@ func _check_join(m: MatchConfig.Mode, tag: String) -> void:
 			(ui["device"] as Label).text = LONG_PAD_NAME
 	await _assert_fits(j, what + "(2 pads joined) " + tag)
 	var cut := truncated(j, LONG_PAD_NAME)
-	check(cut.is_empty(), what + "shows every row / name untrimmed " + tag)
+	check(cut.is_empty(), what + "shows every row / name untrimmed %s %s" % [tag, cut])
 	for c in cut.slice(0, 6):
 		print("    trimmed: ", c)
 	if m == MatchConfig.Mode.COOP:
@@ -299,11 +299,10 @@ func _check_online_coop_lobby(tag: String) -> void:
 	m.coop_ally_level = 0
 	m.coop_structure = CoopConfig.Structure.WAVES
 	j._refresh()
-	var colors := [u.color_p1, u.color_p2, u.color_p3, u.color_p4]
 	var colored := true
 	for i in j._ui.size():
-		colored = colored and j._ui[i]["color"] == colors[i]
-	check(colored and u.color_p3 != u.color_p1 and u.color_p4 != u.color_p2,
+		colored = colored and j._ui[i]["color"] == Tuning.colors.color(i)
+	check(colored and Tuning.colors.color(2) != Tuning.colors.color(0) and Tuning.colors.color(3) != Tuning.colors.color(1),
 			what + "P1..P4 have their own colours " + tag)
 	var last := j.slots.size() - 1
 	var ally_ui: Dictionary = j._ui[last]
@@ -316,7 +315,7 @@ func _check_online_coop_lobby(tag: String) -> void:
 	(j._ui[0]["device"] as Label).text = LONG_PAD_NAME
 	await _assert_fits(j, what + "(host + remote + empty + ally) " + tag)
 	var cut := truncated(j, LONG_PAD_NAME)
-	check(cut.is_empty(), what + "shows every row / name untrimmed " + tag)
+	check(cut.is_empty(), what + "shows every row / name untrimmed %s %s" % [tag, cut])
 	for c in cut.slice(0, 6):
 		print("    trimmed: ", c)
 	m.join(Bindings.Kind.PAD, 0, REMOTE_PEERS[1], LONG_PLAYER_NAME)

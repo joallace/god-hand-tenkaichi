@@ -170,7 +170,7 @@ func _refresh_partners() -> void:
 	_partners.clear()
 	var t := Tuning.hud
 	for m in mates:
-		var color := t.slot_color(m.slot)
+		var color := m.tint()
 		var nl := _label(t.coop_small_font_size, color)
 		nl.name = "PartnerName%d" % (m.slot + 1)
 		nl.text = _tag(m)

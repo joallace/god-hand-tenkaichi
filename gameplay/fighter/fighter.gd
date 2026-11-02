@@ -238,6 +238,9 @@ const NEVER := 1 << 20
 
 var slot: int = 0
 var team: int = 0
+## Set by the director before the fighter enters the tree, from the config
+## (alpha 0 = unset). A view of the config, so not part of save_state.
+var body_color: Color = Color(0, 0, 0, 0)
 ## Who this fighter fights: facing, fighter-space stick, attack tracking,
 ## lunges, sidesteps, aimed blasts. Null = none (keeps its facing). Picked by
 ## the MatchDirector; saved by slot.
@@ -858,12 +861,11 @@ func current_move_serial() -> int:
 	return _move_serial
 
 
-## Body color: the character color, shifted for P2 so mirrors are readable.
+## Body color: body_color, or the character's own outside a match.
 func tint() -> Color:
-	var c := def.color if def else Color.WHITE
-	if slot % 2 == 1:
-		c = Color.from_hsv(fposmod(c.h + 0.5, 1.0), c.s * 0.9, c.v)
-	return c
+	if body_color.a > 0.0:
+		return body_color
+	return def.color if def else Color.WHITE
 
 
 # =============================================================================

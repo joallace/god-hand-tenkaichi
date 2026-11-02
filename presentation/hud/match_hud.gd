@@ -206,7 +206,7 @@ static func panel_places(fighters: Array[Fighter]) -> Dictionary:
 ## side has 2+ rows) uses the smaller stack_* sizes for every panel.
 func _build_panel(f: Fighter, right_side: bool, row: int = 0, compact: bool = false) -> void:
 	var t := Tuning.hud
-	var pcolor := t.slot_color(f.slot)
+	var pcolor := f.tint()
 	var p := {"fighter": f, "right": right_side, "row": row, "compact": compact}
 
 	var name_label := _label(t.stack_name_font_size if compact else t.name_font_size, pcolor)
@@ -730,7 +730,8 @@ func _on_run_ended(cleared: bool) -> void:
 
 
 func _slot_color(slot: int) -> Color:
-	return Tuning.hud.slot_color(slot)
+	var f := director.fighter_for_slot(slot)
+	return f.tint() if f != null else Tuning.hud.announce_color
 
 
 func _refresh_pips() -> void:

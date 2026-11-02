@@ -772,6 +772,7 @@ func _config_team(p: PlayerSlotConfig) -> int:
 ## Mode-derived fighter flags (not saved; reapplied to rebuilt fighters).
 func _apply_mode_flags(f: Fighter) -> void:
 	f.downable = coop != null and f.team == CoopRun.HUMAN_TEAM
+	f.body_color = config.color_of(f.slot)
 
 
 func _free_node(e: SimEntity) -> void:

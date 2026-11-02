@@ -14,11 +14,6 @@ extends Resource
 @export var color_outline: Color = Color(0.05, 0.02, 0.0)
 @export var color_focus: Color = Color(1.0, 0.92, 0.2)
 @export var color_disabled: Color = Color(0.35, 0.38, 0.48)
-@export var color_p1: Color = Color(1.0, 0.45, 0.1)
-@export var color_p2: Color = Color(0.25, 0.65, 1.0)
-## Players 3 and 4 (online co-op has up to Tuning.net.max_humans players).
-@export var color_p3: Color = Color(0.80, 0.45, 1.0)
-@export var color_p4: Color = Color(0.30, 0.95, 0.75)
 @export var color_ready: Color = Color(0.35, 1.0, 0.4)
 
 @export_group("Sizes")
@@ -161,8 +156,3 @@ extends Resource
 ## Confirm prompts (reset, keep display settings): panel padding and width.
 @export var confirm_padding: int = 28
 @export var confirm_width: int = 620
-
-## Colour of player slot `slot` (0-based): P1..P4, then repeating.
-func player_color(slot: int) -> Color:
-	var colors: Array[Color] = [color_p1, color_p2, color_p3, color_p4]
-	return colors[posmod(slot, colors.size())]

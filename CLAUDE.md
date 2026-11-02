@@ -122,6 +122,10 @@ before autoloads exist. See `tests/README.md`. Always wrap Godot calls in
     `Bindings.profile_for` / `MatchConfig.binding_profile`); a peer's
     drop-out = CPU takeover, forfeit only when the humans left share one team
     (`RollbackDriver.drop_out_commands`).
+  - Fighter colours: `Tuning.colors` palette, picked on the lobby's COLOR row
+    (unique, unpicked slots take a free one; `PlayerSlotConfig.color_index`).
+    `MatchConfig.color_of` is the one source for body, HUD and results; co-op
+    enemies share `enemy_color`, outside the palette. Never in save_state.
   - `tuning/`: one Resource class per category, loaded by the `Tuning` autoload
     from `data/tuning/<key>.tres`.
   - `game.gd`: `Game` autoload, scene flow.

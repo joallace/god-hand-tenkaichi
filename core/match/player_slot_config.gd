@@ -26,6 +26,9 @@ const MAX_SLOT := 63
 @export var owner_peer: int = 0
 ## Profile name of a human online ("" offline). See MatchConfig.player_tag.
 @export var display_name: String = ""
+## Index into Tuning.colors.palette (-1 = the slot's default). Presentation
+## only: it never reaches the sim, save_state or the hashes.
+@export var color_index: int = -1
 
 
 ## LOCAL slots read Bindings `profile` (MatchConfig.binding_profile; -1 =
@@ -45,6 +48,7 @@ func to_dict() -> Dictionary:
 		"slot": slot, "team": team, "character_id": String(character_id),
 		"input_kind": input_kind, "device_kind": device_kind, "device_id": device_id,
 		"cpu_level": cpu_level, "owner_peer": owner_peer, "display_name": display_name,
+		"color_index": color_index,
 	}
 
 
@@ -62,10 +66,11 @@ static func from_dict(d: Variant) -> PlayerSlotConfig:
 	var dev_id_v: Variant = MatchConfig.dict_int(d, "device_id", -1, -1, MAX_SLOT)
 	var lvl_v: Variant = MatchConfig.dict_int(d, "cpu_level", -1, -1, Tuning.cpu.level_count() - 1)
 	var peer_v: Variant = MatchConfig.dict_int(d, "owner_peer", 0, 0, 0x7FFFFFFF)
+	var color_v: Variant = MatchConfig.dict_int(d, "color_index", -1, -1, Tuning.colors.count() - 1)
 	var ch: Variant = d.get("character_id", String(p.character_id))
 	var nm: Variant = d.get("display_name", "")
 	if slot_v == null or team_v == null or kind_v == null or dev_kind_v == null or dev_id_v == null \
-			or lvl_v == null or peer_v == null or not (ch is String or ch is StringName) or not nm is String:
+			or lvl_v == null or peer_v == null or color_v == null or not (ch is String or ch is StringName) or not nm is String:
 		return null
 	if not StringName(ch) in CharacterRegistry.ids():
 		return null
@@ -76,6 +81,7 @@ static func from_dict(d: Variant) -> PlayerSlotConfig:
 	p.device_id = dev_id_v
 	p.cpu_level = lvl_v
 	p.owner_peer = peer_v
+	p.color_index = color_v
 	p.character_id = StringName(ch)
 	p.display_name = sanitize_name(nm)
 	return p

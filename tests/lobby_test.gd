@@ -53,8 +53,8 @@ func _test_model_modes() -> void:
 			and LobbyModel.ONLINE_MODES.has(MatchConfig.Mode.COOP), "online lobby's Game row: Versus / Co-op")
 	var h := o.join(Bindings.Kind.PAD, 0, Transport.HOST_PEER, "Host")
 	var g := o.join(Bindings.Kind.PAD, -1, 2, "Guest")
-	check(o.rows_for(g) == ([LobbyModel.Row.CHARACTER, LobbyModel.Row.TEAM] as Array[int])
-			and o.rows_for(h).has(LobbyModel.Row.ROUNDS), "guests only pick their fighter and team; the host has the rules")
+	check(o.rows_for(g) == ([LobbyModel.Row.CHARACTER, LobbyModel.Row.COLOR, LobbyModel.Row.TEAM] as Array[int])
+			and o.rows_for(h).has(LobbyModel.Row.ROUNDS), "guests only pick their fighter, colour and team; the host has the rules")
 	o.command(g, LobbyModel.Cmd.CONFIRM)
 	o.slots[h].cursor = LobbyModel.Row.ROUNDS
 	o.command(h, LobbyModel.Cmd.RIGHT)
@@ -100,7 +100,7 @@ func _test_model_online_coop() -> void:
 			"every place can take a human with the ally off")
 	check(o.rows_for(0).has(LobbyModel.Row.MODE) and o.rows_for(0).has(LobbyModel.Row.ALLY),
 			"online co-op: the host has the Game row and the run rows")
-	check(o.rows_for(guests[0]) == ([LobbyModel.Row.CHARACTER] as Array[int]), "online co-op: guests only pick their fighter")
+	check(o.rows_for(guests[0]) == ([LobbyModel.Row.CHARACTER, LobbyModel.Row.COLOR] as Array[int]), "online co-op: guests only pick their fighter and colour")
 	o.slots[0].cursor = LobbyModel.Row.ALLY
 	o.command(0, LobbyModel.Cmd.RIGHT)
 	check(not o.coop_ally, "the ally can't be switched on with every place taken by a human")
@@ -380,12 +380,16 @@ func _test_rooms() -> void:
 	check(host.model.slots[1].state == LobbyModel.SlotState.JOINED and guest.model.slots[1].state == LobbyModel.SlotState.JOINED,
 			"guest's ready / un-ready applied by the host and mirrored back")
 	check(host.model.slots[0].state == LobbyModel.SlotState.JOINED, "guest can't steer the host's slot")
-	check(host.model.slots[1].cursor == LobbyModel.Row.TEAM, "guest cursor goes from its fighter to its team row")
+	check(host.model.slots[1].cursor == LobbyModel.Row.COLOR, "guest cursor goes from its fighter to its colour row")
+	guest.request({"op": OnlineRoom.OP_CMD, "slot": 1, "cmd": LobbyModel.Cmd.DOWN})
+	_pump(all_s, all_r, 10)
+	check(host.model.slots[1].cursor == LobbyModel.Row.TEAM, "then its team row")
 	guest.request({"op": OnlineRoom.OP_CMD, "slot": 1, "cmd": LobbyModel.Cmd.DOWN})
 	_pump(all_s, all_r, 10)
 	check(host.model.slots[1].cursor == LobbyModel.Row.CHARACTER, "and wraps there: the rules are the host's")
 	host.model.lock_teams = true
 	host.model.fix_cursors()
+	guest.request({"op": OnlineRoom.OP_CMD, "slot": 1, "cmd": LobbyModel.Cmd.DOWN})
 	guest.request({"op": OnlineRoom.OP_CMD, "slot": 1, "cmd": LobbyModel.Cmd.DOWN})
 	guest.request({"op": OnlineRoom.OP_CMD, "slot": 1, "cmd": LobbyModel.Cmd.RIGHT})
 	_pump(all_s, all_r, 10)

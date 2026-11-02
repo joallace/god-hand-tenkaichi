@@ -237,6 +237,7 @@ func open_online(direct: bool = false) -> Error:
 		var mine := Net.room.my_slots()
 		if not mine.is_empty():
 			model.slots[mine[0]].char_index = keep.char_index
+			model.slots[mine[0]].color_index = keep.color_index
 	Net.room.publish()
 	_notice = ""
 	Sfx.play(&"ui_confirm")
@@ -715,7 +716,7 @@ func _rebuild_panels() -> void:
 	var compact := slots.size() > 2
 	if not compact:
 		for i in slots.size():
-			var ui := _build_player_panel(i, u.player_color(i), false)
+			var ui := _build_player_panel(i, false)
 			_ui.append(ui)
 			_panel_row.add_child(ui["panel"])
 			if i == 0:
@@ -731,7 +732,7 @@ func _rebuild_panels() -> void:
 	_panel_row.add_child(_build_settings_panel())
 	_panel_row.add_child(columns[1])
 	for i in slots.size():
-		var ui := _build_player_panel(i, u.player_color(i), true)
+		var ui := _build_player_panel(i, true)
 		(ui["panel"] as Control).size_flags_vertical = Control.SIZE_EXPAND_FILL
 		_ui.append(ui)
 		columns[i % 2].add_child(ui["panel"])
@@ -746,12 +747,11 @@ static func _fit_label(text: String, variation: StringName = &"", font_size := 0
 	return l
 
 
-func _build_player_panel(_i: int, color: Color, compact: bool) -> Dictionary:
+func _build_player_panel(_i: int, compact: bool) -> Dictionary:
 	var u := UiTheme.tuning()
 	var panel := PanelContainer.new()
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var sb := (UiTheme.get_theme().get_stylebox("panel", "PanelContainer") as StyleBoxFlat).duplicate() as StyleBoxFlat
-	sb.border_color = color
 	sb.set_border_width_all(u.join_panel_border)
 	if compact:
 		sb.set_content_margin_all(u.join_compact_panel_margin)
@@ -760,19 +760,26 @@ func _build_player_panel(_i: int, color: Color, compact: bool) -> Dictionary:
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
 	panel.add_child(col)
 	var header := _fit_label("", &"HeaderLabel", u.join_compact_header_font if compact else 0)
-	header.add_theme_color_override("font_color", color)
 	col.add_child(header)
 	var device := _fit_label("", &"HintLabel")
 	col.add_child(device)
 	var state := _fit_label("", &"HeaderLabel", u.join_compact_state_font if compact else u.join_state_font)
-	col.add_child(state)
+	var swatch := _fit_label("", &"", u.join_row_font)
+	# State and colour share a line: a panel has no height to spare, and the
+	# state is the one short line (it only wraps while the colour is hidden).
+	var state_row := HBoxContainer.new()
+	state.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	swatch.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
+	state_row.add_child(state)
+	state_row.add_child(swatch)
+	col.add_child(state_row)
 	var character := _fit_label("", &"", u.join_compact_character_font if compact else u.join_character_font)
 	col.add_child(character)
 	var hint := MenuHelpers.label("", &"HintLabel", HORIZONTAL_ALIGNMENT_CENTER)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	col.add_child(hint)
 	return {"panel": panel, "header": header, "device": device, "state": state, "character": character,
-		"hint": hint, "color": color}
+		"swatch": swatch, "hint": hint, "style": sb, "color": Color.WHITE}
 
 
 ## Shared rows (mode, match rules / co-op run) live once, in the middle
@@ -856,7 +863,7 @@ func _row_color(row: int) -> Color:
 	var u := UiTheme.tuning()
 	for i in slots.size():
 		if slots[i].state == SlotState.JOINED and slots[i].cursor == row:
-			return u.player_color(i)
+			return _ui[i]["color"]
 	return u.color_text
 
 
@@ -869,9 +876,11 @@ func _refresh() -> void:
 	var ids := MenuHelpers.character_ids()
 	var mine := local_slots()
 	var ally := ally_slots()
+	var colors := model.resolved_colors()
 	for i in slots.size():
 		var s := slots[i]
 		var ui := _ui[i]
+		_show_color(i, ui, model.ally_color() if i in ally else colors[i])
 		var header: Label = ui["header"]
 		var state: Label = ui["state"]
 		var device: Label = ui["device"]
@@ -925,6 +934,22 @@ func _refresh() -> void:
 	_refresh_room()
 	_refresh_status()
 	_scroll_to_cursor.call_deferred()
+
+
+## The slot's colour: panel border, header and the Colour line, which reads
+## "<  Blue  >" while the player's cursor is on it.
+func _show_color(i: int, ui: Dictionary, index: int) -> void:
+	var s := slots[i]
+	var color := Tuning.colors.color(index)
+	ui["color"] = color
+	(ui["style"] as StyleBoxFlat).border_color = color
+	(ui["header"] as Label).add_theme_color_override("font_color", color)
+	var swatch: Label = ui["swatch"]
+	var cname := Tuning.colors.color_name(index)
+	var on_color := s.state == SlotState.JOINED and s.cursor == Row.COLOR
+	swatch.visible = s.state != SlotState.EMPTY or i in ally_slots()
+	swatch.text = "<  %s  >" % cname if on_color else cname
+	swatch.add_theme_color_override("font_color", color)
 
 
 ## Team versus: the slot's team after its device line ("<  Team A  >",
