@@ -549,8 +549,9 @@ func _defend_melee(m: MoveData, a: Fighter, side: bool = false) -> void:
 	var stick := _pose_stick(pose)
 	var window := me.guard_vanish_window()
 	var opener := a.move_opens_string()
-	# Only a string opener can be vanished, and only with a clean (unmashed) press.
-	var can_vanish := opener and me.ki >= VanishBattle.cost_from(t, t.guard_vanish_cost_bars, 0)
+	# Only a smash / finisher (MoveData.z_counterable) can be vanished, and
+	# only with a clean (unmashed) press; string hits are guarded.
+	var can_vanish := m.z_counterable and me.ki >= VanishBattle.cost_from(t, t.guard_vanish_cost_bars, 0)
 	var dodge := can_dodge and (not can_guard or crashes or _roll(cfg.dodge_preference))
 	_clear_plan()
 	if not dodge and can_guard and me.state != S.GUARD_STUN and can_vanish \

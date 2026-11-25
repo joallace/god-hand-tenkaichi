@@ -18,7 +18,8 @@ func _ready() -> void:
 	_test_case(&"brawler_kick_mid", B.HEAVY, &"hit")      # stagger
 	_test_case(&"brawler_kick_mid", B.HEAVY, &"high")     # ki guard
 	_test_case(&"brawler_kick_mid", B.HEAVY, &"guard")    # mid guard: push-off
-	_test_case(&"brawler_charge_kick", B.HEAVY, &"guard", 0, 120)  # full charge: guard crash
+	_test_case(&"brawler_charge_kick", B.HEAVY, &"guard", 0, 120)  # full charge: ki guard (BT3)
+	_test_case(&"brawler_charge_kick", B.HEAVY, &"guard", 0, 120, true)  # charge_breaks_guard: crash
 	_test_sheet()
 	print("FRAME DATA TESTS: %s (%d failures)" % ["PASS" if _failures == 0 else "FAIL", _failures])
 	get_tree().quit(0 if _failures == 0 else 1)
@@ -62,11 +63,23 @@ func _new_match(distance: float) -> MatchDirector:
 ## both getting control back must match the sheet.
 ## `hold` > 1 holds `btn` that many frames (a held HEAVY becomes the charge
 ## strike, released at full charge).
-func _test_case(move_id: StringName, btn: int, how: StringName, lead_in: int = 0, hold: int = 1) -> void:
+## `breaks` turns FighterTuning.charge_breaks_guard on for the case (off by
+## default: BT3's full smashes never crash a guard).
+func _test_case(move_id: StringName, btn: int, how: StringName, lead_in: int = 0, hold: int = 1,
+		breaks: bool = false) -> void:
 	var d := _new_match(1.4)
 	var p1 := d.fighters[0]
 	var p2 := d.fighters[1]
-	var label := "%s %s" % [move_id, how]
+	var was_breaking := p1.tuning.charge_breaks_guard
+	p1.tuning.charge_breaks_guard = breaks
+	_run_case(d, move_id, btn, how, lead_in, hold, "%s %s%s" % [move_id, how, " (breaks)" if breaks else ""])
+	p1.tuning.charge_breaks_guard = was_breaking
+
+
+func _run_case(d: MatchDirector, move_id: StringName, btn: int, how: StringName, lead_in: int, hold: int,
+		label: String) -> void:
+	var p1 := d.fighters[0]
+	var p2 := d.fighters[1]
 	var guarded := how != &"hit"
 	var p2_src := d.sources[1] as ScriptedInput
 	if guarded:
@@ -117,7 +130,8 @@ func _test_case(move_id: StringName, btn: int, how: StringName, lead_in: int = 0
 	var want: String = {&"brawler_jab1 hit": "stun", &"brawler_jab1 guard": "plain",
 		&"brawler_hook hit": "stun", &"brawler_kick_mid hit": "stagger",
 		&"brawler_kick_mid high": "ki_guard", &"brawler_kick_mid guard": "push_off",
-		&"brawler_charge_kick guard": "crash"}.get(StringName(label), "?")
+		&"brawler_charge_kick guard": "ki_guard",
+		&"brawler_charge_kick guard (breaks)": "crash"}.get(StringName(label), "?")
 	_check(branch == want, "%s: covers the %s branch (%s)" % [label, want, branch])
 	var measured := p2_free - p1_free
 	_check(expected != null and measured == int(expected),

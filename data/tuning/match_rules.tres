@@ -4,4 +4,4 @@
 
 [resource]
 script = ExtResource("1_lfqlo")
-round_time_options = PackedInt32Array(60, 99, 0)
+round_time_options = PackedInt32Array(120, 180, 0)

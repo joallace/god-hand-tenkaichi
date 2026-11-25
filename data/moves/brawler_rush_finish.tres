@@ -8,7 +8,6 @@ id = &"brawler_rush_finish"
 pose = &"finisher"
 startup = 6
 recovery = 28
-damage = 120.0
 hitstun = 40
 guard_stun = 12
 knockback = Vector3(0, 8, 9)

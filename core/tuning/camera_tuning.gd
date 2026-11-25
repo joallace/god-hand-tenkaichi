@@ -59,6 +59,10 @@ extends Resource
 @export var trauma_decay: float = 1.8
 @export var trauma_hit_light: float = 0.22
 @export var trauma_hit_heavy: float = 0.5
+## A charge strike's clean hit grows from its move's shake toward this at
+## full charge (BT3: smash shake 5 for 0.3 s, full smash 7). A move's own
+## MoveData.shake replaces the light / heavy default.
+@export var trauma_hit_full_charge: float = 0.6
 @export var trauma_hit_blocked: float = 0.1
 @export var trauma_guard_break: float = 0.55
 @export var trauma_push_off: float = 0.25

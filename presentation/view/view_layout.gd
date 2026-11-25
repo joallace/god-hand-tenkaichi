@@ -225,13 +225,16 @@ func _on_fighter_event(f: Fighter, kind: StringName, data: Dictionary, hub: Matc
 	match kind:
 		&"hit":
 			var victim := hub.hit_victim(f, data)
-			var amount := t.trauma_hit_light
+			var heavy: bool = data.get("heavy", false)
+			var amount := t.trauma_hit_heavy if heavy else t.trauma_hit_light
+			var own: float = data.get("shake", -1.0)
+			if own >= 0.0:
+				amount = own
+			amount = lerpf(amount, maxf(amount, t.trauma_hit_full_charge), data.get("charge", 0.0))
 			if data.get("blocked", false):
 				amount = t.trauma_hit_blocked
-			elif data.get("heavy", false):
-				amount = t.trauma_hit_heavy
-				if cameras.has(victim.slot):
-					(cameras[victim.slot] as FighterCamera).fov_punch(t.heavy_hit_fov_punch)
+			elif heavy and cameras.has(victim.slot):
+				(cameras[victim.slot] as FighterCamera).fov_punch(t.heavy_hit_fov_punch)
 			_shake(victim.slot, amount)
 		&"perfect_dodge":
 			if cameras.has(f.slot):

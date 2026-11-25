@@ -12,7 +12,8 @@ victim can guard out of). You approved it. Then I played scripted fights in
 the BT3 port and the claim turned out to be false. This version replaces
 that plan.
 
-Status: proposal. Stage 0 done (2026-11-25); stages 1–5 not started. I still have not played our game; its numbers are read from
+Status: proposal. Stage 0 done (2026-11-25); stage 1 implemented
+(2026-11-25, waiting for your playtest: its gate); stages 2–5 not started. I still have not played our game; its numbers are read from
 code and tuning files.
 
 ## Phase 0 result: the hitstun claim was wrong
@@ -123,6 +124,35 @@ rollback test, save/load round trip.
   momentum only as a small, short charge-speed bonus. Not tested yet:
   mid-string auto-guard (two strings meeting) and dash smash priority.
 - **Gate:** does it feel better? Which complaint is still there?
+
+  **Implemented 2026-11-25** (branch `worktree-roadmap-stage1`; numbers in
+  [frame_data.md](frame_data.md); rules held by `tests/stage1_rules_test`):
+  - Damage ×0.25 (`DAMAGE_SCALE` in `tools/generate_moves.gd`): jab 0.75%,
+    full string 5%, full smash ~3%. Defaults now one round of 180 s
+    (options 120 / 180 / ∞; the lobby still picks 1–5 rounds): CPU vs CPU
+    rounds went from 25–70 s to ~100–240 s with no timer.
+  - String: jab hits on frame 8, chained hits 9–19 frames apart, each
+    inside the previous stun. Ender recovery 70, smashes 44, finishers ~40,
+    tapped heavies 34–42; their follow-ups need a clean **hit**
+    (`cancel_requires_hit` no longer opens on a block). Super cancels still
+    work on block (2 bars).
+  - Impact: no hitstop on lights or the ender (heavies keep 8); per-move
+    shake (`MoveData.shake`, growing with the charge); jab push 1.0, ender
+    7.0, smashes 13 m/s (~2× the travel); BT3 approach (rush 1 at 9.5 m/s,
+    later steps 5.5, walk 6) that stops when the hitbox reaches the target.
+  - Rules: Z-counter only on `MoveData.z_counterable` moves (smashes,
+    finishers, heavies, dash attack; the CPU follows); ki guard 45 per hit,
+    smashes 40 → 56 at full; full charge no longer crashes a guard
+    (`FighterTuning.charge_breaks_guard`, off); smashes absorb 4 light hits
+    while under way; momentum (up to 1.4× charge speed right after landed
+    hits, gone about 1.5 s later); no ki for being hit. Charged body blow
+    stun 50–80 (was 36–60) with on-hit follow-ups, so the stun converter
+    survives its longer recovery.
+  - Not done here: charge-dependent guard results per pose (BT3's neutral
+    smash is plain in mid guard, a full side smash goes through both stick
+    poses: we keep one result per pose), priority trades beyond smash
+    armor, mid-string auto-guard and dash smash priority (untested in BT3),
+    co-op enemy health (waves now take ~4× longer too).
 
 **Stage 2. Reactions and states.** Reaction table (heavy stagger, bounce,
 blow-away with crashes, stun), follow-ups by the victim's reaction,
@@ -242,7 +272,7 @@ What has to be built:
 | Question | Your answer | Now |
 |---|---|---|
 | Soft hitstun | approved | **withdrawn by me**: BT3 does not work that way (phase 0) |
-| Longer rounds | approved | stands (stage 1) |
+| Longer rounds | approved | done (stage 1): one 180 s round by default |
 | String loadouts | yes | stands (stage 4; design written 2026-11-24) |
 | (2026-11-24) Custom characters from files, like MUGEN | add to the roadmap | stage 5, proposal |
 | Co-op and online stay on the old core until a switch-over | yes | moot for now: stage 1 changes the shared core, so every mode gets it; `matchup_sim` and `coop_sim` rerun after |

@@ -407,11 +407,12 @@ func _test_perfect_dodge() -> void:
 	var p1 := d.fighters[0]
 	var p2 := d.fighters[1]
 	var ki_before := p2.ki
-	# Jab becomes active 5 frames after the press; duck 3 frames after the
-	# press so the hit lands on dodge frame 2 (< perfect_dodge_frames).
+	var jab := p1.def.move(p1.def.light_string[0])
+	# Duck 2 frames before the jab's first active frame so the hit lands on
+	# dodge frame 2 (< perfect_dodge_frames).
 	_src(d, 0).press(0, B.LIGHT)
-	_src(d, 1).flick(3, InputFrame.Dodge.FORWARD)
-	_run(d, 8)
+	_src(d, 1).flick(jab.startup - 2, InputFrame.Dodge.FORWARD)
+	_run(d, jab.startup + 3)
 	_check(_event_count(&"perfect_dodge", 1) == 1, "perfect dodge fires")
 	_check(is_equal_approx(p2.health, p2.tuning.max_health), "perfect dodge takes no damage")
 	_check(p2.ki >= ki_before + p2.tuning.ki_gain_on_perfect_dodge - 0.01, "perfect dodge grants ki")
@@ -420,7 +421,8 @@ func _test_perfect_dodge() -> void:
 	_src(d, 1).press_at_tick(d.tick + 1, B.LIGHT)
 	_run(d, 20)
 	var dmg := p1.tuning.max_health - p1.health
-	_check(dmg >= 30.0 * p2.tuning.perfect_dodge_counter_damage_mult - 0.01, "counter attack deals bonus damage (%.1f)" % dmg)
+	_check(dmg >= jab.damage * p2.tuning.perfect_dodge_counter_damage_mult - 0.01,
+		"counter attack deals bonus damage (%.1f)" % dmg)
 
 
 func _test_charge() -> void:
@@ -541,7 +543,7 @@ func _test_ultimate() -> void:
 	_check(_event_count(&"ultimate_start", 0) == 1 and d.world_freeze > 0, "ultimate emits ultimate_start and freezes")
 	_check(is_zero_approx(p1.ki), "ultimate consumes the full gauge")
 	_run(d, 200)
-	_check(p2.health < p2.tuning.max_health - 100.0, "ultimate beam deals big damage (hp %.1f)" % p2.health)
+	_check(p2.health < p2.tuning.max_health * 0.95, "ultimate beam deals big damage (hp %.1f)" % p2.health)
 
 
 func _test_not_enough_ki() -> void:
@@ -616,7 +618,7 @@ func _test_guard_vanish_escape() -> void:
 	var p2 := d.fighters[1]
 	p2.ki = p2.ki_max()
 	_src(d, 0).press(0, B.LIGHT)
-	_src(d, 1).press(7, B.GUARD)
+	_src(d, 1).press(d.fighters[0].def.move(&"brawler_jab1").startup + 3, B.GUARD)
 	var esc := _run_until(d, func() -> bool: return p2.current_state_name() == &"teleport", 30)
 	_check(esc and _event_count(&"vanish", 1) == 1, "GUARD in hitstun vanishes")
 
@@ -628,12 +630,12 @@ func _test_guard_vanish() -> void:
 		var p1 := d.fighters[0]
 		var p2 := d.fighters[1]
 		p2.ki = p2.ki_max()
-		startup = p1.def.move(p1.def.light_string[0]).startup
+		startup = p1.def.move(p1.def.heavy).startup
 		var at := 0 if early else maxi(startup - 2, 0)
 		if early:
-			_src(d, 0).press(20, B.LIGHT)  # guard held long before the hit
+			_src(d, 0).press(20, B.HEAVY)  # guard held long before the hit
 		else:
-			_src(d, 0).press(0, B.LIGHT)
+			_src(d, 0).press(0, B.HEAVY)
 		_src(d, 1).press(at, B.GUARD, 60)
 		_run(d, 40)
 		if early:
@@ -865,8 +867,8 @@ func _test_charge_strike_guard() -> void:
 		var ratio: float = _last_event(&"charge_release").get("ratio", 0.0)
 		if full:
 			_check(is_equal_approx(ratio, 1.0), "holding auto-releases at full charge")
-			_check(_event_count(&"guard_break", 1) == 1 and p2.is_guard_crashed(),
-				"full charge crashes a guard with ki to spare")
+			_check(_event_count(&"guard_break", 1) == 0 and not p2.is_guard_crashed(),
+				"full charge is ki-guarded, no crash with ki to spare")
 		else:
 			_check(_event_count(&"guard_break", 1) == 0 and p2.current_state_name() == &"guard_stun",
 				"half charge is blocked (ki %.1f)" % p2.ki)
@@ -883,7 +885,8 @@ func _test_charge_punch() -> void:
 	_check(_event_count(&"hit", 1) == 1, "the jab still landed first")
 	_run(d, 90)
 	_check(_event_count(&"hit", 1) >= 2, "charge punch connects (%d hits)" % _event_count(&"hit", 1))
-	_check(p2.health < p2.tuning.max_health - 30.0 - p1.def.move(&"brawler_charge_punch").damage * 0.5,
+	_check(p2.health < p2.tuning.max_health - p1.def.move(&"brawler_jab1").damage
+			- p1.def.move(&"brawler_charge_punch").damage * 0.5,
 		"charge punch damage (hp %.1f)" % p2.health)
 
 
@@ -893,8 +896,8 @@ func _test_guard_vanish_mash() -> void:
 	var p1 := d.fighters[0]
 	var p2 := d.fighters[1]
 	p2.ki = p2.ki_max()
-	var startup := p1.def.move(p1.def.light_string[0]).startup
-	_src(d, 0).press(0, B.LIGHT)
+	var startup := p1.def.move(p1.def.heavy).startup
+	_src(d, 0).press(0, B.HEAVY)
 	_src(d, 1).press(0, B.GUARD).press(maxi(startup - 2, 2), B.GUARD, 60)
 	_run(d, 40)
 	_check(_event_count(&"vanish", 1) == 0 and _event_count(&"hit", 1) == 1 and _last_event(&"hit")["blocked"],
@@ -999,7 +1002,11 @@ func _test_anti_loop_repeat() -> void:
 	_run_until(d, func() -> bool: return _event_count(&"stagger", 1) == 1, 40)
 	_check(_move_id(p1) == &"brawler_finisher_1", "jab -> HEAVY = the first position's finisher")
 	var at := d.tick
-	_src(d, 0).press_at_tick(at + 6, B.LIGHT).press_at_tick(at + 14, B.HEAVY)
+	_src(d, 0).press_at_tick(at + 6, B.LIGHT)
+	# HEAVY again once the jab can cancel (it lands, then its window opens).
+	var jab := p1.def.move(&"brawler_jab1")
+	_run_until(d, func() -> bool: return _move_id(p1) == jab.id and p1.state_frame() >= jab.cancel_start - 2, 60)
+	_src(d, 0).press_at_tick(d.tick + 1, B.HEAVY)
 	_run_until(d, func() -> bool: return _event_count(&"hit", 1) == 4, 60)
 	_check(_event_count(&"hit", 1) == 4 and p2.current_state_name() == &"knockdown" and _event_count(&"knockdown", 1) == 1,
 		"the same special reaction twice in a combo pushes out into a knockdown")

@@ -4,9 +4,11 @@ extends Node
 ## row vs column) and a `MATCHUP <a> <b> <a's round win %>` line per pairing.
 ## The CPU doesn't play any character to its strengths on purpose, so this
 ## catches a broken pairing; it doesn't replace playing them.
-##   godot --headless res://tools/matchup_sim.tscn -- runs=20 levels=3,5,7 [seed=1 only=titan]
+##   godot --headless res://tools/matchup_sim.tscn -- runs=20 levels=3,5,7 [seed=1 only=titan time=0]
+## `time` overrides the round time in seconds (0 = infinite: natural round
+## length); empty = the default rules.
 
-var _args := {"runs": "20", "levels": "3,5,7", "seed": "1", "only": ""}
+var _args := {"runs": "20", "levels": "3,5,7", "seed": "1", "only": "", "time": ""}
 
 
 func _ready() -> void:
@@ -71,6 +73,8 @@ func _pairing(a: StringName, b: StringName, level: int) -> Dictionary:
 func _match(a: StringName, b: StringName, level: int, seed_value: int) -> Dictionary:
 	var cfg := MatchConfig.from_defaults(MatchConfig.Mode.VERSUS_CPU)
 	cfg.rng_seed = seed_value
+	if String(_args["time"]) != "":
+		cfg.round_time_seconds = int(_args["time"])
 	for i in 2:
 		var p := PlayerSlotConfig.new()
 		p.slot = i

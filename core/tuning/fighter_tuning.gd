@@ -20,7 +20,8 @@ extends Resource
 ## Guarding doesn't skip it: letting go of GUARD early resumes the lag.
 @export var charge_release_lag_frames: int = 12
 @export var ki_gain_on_hit_dealt: float = 4.0
-@export var ki_gain_on_hit_taken: float = 3.0
+## BT3: the defender gains no ki from being hit.
+@export var ki_gain_on_hit_taken: float = 0.0
 @export var ki_gain_on_perfect_dodge: float = 15.0
 
 @export_group("Movement")
@@ -51,6 +52,9 @@ extends Resource
 ## Turn speed while an attack tracks the opponent during startup. Slower than
 ## turn_speed_deg so an early sway outruns it (God Hand enemies ~340 deg/s).
 @export var attack_track_turn_deg: float = 360.0
+## A ground lunge stops once the move's hitbox center is within the target's
+## body radius + this (m), or once the move connects (Fighter._lunge_arrived).
+@export var lunge_stop_reach: float = 0.0
 ## Moves without an explicit track_frames stop tracking this many frames
 ## before their first active frame (the swing commits).
 @export var attack_track_lock_frames: int = 2
@@ -189,7 +193,9 @@ extends Resource
 @export var knockback_taken_mult: float = 1.0
 ## Damage kept when MoveData.armor_hits absorbs a hit.
 @export_range(0.0, 1.0) var armor_damage_ratio: float = 0.5
-@export var hitstop_light: int = 4
+## BT3 and God Hand freeze nothing on ordinary hits (both measured): weight
+## comes from shake, push and travel instead. Heavies keep a short beat.
+@export var hitstop_light: int = 0
 @export var hitstop_heavy: int = 8
 ## Longest a fighter stays lying on the ground (no input) before getting up.
 @export var knockdown_frames: int = 40
@@ -238,10 +244,27 @@ extends Resource
 ## Charge ratio from which a clean hit stuns the victim...
 @export_range(0.0, 1.0) var charge_stun_ratio: float = 0.5
 ## ...for this many frames, growing to the max at full charge.
-@export var charge_stun_frames_min: int = 36
-@export var charge_stun_frames_max: int = 60
-## Charge ratio from which a blocked hit breaks the guard outright.
+## (BT3 stuns: 30 / 60 / 90; long enough to follow up after a charge
+## strike's long recovery.)
+@export var charge_stun_frames_min: int = 50
+@export var charge_stun_frames_max: int = 80
+## A blocked charge strike charged to charge_break_ratio crashes the guard
+## outright. Off: BT3's full smashes never crash a guard (measured: they are
+## guarded plainly, ki-guarded or go through, by pose; bt3_sauce.md).
+@export var charge_breaks_guard: bool = false
 @export_range(0.0, 1.0) var charge_break_ratio: float = 1.0
+
+@export_group("Momentum")
+## BT3 momentum (measured in the port: a smash charges 1.3-1.4x faster right
+## after a string, back to normal within about a second). Each landed hit
+## adds momentum_per_hit to a 0..1 gauge...
+@export_range(0.0, 1.0) var momentum_per_hit: float = 0.25
+## ...which holds this many frames after the last landed hit, then drains
+## by momentum_decay_per_frame...
+@export var momentum_hold_frames: int = 30
+@export var momentum_decay_per_frame: float = 1.0 / 60.0
+## ...and a full gauge charges charge strikes this much faster.
+@export var momentum_charge_rate_max: float = 1.4
 
 @export_group("Teleport & Vanish")
 @export var teleport_cost_bars: float = 1.0
