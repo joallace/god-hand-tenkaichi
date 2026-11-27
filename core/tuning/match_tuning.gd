@@ -3,10 +3,13 @@ extends Resource
 ## Match rules defaults (data/tuning/match_rules.tres). A MatchConfig copies these and the menus may override.
 
 @export var tick_rate: int = 60
-@export_range(1, 5) var rounds_to_win: int = 2
+## Roadmap stage 1: hits do BT3 damage (a jab 0.75% of health), so a round
+## lasts ~4x longer than before (CPU vs CPU: ~100 s at the top level, ~240 s
+## at level 2, tools/matchup_sim.tscn time=0). BT3 plays one long round.
+@export_range(1, 5) var rounds_to_win: int = 1
 ## Round time in seconds. 0 = infinite.
-@export_range(0, 999) var round_time_seconds: int = 99
-@export var round_time_options: PackedInt32Array = PackedInt32Array([60, 99, 0])
+@export_range(0, 999) var round_time_seconds: int = 180
+@export var round_time_options: PackedInt32Array = PackedInt32Array([120, 180, 0])
 @export var round_intro_frames: int = 90
 @export var round_outro_frames: int = 150
 @export var arena_radius: float = 18.0

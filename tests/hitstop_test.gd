@@ -94,13 +94,14 @@ func _hit_damages(slot: int) -> Array:
 
 # --- tests ---------------------------------------------------------------------
 
-## 1v1: a clean hit freezes attacker and victim for the move's hitstop.
+## 1v1: a clean heavy hit freezes attacker and victim for the move's hitstop
+## (light hits have none: FighterTuning.hitstop_light).
 func _test_pair_freezes() -> void:
 	var d := _new_match()
 	var p1 := d.fighters[0]
 	var p2 := d.fighters[1]
-	_src(d, 0).press(0, B.LIGHT)
-	_run_until(d, func() -> bool: return _event_count(&"hit", 1) == 1, 30)
+	_src(d, 0).press(0, B.HEAVY)
+	_run_until(d, func() -> bool: return _event_count(&"hit", 1) == 1, 40)
 	var stop := p1.hitstop_left()
 	_check(stop > 0 and p2.hitstop_left() == stop, "hit freezes attacker and victim (%d / %d)" % [stop, p2.hitstop_left()])
 	var f1 := p1.state_frame()
@@ -114,12 +115,12 @@ func _test_pair_freezes() -> void:
 
 ## A third fighter keeps simulating while another pair is in hitstop.
 func _test_bystander_moves() -> void:
-	var d := _new_match(3)
+	var d := _new_match(3, 1.4, Vector3(6, 0, 0))  # out of the heavy's reach
 	var p1 := d.fighters[0]
 	var by := d.fighters[2]
-	_src(d, 0).press(0, B.LIGHT)
+	_src(d, 0).press(0, B.HEAVY)
 	_src(d, 2).stick(0, 120, Vector2(0, 1))
-	_run_until(d, func() -> bool: return _event_count(&"hit", 1) == 1, 30)
+	_run_until(d, func() -> bool: return _event_count(&"hit", 1) == 1, 40)
 	var stop := p1.hitstop_left()
 	var pos := by.global_position
 	var f := by.state_frame()

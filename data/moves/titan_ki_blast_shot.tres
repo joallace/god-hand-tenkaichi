@@ -6,7 +6,7 @@
 script = ExtResource("1_44w6m")
 id = &"titan_ki_blast_shot"
 active = 1
-damage = 32.5
+damage = 8.125
 hitstun = 16
 guard_stun = 8
 knockback = Vector3(0, 0, 2)

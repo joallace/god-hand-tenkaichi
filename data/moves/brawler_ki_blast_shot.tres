@@ -6,7 +6,7 @@
 script = ExtResource("1_ovwur")
 id = &"brawler_ki_blast_shot"
 active = 1
-damage = 25.0
+damage = 6.25
 hitstun = 16
 guard_stun = 8
 knockback = Vector3(0, 0, 2)

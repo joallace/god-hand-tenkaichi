@@ -6,7 +6,7 @@
 script = ExtResource("1_820e7")
 id = &"titan_beam_shot"
 active = 72
-damage = 23.400000000000002
+damage = 5.8500000000000005
 guard_stun = 12
 knockback = Vector3(0, 0, 1)
 guard_ki_cost = 13.799999999999999

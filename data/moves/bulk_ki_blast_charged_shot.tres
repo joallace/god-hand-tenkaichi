@@ -6,12 +6,12 @@
 script = ExtResource("1_2qsr3")
 id = &"bulk_ki_blast_charged_shot"
 active = 1
-damage = 60.0
+damage = 15.0
 hitstun = 24
 guard_stun = 14
 knockback = Vector3(0, 4, 6)
 knockdown = true
-guard_ki_cost = 22.0
+guard_ki_cost = 49.50000000000001
 guard_results = Array[int]([1, 1, 1])
 is_heavy = true
 ki_gain = -2.0

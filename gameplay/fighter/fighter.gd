@@ -126,8 +126,10 @@ extends CombatEntity
 ##   - GUARD pressed at the right time = teleport / vanish: right after
 ##     landing a hit (offensive teleport), in hitstun (vanish escape), in a
 ##     vanish battle's window, or within guard_vanish_window() frames before
-##     the first hit of a guardable melee string lands (vanish instead of
-##     blocking; a press soon after the previous one never vanishes).
+##     the hit of a guardable MoveData.z_counterable move lands (BT3
+##     Z-counter on smashes and finishers: vanish instead of blocking; string
+##     hits are only guarded; a press soon after the previous one never
+##     vanishes).
 ##   Every teleport reappears around its anchor (the fighter last hit for an
 ##   offensive teleport, the vanish battle partner for an escape) where the
 ##   left stick points (see FighterTuning.teleport_dir_threshold); neutral =
@@ -359,8 +361,12 @@ var _held: PackedInt32Array = PackedInt32Array()
 var _heavy_height: MoveData.Height = MoveData.Height.MID
 ## Charge strike: holding at MoveData.charge_frame while `_charge_btn` is held.
 var _charging: bool = false
-var _charge: int = 0
+## Charge frames accumulated (fractional: momentum speeds it up).
+var _charge: float = 0.0
 var _charge_btn: int = 0
+## BT3 momentum, 0..1: landed hits fill it, it drains soon after; it speeds
+## up charge strikes (FighterTuning "Momentum").
+var _momentum: float = 0.0
 ## Button that started the current move (MoveData.button, or HEAVY for a ki
 ## blast fired with HEAVY): the one a hold gate / charge strike watches.
 var _move_btn: int = 0
@@ -495,7 +501,8 @@ func reset_for_round(xform: Transform3D) -> void:
 	_spawned = false
 	_damage_mult = 1.0
 	_charging = false
-	_charge = 0
+	_charge = 0.0
+	_momentum = 0.0
 	_charge_btn = 0
 	_move_btn = 0
 	_charge_lag = 0
@@ -755,6 +762,16 @@ func charge_ratio() -> float:
 	return clampf(_charge / float(_move.charge_max_frames), 0.0, 1.0)
 
 
+## Momentum gauge, 0..1 (see _momentum).
+func momentum() -> float:
+	return _momentum
+
+
+## Charge frames gained per held frame: 1, faster with momentum.
+func charge_rate() -> float:
+	return lerpf(1.0, tuning.momentum_charge_rate_max, _momentum)
+
+
 ## Ki charge: past the wind-up, ki is filling.
 func is_gaining_ki() -> bool:
 	return state == State.CHARGE and _state_frame > tuning.charge_windup_frames
@@ -916,16 +933,18 @@ func get_active_hitboxes() -> Array[Hitbox]:
 	hb.single_target = m.is_throw or m.single_target
 	hb.radial = m.radial
 	hb.opens_string = _move_opens_string and sub == 0
+	hb.z_counterable = m.z_counterable and sub == 0
 	hb.stun_frames = m.stagger_frames
 	if m.is_charge_strike():
 		var t := tuning
 		var r := charge_ratio()
+		hb.charge = r
 		hb.damage_mult *= lerpf(1.0, m.charge_damage_mult, r)
 		hb.guard_ki_mult = lerpf(1.0, m.charge_guard_mult, r)
 		if r >= t.charge_stun_ratio:
 			var k := clampf((r - t.charge_stun_ratio) / maxf(1.0 - t.charge_stun_ratio, 0.0001), 0.0, 1.0)
 			hb.stun_frames = maxi(hb.stun_frames, roundi(lerpf(t.charge_stun_frames_min, t.charge_stun_frames_max, k)))
-		hb.breaks_guard = r >= t.charge_break_ratio
+		hb.breaks_guard = t.charge_breaks_guard and r >= t.charge_break_ratio
 		hb.knockdown_ok = r >= m.charge_knockdown_ratio
 	hb.loop_group = m.loop_group if hb.knockdown_ok or not m.knockdown else m.loop_group_weak
 	out.append(hb)
@@ -1178,7 +1197,7 @@ func _tick_attack() -> void:
 		_driven = true
 		_floating = true
 	elif lunging:
-		_set_ground_velocity(_fwd() * m.lunge_speed)
+		_set_ground_velocity(Vector3.ZERO if _lunge_arrived(m) else _fwd() * m.lunge_speed)
 	elif is_airborne() and (m.air_hang_frames < 0 or f < m.air_hang_frames):
 		_set_ground_velocity(Vector3.ZERO)
 		_vel.y = 0.0
@@ -1193,7 +1212,7 @@ func _tick_attack() -> void:
 		return
 	if _try_teleport():
 		return
-	if f >= m.cancel_start and f <= m.cancel_end and (_move_connected or not m.cancel_requires_hit):
+	if f >= m.cancel_start and f <= m.cancel_end and (_move_hit or not m.cancel_requires_hit):
 		if _try_cancel_into(m):
 			return
 	if f >= m.total() - tuning.dodge_cancel_recovery_frames and _try_dodge():
@@ -1279,7 +1298,7 @@ func _tick_charge_hold(m: MoveData) -> bool:
 	if _try_dodge():
 		return true
 	if _input.is_held(_charge_btn) and _charge < m.charge_max_frames:
-		_charge += 1
+		_charge += charge_rate()
 		_state_frame = m.charge_frame
 		return true
 	_charging = false
@@ -1382,7 +1401,7 @@ func _start_move(m: MoveData) -> void:
 	_move_hit = false
 	_spawned = false
 	_charging = false
-	_charge = 0
+	_charge = 0.0
 	_move_btn = m.button
 	_armor_left = m.armor_hits
 	_enter(State.ATTACK)
@@ -1900,7 +1919,7 @@ func _try_vanish_escape() -> bool:
 ## Guard pressed just before the first hit of a melee string: vanish instead
 ## of blocking. Mashing GUARD doesn't count (see _guard_press_armed).
 func _try_guard_vanish(hb: Hitbox) -> bool:
-	if state == State.COUNTER or not hb.is_melee or not hb.opens_string or hb.attacker == null:
+	if state == State.COUNTER or not hb.is_melee or not hb.z_counterable or hb.attacker == null:
 		return false
 	if not _guard_press_armed or _since_guard_press >= guard_vanish_window():
 		return false
@@ -2442,6 +2461,7 @@ func _on_hit_dealt(m: MoveData, victim: Fighter) -> void:
 	_since_hit_landed = 0
 	_last_victim_slot = victim.slot
 	_set_combo(combo_hits + 1)
+	_momentum = minf(_momentum + tuning.momentum_per_hit, 1.0)
 	if m.grants_hit_ki:
 		_add_ki(tuning.ki_gain_on_hit_dealt + m.ki_gain)
 
@@ -2454,6 +2474,8 @@ func _emit_hit(hb: Hitbox, dmg: float, blocked: bool, guard_result: int = -1) ->
 		"damage": dmg,
 		"position": Geometry3D.get_closest_point_to_segment(chest, hb.a, hb.b),
 		"heavy": hb.move.is_heavy,
+		"shake": hb.move.shake,
+		"charge": hb.charge,
 		"blocked": blocked,
 		"combo": hb.attacker.combo_hits if hb.attacker else 0,
 		"guard_result": guard_result,
@@ -2484,6 +2506,8 @@ func _tick_timers() -> void:
 		_invuln_frames -= 1
 	if _since_hit_landed < NEVER:
 		_since_hit_landed += 1
+	if _momentum > 0.0 and _since_hit_landed > tuning.momentum_hold_frames:
+		_momentum = maxf(_momentum - tuning.momentum_decay_per_frame, 0.0)
 
 
 func _apply_motion() -> void:
@@ -2527,6 +2551,22 @@ func _set_ground_velocity(v: Vector3) -> void:
 	_vel.x = v.x
 	_vel.z = v.z
 	_driven = true
+
+
+## BT3 approach: a ground lunge drives into the target until the move
+## connects or its hitbox's center reaches the target's body (within its
+## radius + FighterTuning.lunge_stop_reach), then stops dead, so a fast
+## approach doesn't shove the victim along, while a backing-off target is
+## still caught. A target off to the side (sidestepped, beyond what the
+## attack tracks) is never reached: the lunge runs past.
+func _lunge_arrived(m: MoveData) -> bool:
+	if _move_connected:
+		return true
+	if target == null or m.radial or target.is_vanished():
+		return false
+	var d := target.global_position - (global_position + _to_world3(m.hitbox_offset))
+	d.y = 0.0
+	return d.length() <= target.tuning.body_radius + tuning.lunge_stop_reach
 
 
 func _turn_step() -> float:
@@ -2746,7 +2786,7 @@ func save_state() -> Dictionary:
 		"vanish": _vanish_battle.to_dict() if _vanish_battle else {},
 		"buffer": _buffer.duplicate(), "dodge_buf_dir": _dodge_buf_dir,
 		"dodge_buf_frames": _dodge_buf_frames, "input": _input.to_array(),
-		"held": _held.duplicate(), "charging": _charging, "charge": _charge,
+		"held": _held.duplicate(), "charging": _charging, "charge": _charge, "momentum": _momentum,
 		"charge_btn": _charge_btn, "move_btn": _move_btn, "heavy_height": _heavy_height,
 		"since_guard_press": _since_guard_press, "guard_press_armed": _guard_press_armed,
 		"move_opens_string": _move_opens_string, "combo_reactions": _combo_reactions_taken.duplicate(),
@@ -2819,6 +2859,7 @@ func load_state(s: Dictionary) -> void:
 	_held = (s["held"] as PackedInt32Array).duplicate()
 	_charging = s["charging"]
 	_charge = s["charge"]
+	_momentum = s["momentum"]
 	_charge_btn = s["charge_btn"]
 	_move_btn = s["move_btn"]
 	_heavy_height = s["heavy_height"]

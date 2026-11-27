@@ -6,7 +6,7 @@
 script = ExtResource("1_cegog")
 id = &"sprite_beam_shot"
 active = 72
-damage = 15.12
+damage = 3.78
 guard_stun = 12
 knockback = Vector3(0, 0, 1)
 guard_ki_cost = 10.2

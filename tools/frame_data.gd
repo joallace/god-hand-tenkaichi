@@ -24,8 +24,9 @@ extends RefCounted
 ##   overrides): its health, knockback taken, ki bar, push-off recoil it
 ##   inflicts, hitstop and guard crash length. Attacker-side values (charge
 ##   stun, guard break ratio) come from the attacker's own tuning.
-## - A full charge at or past FighterTuning.charge_break_ratio crashes any
-##   guard ("crash": guard break stun instead of guard stun).
+## - With FighterTuning.charge_breaks_guard, a full charge at or past
+##   charge_break_ratio crashes any guard ("crash": guard break stun instead
+##   of guard stun).
 ## - Auto-chained hits (auto_next_on_hit) roll into the next hit on contact:
 ##   "chain" instead of an advantage.
 
@@ -109,7 +110,7 @@ static func advantage_on_push_off(m: MoveData, victim: FighterTuning) -> int:
 
 ## A charge strike at `ratio` crashes any guard (attacker's tuning `t`).
 static func crashes_guard(m: MoveData, t: FighterTuning, ratio: float) -> bool:
-	return m.is_charge_strike() and ratio >= t.charge_break_ratio
+	return t.charge_breaks_guard and m.is_charge_strike() and ratio >= t.charge_break_ratio
 
 
 ## Guard crash: the victim is open for its guard_break_stun_frames.
@@ -188,7 +189,7 @@ static func _cancel_text(m: MoveData) -> String:
 		for id in m.cancel_into:
 			ids.append(String(id))
 		parts.append("%d-%d %s%s" % [m.cancel_start + 1, m.cancel_end + 1, " ".join(ids),
-			" (on contact)" if m.cancel_requires_hit else ""])
+			" (on hit)" if m.cancel_requires_hit else ""])
 	if m.auto_next_on_hit != &"":
 		parts.append("auto %s on hit" % m.auto_next_on_hit)
 	if m.special_cancelable:

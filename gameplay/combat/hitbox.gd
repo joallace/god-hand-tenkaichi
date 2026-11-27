@@ -37,8 +37,12 @@ var breaks_guard: bool = false
 ## Melee hitboxes (from the attacker's body) let a perfect duck stagger it.
 var is_melee: bool = true
 ## First hit of a move that starts a string (not a cancel/chain out of a
-## move that connected): only these can be guard-vanished.
+## move that connected): only these can be caught by a counter guard.
 var opens_string: bool = true
+## First hit of a MoveData.z_counterable move: a timed GUARD vanishes.
+var z_counterable: bool = false
+## Charge of a charge strike when it hit (0..1); 0 for anything else.
+var charge: float = 0.0
 ## Grab (MoveData.is_throw): can't be blocked, only broken.
 var is_throw: bool = false
 ## Hits all around (MoveData.radial): each victim is pushed away from `origin`.

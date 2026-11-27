@@ -80,6 +80,15 @@ enum GuardResult { PLAIN, KI_GUARD, PUSH_OFF, PUSH_STOP, UNBLOCKABLE }
 @export var is_heavy: bool = false
 ## Global hitstop on hit; -1 = Tuning.fighter.hitstop_light/heavy.
 @export var hitstop: int = -1
+## Camera shake (trauma, 0..1) on a clean hit; -1 = the camera's light /
+## heavy default. Presentation only (BT3: each attack names its shake). A
+## charge strike grows toward CameraTuning.trauma_hit_full_charge with its
+## charge.
+@export var shake: float = -1.0
+## BT3 Z-counter: a GUARD press just before this move's hit vanishes behind
+## the attacker (FighterTuning "Teleport & Vanish"). Set on smashes and
+## finishers, never on string hits: those are guarded, not vanished.
+@export var z_counterable: bool = false
 ## Bonus ki for the attacker on hit (added to ki_gain_on_hit_dealt).
 @export var ki_gain: float = 0.0
 ## False for supers so spending ki doesn't refund it.
@@ -128,7 +137,9 @@ enum GuardResult { PLAIN, KI_GUARD, PUSH_OFF, PUSH_STOP, UNBLOCKABLE }
 @export var cancel_start: int = 0
 @export var cancel_end: int = 0
 @export var cancel_into: Array[StringName] = []
-## If true the cancel window only opens after the move connected (hit/block).
+## If true the cancel window only opens after the move landed a clean hit
+## (BT3: follow-ups only on hit; a guarded or armored-through move is stuck
+## in its recovery). Super cancels (special_cancelable) still work on block.
 @export var cancel_requires_hit: bool = false
 ## Can be canceled into a super (on hit/block) during the cancel window.
 @export var special_cancelable: bool = false
