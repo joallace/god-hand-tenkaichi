@@ -4,37 +4,44 @@ extends Resource
 ## Durations in seconds, sizes in meters.
 
 @export_group("Hit sparks")
-@export var hit_color: Color = Color(1.0, 0.85, 0.35)
+@export var hit_color: Color = Color(1.0, 0.8, 0.3)
 @export var heavy_hit_color: Color = Color(1.0, 0.45, 0.1)
 @export var blocked_color: Color = Color(0.35, 0.7, 1.0)
 ## Blocked hit taken with a ki guard (drains ki).
 @export var ki_guard_color: Color = Color(0.4, 1.0, 0.95)
-## Base size (m) of a hit's impact burst; every part below scales from it.
+## Diameter (m) of a hit's flash sphere; the other parts scale from it.
 @export var hit_flash_size: float = 0.7
-@export var heavy_flash_size: float = 1.3
+@export var heavy_flash_size: float = 1.4
 @export var hit_duration: float = 0.18
 @export var heavy_duration: float = 0.28
+## Debris chunks flying out of a hit: count, speed (m/s), width and length
+## (m) at launch (they shrink as they fly), lifetime as a multiple of the
+## hit duration (random in this range).
 @export var spark_count_light: int = 6
 @export var spark_count_heavy: int = 12
-@export var spark_speed: float = 6.0
-## Spark streak width and length (m) at launch; they shrink as they fly.
-@export var spark_size: float = 0.1
-@export var spark_length: float = 0.45
-## Spark lifetime as a multiple of the hit duration (random in this range).
-@export var spark_life: Vector2 = Vector2(1.1, 1.8)
-## Impact star: start / end size as multiples of the hit size.
-@export var star_scale: Vector2 = Vector2(1.5, 2.1)
-## Shock ring around the impact: start / end size multiples, life multiple.
-@export var hit_ring_scale: Vector2 = Vector2(0.8, 2.6)
-@export var hit_ring_life: float = 1.3
-## Heavy hits: radial speed lines (size multiple of the hit size, life multiple).
-@export var speedlines_scale: float = 4.0
-@export var speedlines_life: float = 1.6
-## White core flash (size multiple, life multiple).
-@export var core_flash_scale: float = 0.7
-@export var core_flash_life: float = 0.5
+@export var spark_speed: float = 4.5
+@export var spark_size: float = 0.09
+@export var spark_length: float = 0.4
+@export var spark_life: Vector2 = Vector2(1.2, 2.0)
+## Burst shading: how directly a face must look at the camera to go
+## white-hot (0..1; above 1 never). Debris uses spark_core.
+@export var burst_core: float = 0.62
+@export var spark_core: float = 0.9
+## Opacity of the flash sphere (its white core is opaque).
+@export var hit_flash_alpha: float = 0.85
+## White-hot inner flash: size and life multiples of the flash.
+@export var hit_core_scale: float = 0.45
+@export var hit_core_life: float = 0.6
+## Heavy hits: flat shock ring around the impact (size and life multiples).
+@export var hit_ring_scale: float = 2.0
+@export var hit_ring_life: float = 1.0
+## Shock rings (heavy hits, bounces, KO...) are tori this flat (height / width).
+@export var ring_squash: float = 0.5
+## Hit bursts are drawn this many m toward the camera (same size on
+## screen): out of the victim's body, still behind anyone in front of it.
+@export var hit_pull: float = 0.6
 ## A victim hit again within this many seconds (beam / rush multi-hits)
-## gets only a small star and sparks, not the whole burst again.
+## gets a smaller burst (hit_repeat_scale), not the whole one again.
 @export var hit_repeat_window: float = 0.12
 @export var hit_repeat_scale: float = 0.6
 ## Used when a hit event has no position: fighter origin + this height.
@@ -190,10 +197,8 @@ extends Resource
 
 @export_group("Effect pools")
 ## Pooled effect sprites VfxManager creates at match start (grows on
-## demand): depth-tested ones (rings, dust) and ones drawn on top of bodies
-## (hit bursts + sparks: a heavy hit takes 4 + spark_count_heavy).
-@export var fx_pool_prefill: int = 32
-@export var fx_pool_prefill_on_top: int = 48
+## demand; a heavy hit takes 2 + spark_count_heavy, a shockwave 1 + dust_puff_count).
+@export var fx_pool_prefill: int = 48
 
 @export_group("Material warm-up")
 ## Frames FxMaterials.warm_up() draws every effect material at match start

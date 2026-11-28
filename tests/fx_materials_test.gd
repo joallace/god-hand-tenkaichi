@@ -52,7 +52,7 @@ func _test_shader_outlives_effects() -> void:
 	add_child(hub)
 	vfx.setup(hub)
 	var nodes := vfx.get_child_count()
-	var before := FxMaterials.shared(FxMaterials.Fx.SPRITE_ON_TOP)
+	var before := FxMaterials.shared(FxMaterials.Fx.SPRITE)
 	vfx.hit_spark(Vector3.ZERO, Color.ORANGE, 1.0, 0.01, 3)
 	vfx.shockwave(Vector3.ZERO, Color.ORANGE, 1.0, 0.01)
 	# Every effect plays out (shockwave dust lasts up to 1.2 x dust_duration).
@@ -63,7 +63,7 @@ func _test_shader_outlives_effects() -> void:
 	_check(vfx.get_child_count() <= nodes, "a repeat hit reuses pooled meshes (no new nodes)")
 	for i in 30:
 		await get_tree().process_frame
-	_check(FxMaterials.shared(FxMaterials.Fx.SPRITE_ON_TOP) == before,
+	_check(FxMaterials.shared(FxMaterials.Fx.SPRITE) == before,
 			"shared sprite material (and its shader) survives all effects finishing (no recompile)")
 	vfx.queue_free()
 	hub.queue_free()

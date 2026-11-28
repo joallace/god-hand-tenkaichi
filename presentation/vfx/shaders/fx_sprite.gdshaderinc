@@ -1,22 +1,22 @@
-// Body of the effect sprite shaders (fx_sprite / fx_sprite_on_top): one quad
+// Body of the effect sprite shader (fx_sprite): one quad
 // draws any 2D effect shape, picked and animated per instance (instance
 // uniforms), so every pooled effect mesh shares one material and one shader.
 // Shapes are cel-banded fields (white core, tint, dark rim) with hard
 // anti-aliased edges, matching the toon fighters. Needs the quad mesh
 // (QuadMesh, size 1x1) and render_mode skip_vertex_transform.
+// Sprites are depth tested: fx_pull (m) slides a camera-facing / axis
+// sprite toward the camera (same size on screen), so a hit burst isn't
+// swallowed by the victim's body yet still hides behind anyone in front.
 
 #include "res://presentation/vfx/shaders/fx_common.gdshaderinc"
 
 // FxMaterials.Shape must match these.
-const int SHAPE_STAR = 0;        // impact burst: spiky star, collapses inward
-const int SHAPE_RING = 1;        // shock ring, expands and thins
-const int SHAPE_ORB = 2;         // round flash, dissolves from the edge
-const int SHAPE_STREAK = 3;      // spark: thin diamond along fx_dir
-const int SHAPE_PUFF = 4;        // dust cloud, lit from above, no white core
-const int SHAPE_SPEEDLINES = 5;  // radial lines flying outward
-const int SHAPE_SWIRL = 6;       // looping ki ring on the ground (uses TIME)
-const int SHAPE_FLARE = 7;       // spinning 8-point glint (uses TIME)
-const int SHAPE_TAIL = 8;        // comet tail behind fx_dir, flickering
+const int SHAPE_RING = 0;    // shock ring, expands and thins
+const int SHAPE_STREAK = 1;  // spark: thin diamond along fx_dir
+const int SHAPE_PUFF = 2;    // dust cloud, lit from above, no white core
+const int SHAPE_SWIRL = 3;   // looping ki ring on the ground (uses TIME)
+const int SHAPE_FLARE = 4;   // spinning 8-point glint (uses TIME)
+const int SHAPE_TAIL = 5;    // comet tail behind fx_dir, flickering
 
 // FxMaterials.Facing.
 const int FACE_CAMERA = 0;  // billboard (node rotation ignored, scale kept)
@@ -30,14 +30,22 @@ instance uniform int fx_facing = 0;
 instance uniform float fx_seed = 0.0;
 instance uniform float fx_spin = 0.0;
 instance uniform vec3 fx_dir = vec3(0.0, 1.0, 0.0);
+instance uniform float fx_pull = 0.0;
 
+
+// Scaling view-space positions about the camera keeps their projection:
+// the sprite moves fx_pull closer and looks the same.
+float pull_scale(vec3 center_view) {
+	float d = length(center_view);
+	return max(d - fx_pull, min(d, 0.1)) / max(d, 1e-4);
+}
 
 void vertex() {
 	float sx = length(MODEL_MATRIX[0].xyz);
 	float sy = length(MODEL_MATRIX[1].xyz);
 	if (fx_facing == FACE_CAMERA) {
 		vec3 c = (MODELVIEW_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
-		VERTEX = c + vec3(VERTEX.x * sx, VERTEX.y * sy, 0.0);
+		VERTEX = (c + vec3(VERTEX.x * sx, VERTEX.y * sy, 0.0)) * pull_scale(c);
 	} else if (fx_facing == FACE_AXIS) {
 		vec3 c = MODEL_MATRIX[3].xyz;
 		vec3 y = normalize(fx_dir + vec3(0.0, 1e-5, 0.0));
@@ -45,7 +53,7 @@ void vertex() {
 		vec3 x = cross(y, to_cam);
 		x = length(x) > 1e-4 ? normalize(x) : normalize(cross(y, vec3(0.0, 0.0, 1.0)) + vec3(1e-4, 0.0, 0.0));
 		vec3 w = c + x * VERTEX.x * sx + y * VERTEX.y * sy;
-		VERTEX = (VIEW_MATRIX * vec4(w, 1.0)).xyz;
+		VERTEX = (VIEW_MATRIX * vec4(w, 1.0)).xyz * pull_scale((VIEW_MATRIX * vec4(c, 1.0)).xyz);
 	} else {
 		VERTEX = (MODELVIEW_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	}
@@ -65,19 +73,7 @@ void fragment() {
 	float core = 0.6;    // field above this is white-hot
 	float rim = 0.14;    // field below this is the dark rim
 	bool lit = false;    // PUFF: shaded from above instead of a hot core
-	if (fx_shape == SHAPE_STAR) {
-		vec2 q = rot2(p, seed * TAU + fx_spin * TIME);
-		float r = length(q);
-		float n = 7.0 + floor(seed * 5.0);
-		float k = (atan(q.y, q.x) / TAU + 0.5) * n;
-		float cell = floor(k + 0.5);
-		float tri = 1.0 - abs(fract(k + 0.5) - 0.5) * 2.0;
-		float len = mix(0.5, 1.0, fx_hash1(cell + seed * 37.0));
-		float R = mix(0.3, len, pow(tri, 2.2));
-		f = 1.0 - r / R;
-		f -= pr * pr * 1.05;
-		core = 0.42 + pr * 0.25;
-	} else if (fx_shape == SHAPE_RING) {
+	if (fx_shape == SHAPE_RING) {
 		float r = length(p);
 		float a01 = atan(p.y, p.x) / TAU + 0.5;
 		float e = 1.0 - pow(1.0 - pr, 3.0);
@@ -86,13 +82,6 @@ void fragment() {
 		f = 1.0 - abs(r - rr) / thick;
 		core = 0.65;
 		rim = 0.2;
-	} else if (fx_shape == SHAPE_ORB) {
-		float r = length(p);
-		float a01 = atan(p.y, p.x) / TAU + 0.5;
-		float edge = 0.88 + 0.12 * fx_noise2_wrap(vec2(a01 * 7.0, seed * 5.0 + pr * 3.0), 7.0);
-		f = 1.0 - r / edge;
-		f -= pr * (0.55 + 0.6 * fx_noise2(p * 3.5 + seed * 11.0));
-		core = 0.5;
 	} else if (fx_shape == SHAPE_STREAK) {
 		f = 1.0 - (abs(p.x) * 2.6 + abs(p.y));
 		f -= pr * 0.85;
@@ -105,21 +94,6 @@ void fragment() {
 		f = 1.0 - r / R;
 		f -= pr * (0.6 + 0.5 * fx_noise2(p * 4.0 + seed * 13.0));
 		lit = true;
-	} else if (fx_shape == SHAPE_SPEEDLINES) {
-		float r = length(p);
-		float a01 = atan(p.y, p.x) / TAU + 0.5;
-		float cells = 40.0;
-		float cell = floor(a01 * cells);
-		float h = fx_hash1(cell + seed * 53.0);
-		float on = step(0.45, h);
-		float rin = mix(0.18, 0.75, pr) + h * 0.12;
-		float len = 0.2 + 0.35 * fx_hash1(cell * 1.7 + seed);
-		float along = (r - rin) / len;
-		float w = 0.32 * (1.0 - pr * 0.7) * (1.0 - clamp(along, 0.0, 1.0));
-		float across = abs(fract(a01 * cells) - 0.5);
-		bool inside = on > 0.5 && along >= 0.0 && along <= 1.0;
-		f = inside ? 1.0 - across / max(w, 1e-3) : -1.0;
-		core = 0.35;
 	} else if (fx_shape == SHAPE_SWIRL) {
 		float r = length(p);
 		float a01 = atan(p.y, p.x) / TAU + 0.5;

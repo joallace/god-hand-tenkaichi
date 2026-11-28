@@ -5,14 +5,19 @@ extends Node3D
 ## charge aura (KiAura), ki blasts (KiBlastVisual) and beams (BeamVisual)
 ## draw themselves; this adds the bursts around them.
 ##
-## Every effect here is built from sprites: pooled 1x1 quads on one shared
-## shader material (FxMaterials.Fx.SPRITE / SPRITE_ON_TOP) that draw a
-## cel-shaded shape (FxMaterials.Shape: impact star, shock ring, flash orb,
-## spark streak, dust puff, speed lines, glint) picked and animated through
-## instance uniforms. So an effect builds no node, material or tween (on the
+## Effects are pooled meshes on two shared shader materials, picked and
+## animated through instance uniforms: 3D bursts (FxMaterials.Fx.BURST:
+## cel-banded flash spheres and debris chunks that dissolve) and sprites
+## (FxMaterials.Fx.SPRITE: rings lying flat in the world, dust puffs, zip
+## streaks, glints). So an effect builds no node, material or tween (on the
 ## web build creating those cost ~2 ms per heavy hit) and compiles no shader:
-## a finished sprite is hidden and goes back to its pool, the pools are
-## prefilled at setup and grow on demand. _process moves, scales and ages them.
+## a finished one is hidden and goes back to the pool, which is prefilled at
+## setup and grows on demand. _process moves, scales and ages them.
+##
+## Everything is depth tested; hit bursts are pulled Tuning.vfx.hit_pull
+## toward the camera (fx_pull) so the victim's body doesn't swallow them,
+## while a fighter standing in front (your own, with the camera behind you)
+## still covers them.
 ##
 ## Handled events: &"hit" {position, heavy, blocked, attacker_slot},
 ## &"perfect_dodge", &"dodge", &"teleport" / &"vanish" / &"reappear"
@@ -25,10 +30,18 @@ extends Node3D
 const Shape := FxMaterials.Shape
 const Facing := FxMaterials.Facing
 
-## One pooled sprite and its animation (Tween.interpolate_value curves).
+## How a pooled effect's 2D size maps onto its mesh's scale.
+enum ScaleMode {
+	QUAD,   ## sprite quad: (x, y, 1)
+	ROUND,  ## sphere: (x, x, x)
+	CHUNK,  ## debris box along its local -Z: (x, x, y)
+	RING,   ## torus, squashed: (x, x * Tuning.vfx.ring_squash, x)
+}
+
+## One pooled effect mesh and its animation (Tween.interpolate_value curves).
 class Fx:
 	var mi: MeshInstance3D
-	var on_top: bool
+	var scale_mode := ScaleMode.QUAD
 	var t := 0.0
 	var duration := 1.0
 	var pos_from := Vector3.ZERO
@@ -46,13 +59,13 @@ class Fx:
 
 var hub: MatchEventHub
 var _active: Array[Fx] = []
-var _free: Array[Fx] = []  # depth tested
-var _free_on_top: Array[Fx] = []
+var _free: Array[Fx] = []
 ## Seconds of _process so far, and when each victim last got a hit burst.
 var _clock := 0.0
 var _last_hit: Dictionary = {}  # victim instance id -> _clock
-## Ground ring orientation: the quad (facing +Z) laid flat, facing up.
-var _flat := Basis(Vector3(1, 0, 0), Vector3(0, 0, -1), Vector3(0, 1, 0))
+var _ball: SphereMesh
+var _chunk: BoxMesh
+var _torus: TorusMesh
 
 
 func _init() -> void:
@@ -63,10 +76,19 @@ func setup(p_hub: MatchEventHub) -> void:
 	hub = p_hub
 	hub.fighter_event.connect(_on_fighter_event)
 	var v := Tuning.vfx
+	_ball = SphereMesh.new()
+	_ball.radius = 0.5
+	_ball.height = 1.0
+	_ball.radial_segments = 16
+	_ball.rings = 8
+	_chunk = BoxMesh.new()
+	_torus = TorusMesh.new()
+	_torus.inner_radius = 0.45
+	_torus.outer_radius = 0.5
+	_torus.rings = 32
+	_torus.ring_segments = 6
 	for i in v.fx_pool_prefill:
-		_free.append(_new_fx(false))
-	for i in v.fx_pool_prefill_on_top:
-		_free_on_top.append(_new_fx(true))
+		_free.append(_new_fx())
 	FxMaterials.warm_up(self)
 
 
@@ -104,11 +126,11 @@ func _on_fighter_event(f: Fighter, kind: StringName, data: Dictionary) -> void:
 				var c := v.heavy_hit_color if data.get("heavy", false) else v.hit_color
 				if data.get("blocked", false):
 					c = v.blocked_color
-				star(pos, c, v.hit_flash_size * v.hit_repeat_scale, v.hit_duration)
-				sparks(pos, c.lightened(0.35), v.spark_count_light / 2, v.hit_duration)
+				hit_spark(pos, c, v.hit_flash_size * v.hit_repeat_scale, v.hit_duration, v.spark_count_light / 2)
 			elif data.get("blocked", false):
 				var ki_guard: bool = data.get("guard_result", -1) == MoveData.GuardResult.KI_GUARD
-				guard_spark(pos, v.ki_guard_color if ki_guard else v.blocked_color, v.hit_flash_size, v.hit_duration)
+				hit_spark(pos, v.ki_guard_color if ki_guard else v.blocked_color, v.hit_flash_size, v.hit_duration,
+						v.spark_count_light)
 			elif data.get("heavy", false):
 				hit_spark(pos, v.heavy_hit_color, v.heavy_flash_size, v.heavy_duration, v.spark_count_heavy, true)
 			else:
@@ -130,7 +152,7 @@ func _on_fighter_event(f: Fighter, kind: StringName, data: Dictionary) -> void:
 			ring(p, v.guard_break_color, v.guard_break_size, v.guard_break_duration)
 		&"push_off":
 			var p := hub.event_position(f, data, 0.0) + up
-			guard_spark(p, v.push_off_color, v.push_off_size * 0.5, v.push_off_duration)
+			hit_spark(p, v.push_off_color, v.push_off_size * 0.5, v.push_off_duration, v.spark_count_heavy)
 			ring(p, v.push_off_color, v.push_off_size, v.push_off_duration)
 		&"counter_guard":
 			var p := hub.event_position(f, data, 0.0) + up
@@ -138,8 +160,7 @@ func _on_fighter_event(f: Fighter, kind: StringName, data: Dictionary) -> void:
 			ring(p, v.counter_color, v.counter_size * 1.5, v.counter_duration)
 		&"throw":
 			var p := hub.event_position(f, data, 0.0) + up
-			flash(p, v.throw_color, v.throw_size, v.throw_duration, true)
-			star(p, v.throw_color, v.throw_size, v.throw_duration)
+			flash(p, v.throw_color, v.throw_size, v.throw_duration, v.hit_pull)
 		&"throw_break":
 			var p := hub.event_position(f, data, 0.0) + up
 			var thrower := _director_fighter(f, data.get("attacker_slot", -1))
@@ -161,7 +182,6 @@ func _on_fighter_event(f: Fighter, kind: StringName, data: Dictionary) -> void:
 					v.ko_size, v.ko_duration)
 		&"ultimate_start":
 			var p := f.global_position + up
-			speedlines(p, v.ultimate_color, v.ultimate_size * 1.5, v.ultimate_duration)
 			ring(p, v.ultimate_color, v.ultimate_size, v.ultimate_duration)
 			flash(p, v.ultimate_color, v.ultimate_size * 0.5, v.ultimate_duration * 0.6)
 			ground_ring(f.global_position, v.ultimate_color, v.ultimate_size * 1.2, v.ultimate_duration)
@@ -192,80 +212,50 @@ func _on_fighter_event(f: Fighter, kind: StringName, data: Dictionary) -> void:
 
 # --- composed effects ----------------------------------------------------------
 
-## Impact: spiky star, white core flash, shock ring and spark streaks;
-## `heavy` adds speed lines.
+## Impact: a cel-banded flash sphere with a white-hot core and debris chunks
+## flying out; `heavy` adds a shock ring around it.
 func hit_spark(pos: Vector3, color: Color, size: float, duration: float, count: int, heavy: bool = false) -> void:
 	var v := Tuning.vfx
-	star(pos, color, size, duration)
-	flash(pos, Color(1, 1, 1, 0.95), size * v.core_flash_scale, duration * v.core_flash_life, true)
-	var r := sprite(Shape.RING, color, pos, Vector2.ONE * size * v.hit_ring_scale.x,
-			Vector2.ONE * size * v.hit_ring_scale.y, duration * v.hit_ring_life, true)
-	r.size_trans = Tween.TRANS_EXPO
-	r.size_ease = Tween.EASE_OUT
+	flash(pos, Color(color, v.hit_flash_alpha), size, duration, v.hit_pull)
+	flash(pos, Color(1, 1, 1, 0.95), size * v.hit_core_scale, duration * v.hit_core_life, v.hit_pull)
+	sparks(pos, color, count, duration)
 	if heavy:
-		speedlines(pos, color.lightened(0.4), size * v.speedlines_scale, duration * v.speedlines_life)
-	sparks(pos, color.lightened(0.35), count, duration)
+		ring(pos, color, size * v.hit_ring_scale, duration * v.hit_ring_life)
 
 
-## Blocked: a flat-out ring and a few short sparks, no star.
-func guard_spark(pos: Vector3, color: Color, size: float, duration: float) -> void:
-	var v := Tuning.vfx
-	flash(pos, color, size * 1.2, duration, true)
-	var r := sprite(Shape.RING, color.lightened(0.3), pos, Vector2.ONE * size * 0.6,
-			Vector2.ONE * size * 2.0, duration * v.hit_ring_life, true)
-	r.size_trans = Tween.TRANS_EXPO
-	r.size_ease = Tween.EASE_OUT
-	sparks(pos, color.lightened(0.5), v.spark_count_light / 2, duration * 0.7)
-
-
-## Spiky impact star, popping out then collapsing.
-func star(pos: Vector3, color: Color, size: float, duration: float) -> void:
-	var v := Tuning.vfx
-	var fx := sprite(Shape.STAR, color, pos, Vector2.ONE * size * v.star_scale.x,
-			Vector2.ONE * size * v.star_scale.y, duration, true)
-	fx.size_trans = Tween.TRANS_BACK
-	fx.size_ease = Tween.EASE_OUT
-	fx.fade_from = 1.0
-
-
-## `count` streaks flying outward from `pos`, shrinking as they go.
+## `count` debris chunks flying outward from `pos`, shrinking as they go.
 func sparks(pos: Vector3, color: Color, count: int, duration: float) -> void:
 	var v := Tuning.vfx
 	for i in count:
 		var dir := Vector3(randf_range(-1, 1), randf_range(-0.5, 1), randf_range(-1, 1)).normalized()
 		var d := duration * randf_range(v.spark_life.x, v.spark_life.y)
-		var length := v.spark_length * randf_range(0.7, 1.3)
-		var fx := sprite(Shape.STREAK, color, pos, Vector2(v.spark_size, length),
-				Vector2(v.spark_size * 0.3, length * 0.4), d, true, Facing.AXIS, dir)
+		var fx := burst(_chunk, ScaleMode.CHUNK, color, pos, Vector2(v.spark_size, v.spark_length),
+				Vector2(v.spark_size * 0.15, v.spark_length * 0.4), d, v.hit_pull, dir)
+		fx.mi.set_instance_shader_parameter(&"fx_core", v.spark_core)
 		fx.pos_to = pos + dir * v.spark_speed * d
 		fx.pos_trans = Tween.TRANS_CUBIC
 		fx.pos_ease = Tween.EASE_OUT
 
 
-## Round flash orb, dissolving from the edge.
-func flash(pos: Vector3, color: Color, size: float, duration: float, on_top: bool = false) -> void:
-	var fx := sprite(Shape.ORB, color, pos, Vector2.ONE * size * 0.4, Vector2.ONE * size, duration, on_top)
+## Expanding flash sphere that dissolves. `pull`: m toward the camera (fx_pull).
+func flash(pos: Vector3, color: Color, size: float, duration: float, pull: float = 0.0) -> void:
+	var fx := burst(_ball, ScaleMode.ROUND, color, pos, Vector2.ONE * size * 0.3, Vector2.ONE * size, duration, pull)
 	fx.size_trans = Tween.TRANS_QUAD
 	fx.size_ease = Tween.EASE_OUT
 	fx.fade_from = 1.0
 
 
-## Camera-facing shock ring.
+## Flat (horizontal) shock ring at `pos`, expanding: a squashed torus, so
+## it keeps some thickness seen edge-on.
 func ring(pos: Vector3, color: Color, size: float, duration: float) -> void:
-	var fx := sprite(Shape.RING, color, pos, Vector2.ONE * size * 0.25, Vector2.ONE * size, duration)
+	var fx := burst(_torus, ScaleMode.RING, color, pos, Vector2.ONE * size * 0.2, Vector2.ONE * size, duration)
 	fx.size_trans = Tween.TRANS_EXPO
 	fx.size_ease = Tween.EASE_OUT
 
 
 ## Ring lying on the floor at `feet` (y = 0 = the floor).
 func ground_ring(feet: Vector3, color: Color, size: float, duration: float) -> void:
-	var p := Vector3(feet.x, Tuning.vfx.ground_bounce_height, feet.z)
-	var fx := sprite(Shape.RING, color, p, Vector2.ONE * size * 0.2, Vector2.ONE * size, duration,
-			false, Facing.NODE)
-	fx.mi.basis = _flat
-	_apply(fx)  # the basis reset its scale
-	fx.size_trans = Tween.TRANS_EXPO
-	fx.size_ease = Tween.EASE_OUT
+	ring(Vector3(feet.x, Tuning.vfx.ground_bounce_height, feet.z), color, size, duration)
 
 
 ## Ground impact: a ring on the floor and dust thrown outward.
@@ -294,15 +284,9 @@ func dust(feet: Vector3, count: int, size_min: float, size_max: float, spread: f
 		fx.fade_from = 1.0
 
 
-## Radial speed lines flying out of `pos`.
-func speedlines(pos: Vector3, color: Color, size: float, duration: float) -> void:
-	var fx := sprite(Shape.SPEEDLINES, color, pos, Vector2.ONE * size * 0.8, Vector2.ONE * size, duration, true)
-	fx.fade_from = 1.0
-
-
 ## Spinning glint (ki flares, perfect dodges, counters).
 func glint(pos: Vector3, color: Color, size: float, duration: float) -> void:
-	var fx := sprite(Shape.FLARE, color, pos, Vector2.ONE * size, Vector2.ONE * size * 1.4, duration, true)
+	var fx := sprite(Shape.FLARE, color, pos, Vector2.ONE * size, Vector2.ONE * size * 1.4, duration, Tuning.vfx.hit_pull)
 	fx.mi.set_instance_shader_parameter(&"fx_spin", Tuning.vfx.blast_flare_spin)
 	fx.size_trans = Tween.TRANS_BACK
 	fx.size_ease = Tween.EASE_OUT
@@ -316,7 +300,7 @@ func zip(pos: Vector3, color: Color, size: float, duration: float) -> void:
 		var dir := Vector3(randf_range(-1, 1), randf_range(-0.3, 0.6), randf_range(-1, 1)).normalized()
 		var start := pos + dir * size * 0.2
 		var fx := sprite(Shape.STREAK, color.lightened(0.3), start, Vector2(v.spark_size * 1.5, v.teleport_streak_length),
-				Vector2(v.spark_size * 0.4, v.teleport_streak_length * 0.3), duration * 1.2, false, Facing.AXIS, dir)
+				Vector2(v.spark_size * 0.4, v.teleport_streak_length * 0.3), duration * 1.2, 0.0, Facing.AXIS, dir)
 		fx.pos_to = start + dir * v.teleport_streak_speed * duration
 		fx.pos_trans = Tween.TRANS_EXPO
 		fx.pos_ease = Tween.EASE_OUT
@@ -331,10 +315,9 @@ func _director_fighter(f: Fighter, slot: int) -> Fighter:
 	return f.director.fighter_for_slot(slot)
 
 
-func _new_fx(on_top: bool) -> Fx:
+func _new_fx() -> Fx:
 	var fx := Fx.new()
-	fx.on_top = on_top
-	fx.mi = FxMaterials.sprite(Shape.ORB, Color.WHITE, Facing.CAMERA, on_top)
+	fx.mi = FxMaterials.sprite(Shape.RING, Color.WHITE, Facing.CAMERA)
 	fx.mi.visible = false
 	add_child(fx.mi)
 	return fx
@@ -342,19 +325,47 @@ func _new_fx(on_top: bool) -> Fx:
 
 ## A pooled sprite drawing `shape` at `pos` (VfxManager is at the world
 ## origin), sized `size_from` -> `size_to` (m) over `duration`. Linear
-## unless the caller changes the curves on the returned Fx.
+## unless the caller changes the curves on the returned Fx. `pull`: m
+## toward the camera (fx_pull; Tuning.vfx.hit_pull for hit bursts).
 func sprite(shape: FxMaterials.Shape, color: Color, pos: Vector3, size_from: Vector2, size_to: Vector2,
-		duration: float, on_top: bool = false, facing: FxMaterials.Facing = Facing.CAMERA,
+		duration: float, pull: float = 0.0, facing: FxMaterials.Facing = Facing.CAMERA,
 		dir: Vector3 = Vector3.UP) -> Fx:
-	var pool := _free_on_top if on_top else _free
-	var fx: Fx = pool.pop_back() if not pool.is_empty() else _new_fx(on_top)
+	var fx := _take(FxMaterials.quad(), FxMaterials.Fx.SPRITE, ScaleMode.QUAD, pull)
 	var mi := fx.mi
-	mi.basis = Basis.IDENTITY
 	mi.set_instance_shader_parameter(&"fx_shape", shape)
 	mi.set_instance_shader_parameter(&"fx_facing", facing)
 	mi.set_instance_shader_parameter(&"fx_dir", dir)
-	mi.set_instance_shader_parameter(&"fx_seed", randf())
 	mi.set_instance_shader_parameter(&"fx_spin", 0.0)
+	return _start(fx, color, pos, size_from, size_to, duration)
+
+
+## A pooled 3D burst mesh (`mesh`: a sphere or a debris box) at `pos`,
+## sized `size_from` -> `size_to` (see ScaleMode) over `duration`; a CHUNK
+## points its length along `dir`.
+func burst(mesh: Mesh, mode: ScaleMode, color: Color, pos: Vector3, size_from: Vector2, size_to: Vector2,
+		duration: float, pull: float = 0.0, dir: Vector3 = Vector3.ZERO) -> Fx:
+	var fx := _take(mesh, FxMaterials.Fx.BURST, mode, pull)
+	if not dir.is_zero_approx():
+		fx.mi.basis = Basis.looking_at(dir, Vector3.UP if absf(dir.y) < 0.98 else Vector3.RIGHT)
+	return _start(fx, color, pos, size_from, size_to, duration)
+
+
+## A pooled mesh set up to draw `mesh` with the shared `material`.
+func _take(mesh: Mesh, material: FxMaterials.Fx, mode: ScaleMode, pull: float) -> Fx:
+	var fx: Fx = _free.pop_back() if not _free.is_empty() else _new_fx()
+	var mi := fx.mi
+	mi.mesh = mesh
+	mi.material_override = FxMaterials.shared(material)
+	mi.basis = Basis.IDENTITY
+	mi.set_instance_shader_parameter(&"fx_seed", randf())
+	mi.set_instance_shader_parameter(&"fx_pull", pull)
+	mi.set_instance_shader_parameter(&"fx_core", Tuning.vfx.burst_core)
+	fx.scale_mode = mode
+	return fx
+
+
+func _start(fx: Fx, color: Color, pos: Vector3, size_from: Vector2, size_to: Vector2, duration: float) -> Fx:
+	var mi := fx.mi
 	fx.t = 0.0
 	fx.duration = maxf(duration, 0.001)
 	fx.pos_from = pos
@@ -379,7 +390,12 @@ func _apply(fx: Fx) -> void:
 			fx.pos_trans, fx.pos_ease)
 	var s: Vector2 = Tween.interpolate_value(fx.size_from, fx.size_to - fx.size_from, fx.t, fx.duration,
 			fx.size_trans, fx.size_ease)
-	mi.scale = Vector3(maxf(s.x, 0.001), maxf(s.y, 0.001), 1.0)
+	s = Vector2(maxf(s.x, 0.001), maxf(s.y, 0.001))
+	match fx.scale_mode:
+		ScaleMode.QUAD: mi.scale = Vector3(s.x, s.y, 1.0)
+		ScaleMode.ROUND: mi.scale = Vector3(s.x, s.x, s.x)
+		ScaleMode.CHUNK: mi.scale = Vector3(s.x, s.x, s.y)
+		ScaleMode.RING: mi.scale = Vector3(s.x, s.x * Tuning.vfx.ring_squash, s.x)
 	var c := fx.color
 	if k > fx.fade_from:
 		c.a *= 1.0 - (k - fx.fade_from) / maxf(1.0 - fx.fade_from, 0.001)
@@ -389,7 +405,7 @@ func _apply(fx: Fx) -> void:
 
 func _release(fx: Fx) -> void:
 	fx.mi.visible = false
-	(_free_on_top if fx.on_top else _free).append(fx)
+	_free.append(fx)
 
 
 ## Translucent copy of the fighter's meshes, fading out.

@@ -188,8 +188,9 @@ before autoloads exist. See `tests/README.md`. Always wrap Godot calls in
   only structural director signals (spawn/remove) are connected directly.
   - `vfx/`: cel-shaded effects on a few shared ShaderMaterials
     (`FxMaterials.Fx`; per-effect values are `instance uniform`s, never a
-    material per effect): `VfxManager` pooled sprites (`FxMaterials.Shape`
-    = `SHAPE_*` in `shaders/fx_sprite.gdshaderinc`, `tests/vfx_test` checks),
+    material per effect): `VfxManager` pools 3D bursts (flash spheres,
+    debris, flat torus rings) and sprites (`FxMaterials.Shape` = `SHAPE_*`
+    in `shaders/fx_sprite.gdshaderinc`, `tests/vfx_test` checks),
     `KiAura` (charge flames + motes), `KiBlastVisual`; `BeamVisual` uses the
     same energy shaders. Look them over with `tools/vfx_preview.tscn`
     (needs a window: `-- out=<dir> cam=side only=aura,blast,beam,charge2,fx`).

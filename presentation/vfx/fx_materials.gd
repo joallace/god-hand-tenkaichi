@@ -7,7 +7,7 @@ extends RefCounted
 ## frees it once the last material using it goes away; an effect that brought
 ## its own material would recompile on every hit, teleport and blast (a frame
 ## hitch). So:
-## - The effect shaders (Fx: sprites, ki energy, aura, motes) are ONE shared
+## - The effect shaders (Fx: sprites, bursts, ki energy, aura, motes) are ONE shared
 ##   ShaderMaterial each for the whole session (shared()). Everything that
 ##   varies per effect (colour, shape, progress, flow...) is an `instance
 ##   uniform`, set with GeometryInstance3D.set_instance_shader_parameter:
@@ -32,7 +32,7 @@ enum Kind {
 ## Shared shader materials (session lifetime, per-effect values are instance uniforms).
 enum Fx {
 	SPRITE,         ## any 2D effect shape on a quad (Shape, Facing), depth tested
-	SPRITE_ON_TOP,  ## same, drawn through bodies (hit sparks, flashes)
+	BURST,          ## 3D effect mesh: hit flash spheres, debris chunks
 	ENERGY_CORE,    ## opaque white-hot ki core (blasts, beams)
 	ENERGY_SHELL,   ## translucent ragged flame around a core
 	AURA,           ## ki charge flame shell (KiAura's lathe mesh)
@@ -40,13 +40,13 @@ enum Fx {
 }
 
 ## Sprite shapes: SHAPE_* in shaders/fx_sprite.gdshaderinc.
-enum Shape { STAR, RING, ORB, STREAK, PUFF, SPEEDLINES, SWIRL, FLARE, TAIL }
+enum Shape { RING, STREAK, PUFF, SWIRL, FLARE, TAIL }
 ## Sprite facing: FACE_* in shaders/fx_sprite.gdshaderinc.
 enum Facing { CAMERA, NODE, AXIS }
 
 const SHADER_PATHS := {
 	Fx.SPRITE: "res://presentation/vfx/shaders/fx_sprite.gdshader",
-	Fx.SPRITE_ON_TOP: "res://presentation/vfx/shaders/fx_sprite_on_top.gdshader",
+	Fx.BURST: "res://presentation/vfx/shaders/fx_burst.gdshader",
 	Fx.ENERGY_CORE: "res://presentation/vfx/shaders/ki_energy_core.gdshader",
 	Fx.ENERGY_SHELL: "res://presentation/vfx/shaders/ki_energy_shell.gdshader",
 	Fx.AURA: "res://presentation/vfx/shaders/ki_aura.gdshader",
@@ -82,8 +82,6 @@ static func shared(fx: Fx) -> ShaderMaterial:
 	if m == null:
 		m = ShaderMaterial.new()
 		m.shader = load(SHADER_PATHS[fx])
-		if fx == Fx.SPRITE_ON_TOP:
-			m.render_priority = 1  # over other translucents (rings, dust, aura)
 		_shared[fx] = m
 	return m
 
@@ -96,10 +94,10 @@ static func quad() -> QuadMesh:
 
 
 ## A sprite mesh instance (not yet in the tree) drawing `shape`.
-static func sprite(shape: Shape, color: Color, facing: Facing = Facing.CAMERA, on_top: bool = false) -> MeshInstance3D:
+static func sprite(shape: Shape, color: Color, facing: Facing = Facing.CAMERA) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	mi.mesh = quad()
-	mi.material_override = shared(Fx.SPRITE_ON_TOP if on_top else Fx.SPRITE)
+	mi.material_override = shared(Fx.SPRITE)
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mi.set_instance_shader_parameter(&"fx_shape", shape)
 	mi.set_instance_shader_parameter(&"fx_facing", facing)
