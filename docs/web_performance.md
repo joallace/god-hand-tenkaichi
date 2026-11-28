@@ -147,14 +147,15 @@ Audio samples (`audio/general/default_playback_type.web` = Sample), and each
 
 Still allocate on each use (cheap on desktop, worth pooling if `mode=fight`
 shows spikes on these events):
-- `KiBlast._build_visual()`: new `SphereMesh` (mesh generated per blast) +
-  material + `SmoothedVisual` per blast. Cache the mesh per radius.
-- `BeamVisual.setup()`: new `CylinderMesh` + head `SphereMesh` + material
-  per beam; segment meshes are added as the beam bends.
+- `KiBlast._build_visual()`: `SmoothedVisual` + `KiBlastVisual` with 4
+  mesh nodes per blast (meshes and materials are shared: the effect shaders
+  take per-blast values as instance uniforms, FxMaterials.Fx).
+- `BeamVisual.setup()`: 6 nodes per beam, two more per bend (shared meshes
+  and materials).
 - `VfxManager.afterimage()` (perfect dodge): one `MeshInstance3D` per fighter
   part plus a tween, every dodge.
-- `FighterVisual._spawn_flash()`: new node + material per vanish/reappear
-  (mesh is shared now).
+- Vanish / reappear flashes are pooled VfxManager sprites now (the old
+  per-teleport `FighterVisual._spawn_flash()` node + material is gone).
 
 ### 7. Frame catch-up on slow devices
 

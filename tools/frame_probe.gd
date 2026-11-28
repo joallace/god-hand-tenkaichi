@@ -177,11 +177,11 @@ func _fire(s: StringName) -> void:
 		&"sfx_ki_blast": Sfx.play(&"ki_blast")
 		&"sfx_knockdown": Sfx.play_varied(&"knockdown")
 		&"vfx_spark_heavy":
-			_match.vfx.hit_spark(pos, v.heavy_hit_color, v.heavy_flash_size, v.heavy_duration, v.spark_count_heavy)
+			_match.vfx.hit_spark(pos, v.heavy_hit_color, v.heavy_flash_size, v.heavy_duration, v.spark_count_heavy, true)
 		&"vfx_spark_light":
 			_match.vfx.hit_spark(pos, v.hit_color, v.hit_flash_size, v.hit_duration, v.spark_count_light)
 		&"vfx_shockwave":
-			_match.vfx.shockwave(pos, v.heavy_hit_color, v.heavy_flash_size * 2.0, v.heavy_duration)
+			_match.vfx.shockwave(Vector3(pos.x, 0.0, pos.z), v.heavy_hit_color, v.heavy_flash_size * 2.0, v.heavy_duration)
 		&"event_hit_heavy":
 			victim.event.emit(&"hit", {"attacker_slot": 0, "damage": 1.0, "position": pos, "heavy": true,
 					"blocked": false})
@@ -202,11 +202,11 @@ func _bench() -> void:
 	_bench_line("MeshInstance3D new + add_child", t)
 	t = Time.get_ticks_usec()
 	for i in BENCH_BATCH:
-		mats.append(FxMaterials.make(FxMaterials.Kind.TRANSLUCENT_ON_TOP, Color.RED))
+		mats.append(FxMaterials.make(FxMaterials.Kind.TRANSLUCENT, Color.RED))
 	_bench_line("FxMaterials.make", t)
 	t = Time.get_ticks_usec()
 	for i in BENCH_BATCH:
-		FxMaterials.template(FxMaterials.Kind.TRANSLUCENT_ON_TOP).duplicate()
+		FxMaterials.template(FxMaterials.Kind.TRANSLUCENT).duplicate()
 	_bench_line("StandardMaterial3D.duplicate()", t)
 	t = Time.get_ticks_usec()
 	for i in BENCH_BATCH:

@@ -52,18 +52,19 @@ func _test_shader_outlives_effects() -> void:
 	add_child(hub)
 	vfx.setup(hub)
 	var nodes := vfx.get_child_count()
-	var before := FxMaterials.template(FxMaterials.Kind.TRANSLUCENT_ON_TOP)
+	var before := FxMaterials.shared(FxMaterials.Fx.SPRITE_ON_TOP)
 	vfx.hit_spark(Vector3.ZERO, Color.ORANGE, 1.0, 0.01, 3)
 	vfx.shockwave(Vector3.ZERO, Color.ORANGE, 1.0, 0.01)
-	for i in 30:  # every effect plays out
-		await get_tree().process_frame
+	# Every effect plays out (shockwave dust lasts up to 1.2 x dust_duration).
+	await get_tree().create_timer(Tuning.vfx.dust_duration * 1.2 + 0.2).timeout
+	await get_tree().process_frame
 	_check(vfx.active_count() == 0, "effects finished")
 	vfx.hit_spark(Vector3.ZERO, Color.ORANGE, 1.0, 0.01, 3)
 	_check(vfx.get_child_count() <= nodes, "a repeat hit reuses pooled meshes (no new nodes)")
 	for i in 30:
 		await get_tree().process_frame
-	_check(FxMaterials.template(FxMaterials.Kind.TRANSLUCENT_ON_TOP) == before,
-			"template (and its shader) survives all effects being freed (no recompile)")
+	_check(FxMaterials.shared(FxMaterials.Fx.SPRITE_ON_TOP) == before,
+			"shared sprite material (and its shader) survives all effects finishing (no recompile)")
 	vfx.queue_free()
 	hub.queue_free()
 	await get_tree().process_frame
@@ -76,10 +77,10 @@ func _test_warm_up() -> void:
 	var holder := root.get_node_or_null("MaterialWarmUp")
 	_check(holder != null, "warm_up adds a holder")
 	if holder != null:
-		_check(holder.get_child_count() == FxMaterials.Kind.size(), "one warm-up mesh per kind")
+		_check(holder.get_child_count() == FxMaterials.warm_up_count(), "one warm-up mesh per material kind and shared effect shader")
 		var all_drawn := true
 		for c in holder.get_children():
-			var mi := c as MeshInstance3D
+			var mi := c as GeometryInstance3D
 			all_drawn = all_drawn and mi.visible and mi.custom_aabb.size.length() > 0.0
 		_check(all_drawn, "warm-up meshes are visible and never culled")
 	for i in Tuning.vfx.material_warmup_frames + 2:

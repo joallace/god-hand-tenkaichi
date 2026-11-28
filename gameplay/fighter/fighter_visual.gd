@@ -268,12 +268,9 @@ var _shadow: MeshInstance3D
 var _shadow_mat: ShaderMaterial
 var _shadow_fade := -1.0
 static var _shadow_mesh: PlaneMesh
-var _aura: MeshInstance3D
+var _aura: KiAura
 var _flash_left: float = 0.0
 var _time: float = 0.0
-var _fx: Array[MeshInstance3D] = []
-## Shared by every vanish/reappear flash (no mesh generated per teleport).
-static var _flash_mesh: SphereMesh
 ## Seconds this fighter has been KO'd (co-op enemy fade-out).
 var _ko_time: float = 0.0
 var _fade: float = 0.0
@@ -316,8 +313,7 @@ func _process(delta: float) -> void:
 		FighterModel.sync_pose(_skeleton, _rig)
 	_update_shadow()
 	_update_flash(delta)
-	_update_aura()
-	_update_fx(delta)
+	_aura.update(delta, _fighter.is_gaining_ki(), _fighter.ki >= _fighter.ki_max(), _body.visible)
 	_update_ko_fade(delta)
 
 
@@ -606,14 +602,6 @@ func _update_shadow() -> void:
 		_shadow_mat.set_shader_parameter(&"fade", fade)
 
 
-func _update_aura() -> void:
-	var on := _fighter.is_gaining_ki()  # not in the wind-up
-	_aura.visible = on and _body.visible
-	if on:
-		var s := 1.0 + sin(_time * 12.0) * 0.08
-		_aura.scale = Vector3(s, s * 1.1, s)
-
-
 func _on_event(kind: StringName, data: Dictionary) -> void:
 	match kind:
 		&"hit":
@@ -626,8 +614,6 @@ func _on_event(kind: StringName, data: Dictionary) -> void:
 		&"ground_bounce":
 			if data.get("slot", -1) == _fighter.slot:
 				_bounce_reaction()
-		&"teleport", &"vanish", &"reappear":
-			_spawn_flash(data.get("position", _fighter.global_position))
 
 
 ## Hit taken: kick the springs so the body snaps away from the blow and
@@ -674,34 +660,6 @@ func _bounce_reaction() -> void:
 		_springs.kick(j, Vector3(-a.bounce_limb_impulse, 0, 0))
 
 
-## Expanding sphere flash at a world position (vanish/reappear).
-func _spawn_flash(at: Vector3) -> void:
-	var m := MeshInstance3D.new()
-	if _flash_mesh == null:
-		_flash_mesh = SphereMesh.new()
-		_flash_mesh.radius = 0.6
-		_flash_mesh.height = 1.2
-	m.mesh = _flash_mesh
-	m.material_override = FxMaterials.make(FxMaterials.Kind.FLASH, Color(1, 1, 1, 0.8))
-	m.top_level = true
-	add_child(m)
-	m.global_position = at + Vector3.UP
-	m.set_meta(&"life", FLASH_TIME * 2.0)
-	_fx.append(m)
-
-
-func _update_fx(delta: float) -> void:
-	for m in _fx.duplicate():
-		var life: float = m.get_meta(&"life") - delta
-		m.set_meta(&"life", life)
-		var t := 1.0 - life / (FLASH_TIME * 2.0)
-		m.scale = Vector3.ONE * (0.5 + t * 1.5)
-		(m.material_override as StandardMaterial3D).albedo_color.a = maxf(0.8 * (1.0 - t), 0.0)
-		if life <= 0.0:
-			_fx.erase(m)
-			m.queue_free()
-
-
 # --- construction -------------------------------------------------------------
 
 func _build() -> void:
@@ -730,17 +688,10 @@ func _build() -> void:
 	if d != null:
 		_body.scale = d.body_scale
 	_build_shadow()
-	_aura = MeshInstance3D.new()
-	var aura_mesh := SphereMesh.new()
-	aura_mesh.radius = 1.1
-	aura_mesh.height = 2.4
-	_aura.mesh = aura_mesh
-	var c := tint.lightened(0.5)
-	_aura.material_override = FxMaterials.make(FxMaterials.Kind.AURA, Color(c, 0.35))
-	_aura.position = Vector3(0, 1.0, 0) * _body.scale.y
-	_aura.scale = _body.scale
-	_aura.visible = false
+	_aura = KiAura.new()
 	add_child(_aura)
+	_aura.setup(tint, _body.scale)
+	_aura.visible = false
 
 	_rest = rest_pose()
 	var rest := _rest

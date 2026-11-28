@@ -186,6 +186,13 @@ before autoloads exist. See `tests/README.md`. Always wrap Godot calls in
   online) drives match flow, banners, results and `RunStats` (co-op
   per-player stats). Timer, enemies left, bars and the ki loop read state;
   only structural director signals (spawn/remove) are connected directly.
+  - `vfx/`: cel-shaded effects on a few shared ShaderMaterials
+    (`FxMaterials.Fx`; per-effect values are `instance uniform`s, never a
+    material per effect): `VfxManager` pooled sprites (`FxMaterials.Shape`
+    = `SHAPE_*` in `shaders/fx_sprite.gdshaderinc`, `tests/vfx_test` checks),
+    `KiAura` (charge flames + motes), `KiBlastVisual`; `BeamVisual` uses the
+    same energy shaders. Look them over with `tools/vfx_preview.tscn`
+    (needs a window: `-- out=<dir> cam=side only=aura,blast,beam,charge2,fx`).
   - `audio/`: `Sfx` autoload (play by sound name, voice pool, keyed loops,
     menu focus blip) and `MatchSfx` (fighter events/states + director
     signals -> sounds). Mix volumes in `data/tuning/sfx.tres`; menu sounds

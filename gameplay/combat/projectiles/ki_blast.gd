@@ -7,7 +7,7 @@ var caster: Fighter
 var move: MoveData
 var _vel: Vector3 = Vector3.ZERO
 var _frame: int = 0
-var _mesh: MeshInstance3D
+var _visual: KiBlastVisual
 
 
 func launch(p_caster: Fighter, p_move: MoveData, from: Vector3, toward: Vector3) -> void:
@@ -23,6 +23,11 @@ func launch(p_caster: Fighter, p_move: MoveData, from: Vector3, toward: Vector3)
 	_build_visual()
 
 
+## Flight velocity (m/s), read by the visual.
+func velocity() -> Vector3:
+	return _vel
+
+
 func spawn_type() -> StringName:
 	return EntityFactory.KI_BLAST
 
@@ -31,7 +36,7 @@ func spawn_type() -> StringName:
 func resolve_links(p_director: MatchDirector) -> void:
 	caster = p_director.entity_by_id(spawn_init["caster"]) as Fighter
 	move = EntityFactory.load_move(spawn_init["move"])
-	if _mesh == null:
+	if _visual == null:
 		_build_visual()
 
 
@@ -87,17 +92,10 @@ func load_state(s: Dictionary) -> void:
 
 
 func _build_visual() -> void:
-	_mesh = MeshInstance3D.new()
-	var sphere := SphereMesh.new()
-	sphere.radius = move.hitbox_radius
-	sphere.height = move.hitbox_radius * 2.0
-	_mesh.mesh = sphere
-	var c := caster.tint() if caster else Color.WHITE
-	var mat := FxMaterials.make(FxMaterials.Kind.GLOW, c.lightened(0.6))
-	mat.emission = c.lightened(0.3)
-	mat.emission_energy_multiplier = 3.0
-	_mesh.material_override = mat
 	var smoothed := SmoothedVisual.new()
 	smoothed.name = "Visual"
-	smoothed.add_child(_mesh)
 	add_child(smoothed)
+	var look := KiBlastVisual.new()
+	smoothed.add_child(look)
+	look.setup(self, move.hitbox_radius, (caster.tint() if caster else Color.WHITE).lightened(Tuning.vfx.energy_lighten))
+	_visual = look

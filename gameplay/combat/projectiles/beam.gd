@@ -206,7 +206,7 @@ func load_state(s: Dictionary) -> void:
 func _build_visual() -> void:
 	var c := caster.tint()
 	_visual = BeamVisual.new()
-	_visual.setup(self, move.hitbox_radius, Color(c.lightened(0.7), 0.85), c.lightened(0.4))
+	_visual.setup(self, move.hitbox_radius, c.lightened(Tuning.vfx.energy_lighten))
 	var smoothed := SmoothedVisual.new()
 	smoothed.name = "Visual"
 	smoothed.add_child(_visual)
